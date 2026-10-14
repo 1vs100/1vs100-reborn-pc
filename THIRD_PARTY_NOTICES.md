@@ -1,0 +1,32 @@
+# Third-party notices
+
+This repository's own code is under the MIT License (see `LICENSE`). The parts below
+keep their original licenses.
+
+## Nexia / Xenia Avatar format code (BSD 3-Clause)
+
+`native/src/avatar_native/` (`xna_avatar_format.*`, `native_assets.cc` and related
+files) is adapted from the Nexia/Xenia project's Avatar code.
+Copyright (c) 2015, Ben Vanik. All rights reserved.
+Full license: `native/src/avatar_native/NEXIA_LICENSE.txt`.
+Changes in this repository (installed Avatar items, lazy loading, party Avatars,
+similar-item substitution) are under the same terms.
+
+## libmspack LZX decompressor (LGPL 2.1)
+
+`native/src/avatar_native/third_party/mspack/` is libmspack by Stuart Caie, used
+unmodified apart from build glue (`logging.cc`, `config.h`).
+License: `native/src/avatar_native/third_party/mspack/COPYING.LIB`.
+
+## Not included, used at build or run time
+
+- **ReXGlue SDK** (the static recompiler and runtime): obtained separately under its own license.
+- **Steamworks SDK** (`steam_api64`): obtained separately from Valve under the Steamworks SDK license.
+- **AvatarEditorRecomp** (GPL-3.0, https://github.com/panedivitasei/AvatarEditorRecomp):
+  `avatar-editor/build_avatar_editor.ps1` builds it from its own source; it is not
+  copied into this repository.
+
+## Game content
+
+No game code, data, audio, video or Avatar content is included. 1 vs 100 and its
+content belong to their owners. You need your own copy.

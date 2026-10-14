@@ -1,0 +1,6 @@
+# Exact extents from the executable's .pdata unwind table.
+[functions]
+"0x8252D7E0" = { size = 0x150 }
+"0x8252D930" = { size = 0x424 }
+# Shared two-instruction return thunk: mr r3,r11; blr.
+"0x8236BD84" = { size = 8 }

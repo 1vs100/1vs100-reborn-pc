@@ -1,0 +1,40 @@
+# Game content and anything generated from it: never commit.
+native/assets/
+native/generated/*
+!native/generated/rexglue-frozen.cmake
+*.xex
+*.xwb
+*.xsb
+*.xzp
+*.toc
+*.avd
+*.Avatar
+*.AvatarAnimation
+*.xtt
+*.pack
+
+# Builds and packages
+build/
+native-avatar-build/
+dist/
+*.exe
+*.dll
+*.lib
+*.obj
+*.pdb
+*.map
+*.zip
+avatar-editor/AvatarEditorRecomp/
+avatar-editor/b/
+avatar-editor/xr/
+avatar-editor/assets/
+
+# Player data, closet, logs
+player-data/
+userdata/
+avatar-editor/closet/
+avatar-closet/
+outputs/
+mods/_export/
+*.log
+launcher-settings.ini

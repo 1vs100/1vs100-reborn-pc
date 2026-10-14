@@ -1,0 +1,12 @@
+# Verified standalone return thunk.
+[functions]
+"0x8236BD84" = { size = 8 }
+# Shared branches whose generated labels were omitted; discover bodies rather
+# than inventing implementations or lengths. Preserve guest register state.
+"0x8252DC90" = { parent = 0x8252D7E0 }
+"0x8252DD30" = { parent = 0x8252D7E0 }
+"0x8252DD34" = { parent = 0x8252D7E0 }
+"0x8252DD48" = { parent = 0x8252D7E0 }
+"0x8252DA58" = { parent = 0x8252D7E0 }
+"0x8252D930" = { parent = 0x8252D7E0, size = 0x424 }
+"0x8252D970" = { parent = 0x8252D7E0 }

@@ -1,0 +1,46 @@
+// onevs100 - ReXGlue Recompiled Project
+//
+// Customize your app by overriding virtual hooks from rex::ReXApp.
+
+#pragma once
+
+#include <rex/rex_app.h>
+#include <rex/filesystem.h>
+#include "local_profile.h"
+const rex::PPCImageInfo& NativeImageConfig();
+
+class Onevs100App : public rex::ReXApp {
+ public:
+  using rex::ReXApp::ReXApp;
+
+  static std::unique_ptr<rex::ui::WindowedApp> Create(
+      rex::ui::WindowedAppContext& ctx) {
+    return std::unique_ptr<Onevs100App>(new Onevs100App(ctx, "onevs100",
+        NativeImageConfig()));
+  }
+
+  // Override virtual hooks for customization:
+  void OnPreSetup(rex::RuntimeConfig& config) override {
+    InitializeLocalProfile();
+    config.gpu_plugin = "xenos";
+  }
+  void OnConfigurePaths(rex::PathConfig& paths) override {
+    auto folder = rex::filesystem::GetExecutableFolder();
+    if (paths.game_data_root.empty()) paths.game_data_root = folder / "assets";
+    // All development saves/cache/config stay beside this isolated build.
+    paths.user_data_root = folder / "userdata";
+    paths.cache_root = folder / "cache";
+    paths.config_path = folder / "onevs100.toml";
+  }
+  // void OnPostInitLogging() override {}
+  // void OnPreSetup(rex::RuntimeConfig& config) override {}
+  // void OnLoadXexImage(std::string& xex_image) override {}
+  // void OnPostLoadXexImage() override {}
+  // void OnPostSetup() override {}
+  // void OnCreateDialogs(rex::ui::ImGuiDrawer* drawer) override {}
+  // std::unique_ptr<rex::ui::ImGuiDialog> CreateAchievementsOverlay() override;
+  // std::unique_ptr<rex::ui::AchievementNotificationDialog>
+  // CreateAchievementNotificationDialog() override;
+  // void OnShutdown() override {}
+  // void OnConfigurePaths(rex::PathConfig& paths) override {}
+};
