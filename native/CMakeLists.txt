@@ -25,6 +25,7 @@ set(ONEVS100_SOURCES
     src/gameserver_lsp.cpp
     src/gameserver_qos.cpp
     src/gameserver_session.cpp
+    src/guest_call.cpp
     third_party/1vs100-mm-protocol/Protocol.cpp
     src/guest_sockets.cpp
     src/guest_printf.cpp

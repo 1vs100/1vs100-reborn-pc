@@ -8,6 +8,7 @@
 #include <rex/memory/utils.h>
 #include <atomic>
 #include <cstring>
+#include "guest_call.h"
 #include "online_service.h"
 
 namespace {
@@ -53,6 +54,7 @@ constexpr uint32_t kIsHost = 44;
 }  // namespace CQNetVtbl
 // The leave error handler loads the command block through this instruction's displacement.
 constexpr uint32_t kCmdBlockLoad = 0x8222E718;
+constexpr uint32_t kQNetLeaveErrorHandler = 0x8222E6E0;
 
 bool Gameserver() { return CurrentOnlineService() == OnlineService::Gameserver; }
 
@@ -61,32 +63,10 @@ void Store32(uint8_t* base, uint32_t address, uint32_t value) { store_and_swap<u
 
 uint32_t CmdBlockOf(uint8_t* base, uint32_t wrapper) { return wrapper + (Load32(base, kCmdBlockLoad) & 0xFFFF); }
 
-// Calls the guest function at `target` with up to four arguments; returns r3.
-uint32_t CallGuest(PPCContext& parent, uint8_t* base, uint32_t target, uint32_t a0, uint32_t a1 = 0,
-                   uint32_t a2 = 0, uint32_t a3 = 0) {
-  rex::CallFrame frame(parent);
-  frame.ctx.r3.u64 = a0;
-  frame.ctx.r4.u64 = a1;
-  frame.ctx.r5.u64 = a2;
-  frame.ctx.r6.u64 = a3;
-  frame.ctx.ctr.u64 = target;
-  {
-    // The macro calls through the names ctx and base.
-    PPCContext& ctx = frame.ctx;
-    REX_CALL_INDIRECT_FUNC(ctx.ctr.u32);
-  }
-  return frame.ctx.r3.u32;
-}
-
 uint32_t VirtualSlot(uint8_t* base, uint32_t object, uint32_t offset) { return Load32(base, Load32(base, object) + offset); }
 
 void ReportLeaveError(PPCContext& ctx, uint8_t* base, uint32_t wrapper, int32_t hr) {
-  rex::CallFrame frame(ctx);
-  frame.ctx.r3.u64 = wrapper;
-  frame.ctx.r4.s64 = hr;
-  frame.ctx.r5.u64 = 0;
-  frame.ctx.r6.u64 = 1;
-  sub_8222E6E0(frame.ctx, base);
+  GuestCall(ctx, base).Call(kQNetLeaveErrorHandler, {wrapper, static_cast<uint64_t>(static_cast<int64_t>(hr)), 0, 1});
 }
 
 // Arms the wait before the command and undoes it when the command fails.
@@ -95,7 +75,7 @@ void RunQNetGameCommand(PPCContext& ctx, uint8_t* base, uint32_t wrapper, uint32
   const uint32_t cqnet = Load32(base, wrapper + QNetWrapper::kCQNet);
   const uint32_t cmd = CmdBlockOf(base, wrapper);
   base[cmd + QNetCmdBlock::kPending] = 0;
-  if (!CallGuest(ctx, base, VirtualSlot(base, cqnet, CQNetVtbl::kIsHost), cqnet)) {
+  if (static_cast<uint32_t>(GuestCall(ctx, base).Call(VirtualSlot(base, cqnet, CQNetVtbl::kIsHost), {cqnet})) == 0) {
     REXKRNL_INFO("QNet {} refused: not the host", name);
     ReportLeaveError(ctx, base, wrapper, kQNetNotHost);
     ctx.r3.u64 = 1;
@@ -103,7 +83,7 @@ void RunQNetGameCommand(PPCContext& ctx, uint8_t* base, uint32_t wrapper, uint32
   }
   Store32(base, cmd + QNetCmdBlock::kWaitKind, armKind);
   Store32(base, cmd + QNetCmdBlock::kWaitState, armState);
-  const int32_t hr = static_cast<int32_t>(CallGuest(ctx, base, VirtualSlot(base, cqnet, slot), cqnet));
+  const int32_t hr = static_cast<int32_t>(GuestCall(ctx, base).Call(VirtualSlot(base, cqnet, slot), {cqnet}));
   if (hr < 0) {
     Store32(base, cmd + QNetCmdBlock::kWaitKind, 0);
     REXKRNL_INFO("QNet {} failed hr={:08X}", name, static_cast<uint32_t>(hr));
@@ -184,7 +164,7 @@ REX_HOOK_RAW(sub_8222F538) {
   Store32(base, cmd + QNetCmdBlock::kWaitState, 0);
   Store32(base, cmd + QNetCmdBlock::kWaitKind, 8);
   const int32_t result =
-      static_cast<int32_t>(CallGuest(ctx, base, VirtualSlot(base, cqnet, CQNetVtbl::kLeaveGame), cqnet, a2));
+      static_cast<int32_t>(GuestCall(ctx, base).Call(VirtualSlot(base, cqnet, CQNetVtbl::kLeaveGame), {cqnet, a2, 0, 0}));
   base[cmd + QNetCmdBlock::kPending] = a4;
   base[cmd + QNetCmdBlock::kLeaveByte] = 0;
   Store32(base, cmd + QNetCmdBlock::kLeaveDword, 0);
