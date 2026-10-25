@@ -1,5 +1,5 @@
 // Diagnostic copy of translated marker reader; no semantics bypassed.
-#include "generated/default-v4/onevs100_init.h"
+#include "onevs100_init.h"
 #include <rex/hook.h>
 REX_HOOK_RAW(sub_8226AC50) {
 	REX_FUNC_PROLOGUE();

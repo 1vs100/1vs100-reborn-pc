@@ -1,6 +1,6 @@
 // XAM 17559 0x8196f520, translated with local ReXGlue 0.10.0.
 // The sole absolute constant address is supplied by the caller.
-#include "generated/default-v4/onevs100_init.h"
+#include "onevs100_init.h"
 void DeriveAvatarJoints(PPCContext& ctx, uint8_t* base, uint32_t constant_address) {
 	REX_FUNC_PROLOGUE();
 	PPCRegister temp{};

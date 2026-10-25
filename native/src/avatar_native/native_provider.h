@@ -1,5 +1,5 @@
 #pragma once
-#include "generated/default-v4/onevs100_init.h"
+#include "onevs100_init.h"
 bool NativeAvatarEnabled();
 void NativeAvatarInitialize(PPCContext&,uint8_t*);
 void NativeAvatarSizes(PPCContext&,uint8_t*);

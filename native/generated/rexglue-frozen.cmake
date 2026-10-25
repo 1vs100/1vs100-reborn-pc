@@ -54,10 +54,10 @@ elseif(REXGLUE_RECOMP_DEBUG_INFO STREQUAL "line-tables-only")
 endif()
 
 # Include entrypoint generated code if codegen has been run.
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/generated/default-v4/sources.cmake")
-    include(generated/default-v4/sources.cmake)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/generated/default-v5/sources.cmake")
+    include(generated/default-v5/sources.cmake)
     set(REXGLUE_ENTRYPOINT_GENERATED_SOURCES ${GENERATED_SOURCES})
-    set(REXGLUE_ENTRYPOINT_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/generated/default-v4")
+    set(REXGLUE_ENTRYPOINT_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/generated/default-v5")
 
     # Carried on the sources so they hold for whichever target compiles them.
     set_source_files_properties(${REXGLUE_ENTRYPOINT_GENERATED_SOURCES}
@@ -117,8 +117,8 @@ endmacro()
 add_custom_target(onevs100_codegen)
 
 # Include DLL module shared library targets if codegen has generated them
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/generated/default-v4/dll_targets.cmake")
-    include(generated/default-v4/dll_targets.cmake)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/generated/default-v5/dll_targets.cmake")
+    include(generated/default-v5/dll_targets.cmake)
 endif()
 
 

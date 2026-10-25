@@ -1,6 +1,6 @@
 // onevs100 - ReXGlue Recompiled Project
 
-#include "generated/default-v4/onevs100_init.h"
+#include "onevs100_init.h"
 #include <vector>
 extern "C" REX_FUNC(native_dialogue_play);
 extern "C" REX_FUNC(native_room_call);
