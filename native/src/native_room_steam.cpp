@@ -1,10 +1,10 @@
 #include "native_room.h"
+#include "room_clock.h"
 #include <steam/steam_api.h>
 #include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
-#include <ctime>
 #include <deque>
 #include <map>
 #include <mutex>
@@ -46,25 +46,6 @@ constexpr size_t kQueueLimit = 1024;
 constexpr int kMaxPeers = 15;  // local test rooms; Steam rooms are capped by the party size
 std::string Env(const char* name) { auto* value = std::getenv(name); return value ? value : ""; }
 
-int64_t UtcMs() {
-  using namespace std::chrono;
-  return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
-}
-std::string UtcIso() {
-  const int64_t ms = UtcMs();
-  const std::time_t seconds = static_cast<std::time_t>(ms / 1000);
-  std::tm utc{};
-#ifdef _WIN32
-  gmtime_s(&utc, &seconds);
-#else
-  gmtime_r(&seconds, &utc);
-#endif
-  char text[40];
-  std::snprintf(text, sizeof(text), "%04d-%02d-%02dT%02d:%02d:%02d.%03dZ", utc.tm_year + 1900,
-                utc.tm_mon + 1, utc.tm_mday, utc.tm_hour, utc.tm_min, utc.tm_sec,
-                static_cast<int>(ms % 1000));
-  return text;
-}
 
 struct Outgoing { int peer; std::string payload; };
 struct Incoming { int peer; char kind; std::string payload; };
