@@ -9,6 +9,7 @@
 #include "local_profile.h"
 #include "content_install.h"
 #include "gameserver_redirect.h"
+#include "matchmaking_client.h"
 #include "online_service.h"
 #include <rex/system/kernel_state.h>
 #include <cstdlib>
@@ -44,7 +45,10 @@ class Onevs100App : public rex::ReXApp {
   void OnPostLoadXexImage() override {
     ApplyGameserverImagePatches(REX_KERNEL_STATE()->memory()->virtual_membase());
   }
-  void OnPostSetup() override { InstallConfiguredContent(); }
+  void OnPostSetup() override {
+    InstallConfiguredContent();
+    if (CurrentOnlineService() == OnlineService::Gameserver) StartMatchmakingClient();
+  }
   // void OnCreateDialogs(rex::ui::ImGuiDrawer* drawer) override {}
   // std::unique_ptr<rex::ui::ImGuiDialog> CreateAchievementsOverlay() override;
   // std::unique_ptr<rex::ui::AchievementNotificationDialog>
