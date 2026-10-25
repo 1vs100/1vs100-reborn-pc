@@ -8,7 +8,9 @@
 #include <rex/memory/utils.h>
 #include <atomic>
 #include <cstring>
+#include "gameserver_qnet.h"
 #include "guest_call.h"
+#include "matchmaking_client.h"
 #include "online_service.h"
 
 namespace {
@@ -124,6 +126,8 @@ REX_HOOK_RAW(sub_82572498) {
     Store32(base, overlapped + kOverlappedContext, 0);
     Store32(base, overlapped + kOverlappedExtendedError, kErrorSuccess);
   }
+  // Entering a game puts this PC back on the matchmaking roster.
+  MatchmakingResume();
   REXKRNL_INFO("Gameserver mode: local XSessionCreate flags={:08X} user={} public={} private={}", ctx.r3.u32,
                user, ctx.r5.u32, ctx.r6.u32);
   ctx.r3.u64 = kErrorSuccess;
@@ -161,6 +165,9 @@ REX_HOOK_RAW(sub_8222F538) {
   const uint8_t a2 = ctx.r4.u8, a3 = ctx.r5.u8, a4 = ctx.r6.u8;
   const uint32_t cqnet = Load32(base, wrapper + QNetWrapper::kCQNet);
   const uint32_t cmd = CmdBlockOf(base, wrapper);
+  RemoveNativeMembersBeforeLeave(ctx, base, cqnet);
+  // Out of the game: the other consoles must drop this PC, not keep a ghost.
+  MatchmakingPause();
   Store32(base, cmd + QNetCmdBlock::kWaitState, 0);
   Store32(base, cmd + QNetCmdBlock::kWaitKind, 8);
   const int32_t result =
@@ -180,6 +187,7 @@ REX_HOOK_RAW(sub_8222F538) {
 // QNet StartGame handler(wrapper)
 REX_HOOK_RAW(sub_8222F6C0) {
   if (!Gameserver()) { __imp__sub_8222F6C0(ctx, base); return; }
+  MatchmakingResume();
   RunQNetGameCommand(ctx, base, ctx.r3.u32, CQNetVtbl::kStartGame, 3, 6, "StartGame");
 }
 

@@ -26,7 +26,7 @@ Rows follow reborn's 1149 production manifest (`verification/expected/production
 | NetDll_XNetQosLookup / ServiceLookup / Release | import | Fixed good QoS result from the system heap, which the runtime's release frees. | done |
 | XamCreateEnumeratorHandle / XamEnumerate / NtClose (LSP list) | import | List the gameserver once. | done |
 | XMsgInProcessCall | import | Reborn only logs XLSP lookups on 1149. | n/a |
-| XMsgStartIORequest (presence roster) | import | In-game presence resumes matchmaking. | open |
+| XMsgStartIORequest (presence roster) | import | In-game presence resumes matchmaking. | done |
 | XamShowSigninUI, XamUserCheckPrivilege, XamUserGetMembershipTypeFromXUID, XamUserGetSigninInfo, XamUserGetSigninState, XamUserGetXUID | import | `offline_profile.cpp` reports a Live-enabled Gold profile. Gameserver mode grants every privilege. | done |
 | NTP XNetConnect skip | 82232950 | `NetDll_XNetConnect` succeeds for every address. | done |
 | Grid default URL | 82018B70 | Written after the image loads. | done |
@@ -40,14 +40,14 @@ Rows follow reborn's 1149 production manifest (`verification/expected/production
 | liveless XSessionCreate | 82572498 | Function override. | done |
 | liveless XSession joined | 82516538 | Function override. | done |
 | liveless remote update | 82514FC8 | Function override. | done |
-| QNet leave / StartGame / EndGame ordering | 8222F538, 8222F6C0, 8222F7B0 | Function overrides. The matchmaking game events and the native member removal on leave come with the matchmaking client. | partial |
-| QNet native remote member | 8251CEC8 | Function override, fed by the matchmaking client. | open |
-| QNet send data drop | 82231358 | Function override, relays through matchmaking. | open |
-| main-thread pump (QNet relay delivery) | 82124150 | Function override. | open |
-| avatar relay | 82118910 | Function override. | open |
+| QNet leave / StartGame / EndGame ordering | 8222F538, 8222F6C0, 8222F7B0 | Function overrides; leaving removes native members and pauses matchmaking. | done |
+| QNet native remote member | 8251CEC8 | Function override, fed by the matchmaking client. | done |
+| QNet send data drop | 82231358 | Function override, relays through matchmaking. | done |
+| main-thread pump (QNet relay delivery) | 82124150 | Function override. | done |
+| avatar relay | 82118910 | Function override, from the Avatars the matchmaking client fetched. | done |
 | PTNTP debug trap nop | 823312B0 | Check how the recompiled trap behaves. | open |
 
-Reborn's loader thread also runs the matchmaking client and the avatar metadata cache. On the PC they run on a host thread and use the shared [1vs100-mm-protocol](https://github.com/1vs100/1vs100-mm-protocol) library.
+Reborn's loader thread also runs the matchmaking client and the avatar metadata cache. On the PC the client runs on a host thread (`matchmaking_client.cpp`), connects to the gameserver's matchmaking port 1001 and uses the shared [1vs100-mm-protocol](https://github.com/1vs100/1vs100-mm-protocol) library. Relayed Avatars go through the Avatar provider's checked remote store.
 
 ## Runtime socket defects
 

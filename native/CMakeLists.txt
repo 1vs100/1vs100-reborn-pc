@@ -25,6 +25,8 @@ set(ONEVS100_SOURCES
     src/gameserver_lsp.cpp
     src/gameserver_qos.cpp
     src/gameserver_session.cpp
+    src/gameserver_qnet.cpp
+    src/gameserver_presence.cpp
     src/guest_call.cpp
     src/matchmaking_client.cpp
     third_party/1vs100-mm-protocol/Protocol.cpp
