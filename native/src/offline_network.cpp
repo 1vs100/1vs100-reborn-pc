@@ -1,5 +1,5 @@
-// Offline mode denies guest DNS and HTTP so retired services are never contacted.
-// Gameserver mode hands DNS to the runtime. Sockets: guest_sockets.cpp.
+// Offline mode denies guest DNS so retired services are never contacted.
+// Gameserver mode hands it to the runtime. Sockets: guest_sockets.cpp; HTTP: gameserver_xhttp.cpp.
 #include <rex/hook.h>
 #include <rex/system/xthread.h>
 #include <rex/memory/utils.h>
@@ -22,11 +22,6 @@ bool ForwardToRuntime(const char* name, PPCFunc* original, PPCContext& ctx, uint
   static PPCFunc* const original = RuntimeExport(#name);              \
   if (ForwardToRuntime(#name, original, ctx, base)) return
 
-REX_HOOK_RAW(__imp__NetDll_XHttpConnect) {
-  REXKRNL_WARN("Offline restoration: denied guest HTTP connection");
-  rex::system::XThread::SetLastError(12029); // ERROR_INTERNET_CANNOT_CONNECT
-  ctx.r3.u64 = 0;
-}
 REX_HOOK_RAW(__imp__NetDll_XNetDnsLookup) {
   FORWARD_IN_GAMESERVER_MODE(__imp__NetDll_XNetDnsLookup);
   REXKRNL_WARN("Offline restoration: denied guest DNS lookup");
