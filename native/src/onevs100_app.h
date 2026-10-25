@@ -8,6 +8,8 @@
 #include <rex/filesystem.h>
 #include "local_profile.h"
 #include "content_install.h"
+#include "online_service.h"
+#include <cstdlib>
 const rex::PPCImageInfo& NativeImageConfig();
 
 class Onevs100App : public rex::ReXApp {
@@ -22,6 +24,7 @@ class Onevs100App : public rex::ReXApp {
 
   // Override virtual hooks for customization:
   void OnPreSetup(rex::RuntimeConfig& config) override {
+    if (!LoadOnlineService()) std::exit(1);
     InitializeLocalProfile();
     config.gpu_plugin = "xenos";
   }
