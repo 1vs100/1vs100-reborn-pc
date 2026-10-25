@@ -25,6 +25,7 @@ set(ONEVS100_SOURCES
     src/gameserver_lsp.cpp
     src/gameserver_qos.cpp
     src/gameserver_session.cpp
+    third_party/1vs100-mm-protocol/Protocol.cpp
     src/guest_sockets.cpp
     src/guest_printf.cpp
     src/offline_profile.cpp
@@ -86,7 +87,7 @@ else()
       "$<TARGET_FILE:rex::runtime>" "$<TARGET_FILE_DIR:onevs100>")
 endif()
 
-target_include_directories(onevs100 PRIVATE src/avatar_native)
+target_include_directories(onevs100 PRIVATE src/avatar_native third_party/1vs100-mm-protocol)
 # Steamworks SDK (not included). Without it the room transport reports Steam as unavailable.
 set(ONEVS100_STEAM_SDK "$ENV{STEAMWORKS_SDK}" CACHE PATH "Steamworks SDK folder (contains public/ and redistributable_bin/)")
 if(EXISTS "${ONEVS100_STEAM_SDK}/public/steam/steam_api.h")

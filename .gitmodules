@@ -1,0 +1,3 @@
+[submodule "native/third_party/1vs100-mm-protocol"]
+	path = native/third_party/1vs100-mm-protocol
+	url = https://github.com/1vs100/1vs100-mm-protocol.git
