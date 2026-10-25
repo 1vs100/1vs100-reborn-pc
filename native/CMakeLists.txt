@@ -24,6 +24,7 @@ set(ONEVS100_SOURCES
     src/runtime_export.cpp
     src/gameserver_lsp.cpp
     src/gameserver_qos.cpp
+    src/gameserver_massive_cache.cpp
     src/gameserver_session.cpp
     src/gameserver_qnet.cpp
     src/gameserver_presence.cpp

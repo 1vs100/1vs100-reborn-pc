@@ -67,6 +67,7 @@ Other runtime gaps that gameserver mode covers:
 - XHttp is a stub.
 - `XNetDnsLookup` always fails. Gameserver mode resolves `madserver.net` names to the gameserver and other names through the host.
 - `XamCreateEnumeratorHandle` cannot create the XLSP server enumerator.
+- `CurlOpenTitleBackingFile` is a stub, which fails Massive's initialization. Gameserver mode backs Massive's ad cache with `massive-cache/backing.bin` in the player data folder.
 - `sprintf`-family calls read stack arguments from the wrong offset.
 
 The recompile also missed 61 vtable this-adjustor thunks in vtables without RTTI. `native/boundaries-v3.toml` lists them.
