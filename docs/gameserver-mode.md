@@ -35,7 +35,7 @@ Rows follow reborn's 1149 production manifest (`verification/expected/production
 | SbgSessionResolve | 8223ABB0 | Function override. | done |
 | XNetServerToInAddr (title wrapper) | 8246AB10 | Function override. | done |
 | SBG port (XLSP lookup) | 8223ADB0 | The built-in port 1000 is the 1149 gameserver's SBG port. | n/a |
-| Massive server port | 824FB3C0 | The 1149 gameserver serves ads on port 1000, the built-in slot port. | n/a |
+| Massive server port | 824FB3C0 | Function override: ads go to the gameserver's port 1002. | done |
 | local account locale | 8246A590 | Function override answering from the PC locale. | done |
 | liveless XSessionCreate | 82572498 | Function override. | done |
 | liveless XSession joined | 82516538 | Function override. | done |

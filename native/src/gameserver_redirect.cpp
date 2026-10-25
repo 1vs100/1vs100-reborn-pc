@@ -12,6 +12,8 @@ namespace {
 constexpr uint32_t kTitleXlspServiceId = 0x584A07DB;
 constexpr uint32_t kGridDefaultUrl = 0x82018B70;
 constexpr size_t kGridDefaultUrlSize = 32;
+// The gameserver's Massive ad port; the title's built-in slot port is the SBG port.
+constexpr uint32_t kMassiveAdPort = 1002;
 
 bool Gameserver() { return CurrentOnlineService() == OnlineService::Gameserver; }
 // Resolver outputs hold the IPv4 address in their second word.
@@ -45,6 +47,12 @@ REX_HOOK_RAW(sub_8246AB10) {
   if (!Gameserver()) { __imp__sub_8246AB10(ctx, base); return; }
   if (ctx.r5.u32) rex::memory::store_and_swap<uint32_t>(base + ctx.r5.u32, ctx.r3.u32);
   ctx.r3.u64 = 0;
+}
+// Massive NetworkManager::GetServerPortU16(request): the request slot's port,
+// or -1 without a slot. Polled while connecting, so it does not log.
+REX_HOOK_RAW(sub_824FB3C0) {
+  __imp__sub_824FB3C0(ctx, base);
+  if (Gameserver() && ctx.r3.s32 >= 0) ctx.r3.u64 = kMassiveAdPort;
 }
 // No security associations with plain host sockets: every XNet connect succeeds.
 REX_HOOK_RAW(__imp__NetDll_XNetConnect) {
