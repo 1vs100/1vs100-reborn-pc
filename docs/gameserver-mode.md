@@ -24,7 +24,7 @@ Rows follow reborn's 1149 production manifest (`verification/expected/production
 | NetDll_XNetStartup (bypass security) | import | Not needed, same reason. | n/a |
 | NetDll_XNetServerToInAddr | import | Not needed: the title wrapper at 8246AB10 is overridden instead. | n/a |
 | NetDll_XNetQosLookup / ServiceLookup / Release | import | Fixed good QoS result from the system heap, which the runtime's release frees. | done |
-| XamCreateEnumeratorHandle / XamEnumerate / NtClose (LSP list) | import | List the gameserver once. | done |
+| XamCreateEnumeratorHandle / XamEnumerate / NtClose (LSP list) | import | List the gameserver once. The enumerator handle and its private structure are made up, as the runtime cannot create them. | done |
 | XMsgInProcessCall | import | Reborn only logs XLSP lookups on 1149. | n/a |
 | XMsgStartIORequest (presence roster) | import | In-game presence resumes matchmaking. | done |
 | XamShowSigninUI, XamUserCheckPrivilege, XamUserGetMembershipTypeFromXUID, XamUserGetSigninInfo, XamUserGetSigninState, XamUserGetXUID | import | `offline_profile.cpp` reports a Live-enabled Gold profile. Gameserver mode grants every privilege. | done |
@@ -66,6 +66,7 @@ Other runtime gaps that gameserver mode covers:
 - The XLSP server enumerator returns a garbage item count.
 - XHttp is a stub.
 - `XNetDnsLookup` always fails. Gameserver mode resolves `madserver.net` names to the gameserver and other names through the host.
+- `XamCreateEnumeratorHandle` cannot create the XLSP server enumerator.
 - `sprintf`-family calls read stack arguments from the wrong offset.
 
 The recompile also missed 61 vtable this-adjustor thunks in vtables without RTTI. `native/boundaries-v3.toml` lists them.
