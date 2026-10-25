@@ -8,7 +8,9 @@
 #include <rex/filesystem.h>
 #include "local_profile.h"
 #include "content_install.h"
+#include "gameserver_redirect.h"
 #include "online_service.h"
+#include <rex/system/kernel_state.h>
 #include <cstdlib>
 const rex::PPCImageInfo& NativeImageConfig();
 
@@ -39,7 +41,9 @@ class Onevs100App : public rex::ReXApp {
   // void OnPostInitLogging() override {}
   // void OnPreSetup(rex::RuntimeConfig& config) override {}
   // void OnLoadXexImage(std::string& xex_image) override {}
-  // void OnPostLoadXexImage() override {}
+  void OnPostLoadXexImage() override {
+    ApplyGameserverImagePatches(REX_KERNEL_STATE()->memory()->virtual_membase());
+  }
   void OnPostSetup() override { InstallConfiguredContent(); }
   // void OnCreateDialogs(rex::ui::ImGuiDrawer* drawer) override {}
   // std::unique_ptr<rex::ui::ImGuiDialog> CreateAchievementsOverlay() override;

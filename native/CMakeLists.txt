@@ -15,6 +15,9 @@ set(ONEVS100_SOURCES
     src/main.cpp
     src/offline_network.cpp
     src/online_service.cpp
+    src/gameserver_redirect.cpp
+    src/gameserver_account.cpp
+    src/gameserver_launch_data.cpp
     src/gameserver_xhttp.cpp
     src/lua_print_log.cpp
     src/content_install.cpp
