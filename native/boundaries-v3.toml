@@ -71,3 +71,14 @@
 "0x8252DA58" = { parent = 0x8252D7E0 }
 "0x8252D930" = { parent = 0x8252D7E0, size = 0x424 }
 "0x8252D970" = { parent = 0x8252D7E0 }
+# Vtable dispatch thunks of the live host stream, reached only through pointers.
+"0x8261E868" = { size = 0x20 }
+"0x8261E888" = { size = 0x20 }
+"0x8261E8A8" = { size = 0x20 }
+"0x8261E8C8" = { size = 0x20 }
+"0x8261E8E8" = { size = 0x20 }
+"0x8261E908" = { size = 0x20 }
+"0x8261E928" = { size = 0x20 }
+"0x8261E948" = { size = 0x20 }
+"0x8261E968" = { size = 0x20 }
+"0x8261E988" = { size = 0x20 }
