@@ -65,6 +65,7 @@ Other runtime gaps that gameserver mode covers:
 - `XNetQosListen` always fails, which makes hosting a QNet session fail.
 - The XLSP server enumerator returns a garbage item count.
 - XHttp is a stub.
+- `XNetDnsLookup` always fails. Gameserver mode resolves `madserver.net` names to the gameserver and other names through the host.
 - `sprintf`-family calls read stack arguments from the wrong offset.
 
 The recompile also missed 61 vtable this-adjustor thunks in vtables without RTTI. `native/boundaries-v3.toml` lists them.
