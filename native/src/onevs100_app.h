@@ -7,6 +7,7 @@
 #include <rex/rex_app.h>
 #include <rex/filesystem.h>
 #include "local_profile.h"
+#include "content_install.h"
 const rex::PPCImageInfo& NativeImageConfig();
 
 class Onevs100App : public rex::ReXApp {
@@ -36,7 +37,7 @@ class Onevs100App : public rex::ReXApp {
   // void OnPreSetup(rex::RuntimeConfig& config) override {}
   // void OnLoadXexImage(std::string& xex_image) override {}
   // void OnPostLoadXexImage() override {}
-  // void OnPostSetup() override {}
+  void OnPostSetup() override { InstallConfiguredContent(); }
   // void OnCreateDialogs(rex::ui::ImGuiDrawer* drawer) override {}
   // std::unique_ptr<rex::ui::ImGuiDialog> CreateAchievementsOverlay() override;
   // std::unique_ptr<rex::ui::AchievementNotificationDialog>
