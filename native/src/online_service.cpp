@@ -6,6 +6,7 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #else
+#include <arpa/inet.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -14,11 +15,14 @@
 REXCVAR_DEFINE_STRING(online_service, "offline", "Online",
                       "offline: shows with bots and Steam parties; gameserver: the 1 vs 100 gameserver");
 REXCVAR_DEFINE_STRING(gameserver_host, "", "Online", "Gameserver IPv4 address or host name");
+REXCVAR_DEFINE_STRING(guest_bind_address, "", "Online",
+                      "Host IPv4 address for guest sockets bound to any address; empty binds to any");
 
 namespace {
 OnlineService service = OnlineService::Offline;
 GameserverAddress address{};
 std::string hostName;
+std::optional<GuestBindAddress> bindAddress;
 
 bool ResolveIpv4(const std::string& host, GameserverAddress& out) {
   addrinfo hints{};
@@ -52,6 +56,14 @@ bool LoadOnlineService() {
     REXKRNL_ERROR("gameserver_host \"{}\" does not resolve to an IPv4 address", host);
     return false;
   }
+  if (const std::string bind = REXCVAR_GET(guest_bind_address); !bind.empty()) {
+    in_addr parsed{};
+    if (inet_pton(AF_INET, bind.c_str(), &parsed) != 1) {
+      REXKRNL_ERROR("guest_bind_address \"{}\" is not an IPv4 address", bind);
+      return false;
+    }
+    bindAddress = GuestBindAddress{ntohl(parsed.s_addr)};
+  }
   hostName = host;
   service = OnlineService::Gameserver;
   REXKRNL_INFO("Online service: gameserver at {} ({}.{}.{}.{})", host, address.value >> 24,
@@ -60,4 +72,5 @@ bool LoadOnlineService() {
 }
 OnlineService CurrentOnlineService() { return service; }
 GameserverAddress CurrentGameserverAddress() { return address; }
+std::optional<GuestBindAddress> CurrentGuestBindAddress() { return bindAddress; }
 const std::string& CurrentGameserverHost() { return hostName; }

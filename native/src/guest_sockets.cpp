@@ -3,6 +3,7 @@
 // docs/gameserver-mode.md). Offline mode denies socket creation and leaves every
 // other call to the runtime.
 #include <rex/hook.h>
+#include <rex/logging.h>
 #include <rex/memory/utils.h>
 #include <rex/system/kernel_state.h>
 #include <rex/system/xevent.h>
@@ -425,9 +426,15 @@ REX_HOOK_RAW(__imp__NetDll_getsockopt) {
 REX_HOOK_RAW(__imp__NetDll_bind) {
   OUTSIDE_GAMESERVER_MODE_USE_RUNTIME(__imp__NetDll_bind);
   HOST_SOCKET_OR_FAIL(host, r4);
-  const auto address = ReadSockaddr(base, ctx.r5.u32, ctx.r6.u32);
+  auto address = ReadSockaddr(base, ctx.r5.u32, ctx.r6.u32);
   if (!address) { Fail(ctx, wsa::kAfNotSupported); return; }
-  if (::bind(host, reinterpret_cast<const sockaddr*>(&*address), sizeof(*address)) != 0) { FailFromHost(ctx); return; }
+  if (const auto bindAddress = CurrentGuestBindAddress(); bindAddress && address->sin_addr.s_addr == htonl(INADDR_ANY))
+    address->sin_addr.s_addr = htonl(bindAddress->value);
+  if (::bind(host, reinterpret_cast<const sockaddr*>(&*address), sizeof(*address)) != 0) {
+    REXKRNL_WARN("Guest bind to port {} failed, host error {}", ntohs(address->sin_port), LastHostError());
+    FailFromHost(ctx);
+    return;
+  }
   Succeed(ctx, 0);
 }
 

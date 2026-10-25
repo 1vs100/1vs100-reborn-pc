@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <optional>
 #include <string>
 
 // Where the game's online features go, chosen by the online_service setting.
@@ -16,4 +17,10 @@ bool LoadOnlineService();
 OnlineService CurrentOnlineService();
 // Valid only in gameserver mode.
 GameserverAddress CurrentGameserverAddress();
+// Host IPv4 address, most significant byte first, that guest sockets bound to
+// any address use instead; lets several instances share one host.
+struct GuestBindAddress {
+  uint32_t value;
+};
+std::optional<GuestBindAddress> CurrentGuestBindAddress();
 const std::string& CurrentGameserverHost();

@@ -12,6 +12,8 @@ gameserver_host = "192.168.1.10"
 
 The gameserver must run with `GAMESERVER_PROTOCOL=1149`.
 
+To run several instances on one host, give each its own `guest_bind_address` (for example `127.0.0.1` and `127.0.0.2`). The title binds its game socket to port 1000, and the setting moves that bind off the shared any-address.
+
 ## Reborn patches and their PC counterparts
 
 Rows follow reborn's 1149 production manifest (`verification/expected/production/manifest-1149-launcher-package.txt`). Patches that manifest skips on 1149 are left out.
