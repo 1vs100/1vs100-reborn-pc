@@ -14,6 +14,7 @@ include(generated/rexglue-frozen.cmake)
 set(ONEVS100_SOURCES
     src/main.cpp
     src/offline_network.cpp
+    src/lua_print_log.cpp
     src/guest_printf.cpp
     src/offline_profile.cpp
     src/local_profile.cpp
