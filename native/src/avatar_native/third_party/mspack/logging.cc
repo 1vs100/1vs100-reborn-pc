@@ -1,4 +1,4 @@
-#include "xenia/base/logging.h"
+#include <rex/logging.h>
 
 #include <cstdarg>
 
@@ -8,5 +8,5 @@ extern "C" void xenia_log(const char* fmt, ...) {
   va_start(args, fmt);
   vsnprintf(buffer, sizeof(buffer), fmt, args);
   va_end(args);
-  XELOGW("mspack: {}", buffer);
+  REXKRNL_WARN("mspack: {}", buffer);
 }

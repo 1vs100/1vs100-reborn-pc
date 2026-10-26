@@ -1,6 +1,6 @@
 #include "avatar_texture_upload.h"
 #include "avatar_native/native_provider.h"
-#include "generated/default-v4/onevs100_init.h"
+#include "onevs100_init.h"
 #include <rex/hook.h>
 #include <cstdlib>
 #include <fstream>

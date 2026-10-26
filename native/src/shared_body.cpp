@@ -1,6 +1,6 @@
 // Complete original PPC translation, entered at its shared block.
 // Parent translation SHA256: ce85694682c8c707f337f252971fb91b9f2f7091ca963138b46d429a10f126ee
-#include "generated/default-v4/onevs100_init.h"
+#include "onevs100_init.h"
 #include <rex/hook.h>
 
 REX_HOOK_RAW(sub_8252DA58) {

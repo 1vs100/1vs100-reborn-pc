@@ -2,6 +2,7 @@
 #include <rex/memory/utils.h>
 #include <rex/system/xam/user_profile.h>
 #include <cstring>
+#include "online_service.h"
 #include "local_profile.h"
 #include <rex/system/kernel_state.h>
 
@@ -78,8 +79,8 @@ REX_HOOK_RAW(__imp__XamUserGetName) {
 }
 
 // Primetime resolves to privilege 223 in the original name-to-ID routines
-// at 821940FC and 82194404. This grants local game access only; network
-// creation remains denied by offline_network.cpp.
+// at 821940FC and 82194404. Offline mode grants local game access only;
+// gameserver mode grants every privilege, as on a Live Gold profile.
 REX_HOOK_RAW(__imp__XamUserCheckPrivilege) {
   const uint32_t user = ctx.r3.u32;
   const uint32_t privilege = ctx.r4.u32;
@@ -92,7 +93,8 @@ REX_HOOK_RAW(__imp__XamUserCheckPrivilege) {
     ctx.r3.u64 = 1317; // ERROR_NO_SUCH_USER
     return;
   }
-  const bool localAccess = privilege == 223 || privilege == 254 || privilege == 251 || privilege == 252;
+  const bool localAccess = CurrentOnlineService() == OnlineService::Gameserver || privilege == 223 ||
+                           privilege == 254 || privilege == 251 || privilege == 252;
   rex::memory::store_and_swap<uint32_t>(base + output, localAccess ? 1 : 0);
   REXKRNL_WARN("Offline profile privilege user={} id={} local_access={}", user, privilege, localAccess);
   ctx.r3.u64 = 0;

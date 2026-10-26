@@ -133,6 +133,7 @@ void NativeAvatarAssets(PPCContext& ctx,uint8_t* base) {
  REXKRNL_WARN("NATIVE_AVATAR assets caller={:08X} manifest={:08X} cpu={:08X} gpu={:08X} gpu_host_offset={:X} result={:08X}",uint32_t(ctx.lr),ctx.r3.u32,ctx.r6.u32,ctx.r7.u32,xe::kernel::NativeAvatarHostOffset(ctx.r7.u32),result);
  ctx.r3.u64=Complete(overlap,result);
 }
+bool NativeAvatarRemoteManifest(uint64_t xuid,uint8_t* out) { return RemoteManifest(xuid,out); }
 REX_HOOK_RAW(__imp__XamAvatarGetMetadataRandom) {
  if(!NativeAvatarEnabled())return; // Preserve the original empty runtime stub.
  const uint32_t count=ctx.r4.u32,out=ctx.r5.u32,overlap=ctx.r6.u32;

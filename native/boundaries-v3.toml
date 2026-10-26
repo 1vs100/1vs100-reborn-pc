@@ -1,6 +1,67 @@
 # Verified standalone return thunk.
 [functions]
 "0x8236BD84" = { size = 8 }
+# Vtable this-adjustor thunks (addi r3,r3,-4; b) missed by discovery.
+"0x82365BB0" = { size = 8 }
+"0x82365BB8" = { size = 8 }
+"0x82365BC0" = { size = 8 }
+"0x82365BC8" = { size = 8 }
+"0x82365BD0" = { size = 8 }
+"0x82365BD8" = { size = 8 }
+"0x82365BE0" = { size = 8 }
+"0x82365BE8" = { size = 8 }
+"0x82365BF0" = { size = 8 }
+"0x82365BF8" = { size = 8 }
+"0x82365C00" = { size = 8 }
+"0x82365C10" = { size = 8 }
+"0x82365C18" = { size = 8 }
+"0x82365C20" = { size = 8 }
+"0x82365C28" = { size = 8 }
+"0x82365C30" = { size = 8 }
+"0x8236C5E8" = { size = 8 }
+"0x8236C5F0" = { size = 8 }
+"0x8236C5F8" = { size = 8 }
+"0x8236C600" = { size = 8 }
+"0x8236C608" = { size = 8 }
+"0x8236C610" = { size = 8 }
+"0x8236C618" = { size = 8 }
+"0x8236C620" = { size = 8 }
+"0x8236C628" = { size = 8 }
+"0x8236C638" = { size = 8 }
+"0x8236C640" = { size = 8 }
+"0x8236C648" = { size = 8 }
+"0x8236C650" = { size = 8 }
+"0x8236C658" = { size = 8 }
+"0x8236C660" = { size = 8 }
+"0x8236C668" = { size = 8 }
+"0x8236C670" = { size = 8 }
+"0x8236C678" = { size = 8 }
+"0x8236CA10" = { size = 8 }
+"0x8236CA18" = { size = 8 }
+"0x8236CA20" = { size = 8 }
+"0x8236CA28" = { size = 8 }
+"0x8236CA30" = { size = 8 }
+"0x8236CA38" = { size = 8 }
+"0x8236CA48" = { size = 8 }
+"0x8236CA50" = { size = 8 }
+"0x8236CA58" = { size = 8 }
+"0x8236CA60" = { size = 8 }
+"0x8236CA68" = { size = 8 }
+"0x8236CA70" = { size = 8 }
+"0x8236CA78" = { size = 8 }
+"0x8236CA80" = { size = 8 }
+"0x8236CA88" = { size = 8 }
+"0x8236CA90" = { size = 8 }
+"0x8236CA98" = { size = 8 }
+"0x8236CAA0" = { size = 8 }
+"0x8236D388" = { size = 8 }
+"0x8236D390" = { size = 8 }
+"0x8236D880" = { size = 8 }
+"0x823709C0" = { size = 8 }
+"0x82371E30" = { size = 8 }
+"0x82374278" = { size = 8 }
+"0x823A2D58" = { size = 8 }
+"0x823A2D78" = { size = 8 }
 # Shared branches whose generated labels were omitted; discover bodies rather
 # than inventing implementations or lengths. Preserve guest register state.
 "0x8252DC90" = { parent = 0x8252D7E0 }
@@ -10,3 +71,14 @@
 "0x8252DA58" = { parent = 0x8252D7E0 }
 "0x8252D930" = { parent = 0x8252D7E0, size = 0x424 }
 "0x8252D970" = { parent = 0x8252D7E0 }
+# Vtable dispatch thunks of the live host stream, reached only through pointers.
+"0x8261E868" = { size = 0x20 }
+"0x8261E888" = { size = 0x20 }
+"0x8261E8A8" = { size = 0x20 }
+"0x8261E8C8" = { size = 0x20 }
+"0x8261E8E8" = { size = 0x20 }
+"0x8261E908" = { size = 0x20 }
+"0x8261E928" = { size = 0x20 }
+"0x8261E948" = { size = 0x20 }
+"0x8261E968" = { size = 0x20 }
+"0x8261E988" = { size = 0x20 }

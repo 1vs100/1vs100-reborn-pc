@@ -1,5 +1,5 @@
 #include "avatar_texture_upload.h"
-#include "generated/default-v4/onevs100_init.h"
+#include "onevs100_init.h"
 #include <cstring>
 #include <rex/hook.h>
 #include <rex/system/xmemory.h>

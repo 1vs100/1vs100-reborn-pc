@@ -1,4 +1,4 @@
-#include "generated/default-v4/onevs100_init.h"
+#include "onevs100_init.h"
 #include <rex/hook.h>
 #include "dialogue_audio.h"
 #include <string>

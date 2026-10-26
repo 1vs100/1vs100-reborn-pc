@@ -7,6 +7,12 @@
 #include <rex/rex_app.h>
 #include <rex/filesystem.h>
 #include "local_profile.h"
+#include "content_install.h"
+#include "gameserver_redirect.h"
+#include "matchmaking_client.h"
+#include "online_service.h"
+#include <rex/system/kernel_state.h>
+#include <cstdlib>
 const rex::PPCImageInfo& NativeImageConfig();
 
 class Onevs100App : public rex::ReXApp {
@@ -21,6 +27,7 @@ class Onevs100App : public rex::ReXApp {
 
   // Override virtual hooks for customization:
   void OnPreSetup(rex::RuntimeConfig& config) override {
+    if (!LoadOnlineService()) std::exit(1);
     InitializeLocalProfile();
     config.gpu_plugin = "xenos";
   }
@@ -35,8 +42,13 @@ class Onevs100App : public rex::ReXApp {
   // void OnPostInitLogging() override {}
   // void OnPreSetup(rex::RuntimeConfig& config) override {}
   // void OnLoadXexImage(std::string& xex_image) override {}
-  // void OnPostLoadXexImage() override {}
-  // void OnPostSetup() override {}
+  void OnPostLoadXexImage() override {
+    ApplyGameserverImagePatches(REX_KERNEL_STATE()->memory()->virtual_membase());
+  }
+  void OnPostSetup() override {
+    InstallConfiguredContent();
+    if (CurrentOnlineService() == OnlineService::Gameserver) StartMatchmakingClient();
+  }
   // void OnCreateDialogs(rex::ui::ImGuiDrawer* drawer) override {}
   // std::unique_ptr<rex::ui::ImGuiDialog> CreateAchievementsOverlay() override;
   // std::unique_ptr<rex::ui::AchievementNotificationDialog>
