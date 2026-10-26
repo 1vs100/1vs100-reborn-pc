@@ -7,7 +7,7 @@ tl;dr
 - You play online with others on a community [gameserver](https://github.com/1vs100/gameserver), the same server the Xbox 360 uses with [1vs100-reborn-x360](https://github.com/1vs100/1vs100-reborn-x360).
 - You bring your own copy of the game. No game content is in this repository.
 
-It is built with the [ReXGlue](https://github.com/1vs100/rexglue-sdk) static recompiler, plus everything around it that the game needs now that its Xbox LIVE service is gone: offline shows with bots, online parties, Avatars, a launcher and tools.
+It is built with the [ReXGlue](https://github.com/rexglue/rexglue-sdk) static recompiler, plus everything around it that the game needs now that its Xbox LIVE service is gone: offline shows with bots, online parties, Avatars, a launcher and tools.
 
 > **Status: private alpha.** It runs and plays full Extended Play shows offline and in Steam parties of up to four. Live (Primetime) mode is experimental. Gameserver mode works on Linux: two clients played a full round together, with ads and the live host audio stream. Expect bugs.
 
@@ -85,7 +85,7 @@ content_install = "/path/to/packages"
 You need:
 
 - Windows 10/11 with Visual Studio 18 (C++ workload, CMake, Ninja) and LLVM/clang 23, or Linux with clang 22, CMake 3.25+ and Ninja.
-- Our [ReXGlue SDK fork](https://github.com/1vs100/rexglue-sdk), branch `fixes/various_1vs100`. It carries runtime fixes the game needs, such as for sockets, QoS and `sprintf`.
+- The [ReXGlue SDK](https://github.com/rexglue/rexglue-sdk) 0.10.0 release for your platform. To build against an SDK source tree instead, such as [our fork](https://github.com/1vs100/rexglue-sdk), pass `-DREXSDK_DIR=<rexglue-sdk>` in place of `CMAKE_PREFIX_PATH`.
 - Optionally the [Steamworks SDK](https://partner.steamgames.com/) for parties (development app ID 480). Without it the game reports Steam as unavailable.
 
 Steps:
