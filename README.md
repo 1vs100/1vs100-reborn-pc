@@ -42,6 +42,17 @@ From **your own** Xbox 360 and copy of the game (none of this is provided here):
 - For Avatar items: the item packages from your console's `Content` folder.
 - For gameserver mode: the show and episode packages, and the stock retail 2.0.1149.0 game files.
 
+## Starting the game on Linux
+
+Run the executable from its build folder and point it at your game files:
+
+```
+cd build/linux
+./onevs100 --game_data_root=../../native/assets
+```
+
+Without `--game_data_root` the game looks for an `assets` folder next to the executable. Every setting in `onevs100.toml` can also be given on the command line, for example `--online_service=gameserver --gameserver_host=1vs100.example.org`.
+
 ## Playing on a gameserver
 
 Gameserver mode runs the game's own online code against a [gameserver](https://github.com/1vs100/gameserver). It needs the stock retail 2.0.1149.0 game files with their original Lua scripts, not the Lua from this repository.
@@ -85,7 +96,7 @@ content_install = "/path/to/packages"
 You need:
 
 - Windows 10/11 with Visual Studio 18 (C++ workload, CMake, Ninja) and LLVM/clang 23, or Linux with clang 22, CMake 3.25+ and Ninja.
-- The [ReXGlue SDK](https://github.com/rexglue/rexglue-sdk) 0.10.0 release for your platform. To build against an SDK source tree instead, such as [our fork](https://github.com/1vs100/rexglue-sdk), pass `-DREXSDK_DIR=<rexglue-sdk>` in place of `CMAKE_PREFIX_PATH`.
+- A [ReXGlue SDK](https://github.com/rexglue/rexglue-sdk) nightly build for your platform, `nightly-20261002-bd833a2a` or newer. To build against an SDK source tree instead, such as [our fork](https://github.com/1vs100/rexglue-sdk), pass `-DREXSDK_DIR=<rexglue-sdk>` in place of `CMAKE_PREFIX_PATH`.
 - Optionally the [Steamworks SDK](https://partner.steamgames.com/) for parties (development app ID 480). Without it the game reports Steam as unavailable.
 
 Steps:
@@ -104,7 +115,7 @@ Steps:
    ```
    cmake -S native -B build/linux -G Ninja -DCMAKE_BUILD_TYPE=Release \
      -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
-     -DCMAKE_PREFIX_PATH=<ReXGlue SDK>/linux-amd64
+     -DCMAKE_PREFIX_PATH=<ReXGlue SDK linux-amd64 folder>
    cmake --build build/linux --target onevs100
    ```
 5. Launcher (Windows): `launcher\build_launcher.cmd` (set `LLVM_BIN` or put clang-cl on PATH).
