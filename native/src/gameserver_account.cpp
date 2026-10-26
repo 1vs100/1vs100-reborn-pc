@@ -6,13 +6,12 @@
 #include <rex/cvar.h>
 #include <rex/hook.h>
 #include <rex/memory/utils.h>
+#include <rex/system/flags.h>
 #include <cstring>
 #include <string_view>
 #include "online_service.h"
 #include "runtime_export.h"
 
-REXCVAR_DECLARE(int32_t, user_country);
-REXCVAR_DECLARE(int32_t, user_language);
 namespace rex::kernel::xam {
 uint8_t xeXamGetLocaleFromCountry(uint8_t country);
 uint8_t xeXamGetOnlineCountryFromLocale(uint8_t locale);
