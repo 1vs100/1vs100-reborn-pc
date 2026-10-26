@@ -5,6 +5,7 @@
 #pragma once
 
 #include <rex/rex_app.h>
+#include <rex/cvar.h>
 #include <rex/filesystem.h>
 #include "local_profile.h"
 #include "content_install.h"
@@ -46,6 +47,13 @@ class Onevs100App : public rex::ReXApp {
     ApplyGameserverImagePatches(REX_KERNEL_STATE()->memory()->virtual_membase());
   }
   void OnPostSetup() override {
+    // The title's texture fetch constants carry types the GPU backend calls
+    // invalid; skipping them leaves the scene behind Press Start black. The GPU
+    // plugin registers the setting during setup.
+    constexpr const char* kFetchConstants = "gpu_allow_invalid_fetch_constants";
+    if (rex::cvar::GetFlagSource(kFetchConstants) == rex::cvar::Source::kDefault &&
+        !rex::cvar::SetFlagByName(kFetchConstants, "true"))
+      REXKRNL_WARN("Could not enable {}", kFetchConstants);
     InstallConfiguredContent();
     if (CurrentOnlineService() == OnlineService::Gameserver) StartMatchmakingClient();
   }
