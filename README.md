@@ -1,6 +1,6 @@
 # 1 vs 100 PC
 
-It is built with the [ReXGlue](https://github.com/rexglue/rexglue-sdk) static recompiler, plus everything around it that the game needs now that its Xbox LIVE service is gone: offline shows with bots, online parties, Avatars, a launcher and tools.
+The Xbox 360 game 1 vs 100, rebuilt for the PC with the [ReXGlue](https://github.com/rexglue/rexglue-sdk) static recompiler, plus everything around it that the game needs now that its Xbox LIVE service is gone: offline shows with bots, online parties, Avatars, a launcher and tools.
 
 > **Status: private alpha.** It runs and plays full Extended Play shows offline and in Steam parties of up to four. Live (Primetime) mode is experimental. Gameserver mode works on Linux: two clients played a full round together, with ads and the live host audio stream. Expect bugs.
 
