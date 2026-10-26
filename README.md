@@ -1,15 +1,21 @@
 # 1 vs 100 PC
 
-tl;dr
-
-- You play the Xbox 360 game **1 vs 100** (title 584A07D1) natively on Windows or Linux.
-- You play offline shows with up to 10,000 bots, or with up to four friends in a Steam party.
-- You play online with others on a community [gameserver](https://github.com/1vs100/gameserver), the same server the Xbox 360 uses with [1vs100-reborn-x360](https://github.com/1vs100/1vs100-reborn-x360).
-- You bring your own copy of the game. No game content is in this repository.
-
 It is built with the [ReXGlue](https://github.com/rexglue/rexglue-sdk) static recompiler, plus everything around it that the game needs now that its Xbox LIVE service is gone: offline shows with bots, online parties, Avatars, a launcher and tools.
 
 > **Status: private alpha.** It runs and plays full Extended Play shows offline and in Steam parties of up to four. Live (Primetime) mode is experimental. Gameserver mode works on Linux: two clients played a full round together, with ads and the live host audio stream. Expect bugs.
+
+## Features
+
+- Native Windows and Linux build of the Xbox 360 game **1 vs 100** (title 584A07D1).
+- Offline Extended Play shows with up to 10,000 bots.
+- Steam parties of up to four players: one shared show, scores, Top 10, dancing in the lobby.
+- Online play on a community [gameserver](https://github.com/1vs100/gameserver), together with Xbox 360 players on [1vs100-reborn-x360](https://github.com/1vs100/1vs100-reborn-x360).
+- Each player's own Avatar is sent to the party. Marketplace items a player lacks show as a similar standard item.
+- Avatar Editor integration: the original dashboard editor, including Avatar items imported from your console.
+- Original host voice lines from your own show package.
+- Keyboard, SDL controllers and a direct USB DualSense backup.
+- Debug tab: original development switches (show skins, Host Tool, debug menu), mods.
+- No game content in this repository. A copy of the game is required.
 
 ## Platform support
 
@@ -20,17 +26,6 @@ It is built with the [ReXGlue](https://github.com/rexglue/rexglue-sdk) static re
 | Gameserver | not yet | yes |
 
 Gameserver mode is Linux only for now. Its socket layer is not implemented for Windows yet.
-
-## Features
-
-- Full Extended Play shows offline, with up to 10,000 bots.
-- Steam parties (up to 4 players): one shared show, scores, Top 10, dancing in the lobby.
-- Online play on a community gameserver, together with Xbox 360 players.
-- Each player's own Avatar is sent to the party. Marketplace items a player lacks show as a similar standard item.
-- Avatar Editor integration: edit your Avatar with the original dashboard editor, including Avatar items you own (imported from your console).
-- Original host voice lines from your own show package (newly wired up; see below).
-- Keyboard, SDL controllers and a direct USB DualSense backup.
-- Debug tab: original development switches (show skins, Host Tool, debug menu), mods.
 
 ## What you need
 
