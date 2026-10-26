@@ -78,7 +78,7 @@ endif()
 
 if(WIN32)
     add_executable(onevs100 WIN32 ${ONEVS100_SOURCES})
-    target_link_libraries(onevs100 PRIVATE dbghelp comdlg32 winmm hid setupapi mfplay ole32)
+    target_link_libraries(onevs100 PRIVATE dbghelp comdlg32 winmm hid setupapi mfplay ole32 ws2_32)
 else()
     add_executable(onevs100 ${ONEVS100_SOURCES})
 endif()

@@ -21,11 +21,15 @@
 #include "runtime_export.h"
 #ifdef _WIN32
 #include <winsock2.h>
+#include <mswsock.h>
 #include <ws2tcpip.h>
 using HostSocket = SOCKET;
 using HostSockLen = int;
 constexpr HostSocket kInvalidHostSocket = INVALID_SOCKET;
 constexpr int SHUT_RDWR = SD_BOTH;
+constexpr int kHostWouldBlock = WSAEWOULDBLOCK;
+// WSAPoll rejects POLLPRI; out-of-band data is reported as POLLRDBAND.
+constexpr short kPollUrgent = POLLRDBAND;
 #else
 #include <cerrno>
 #include <fcntl.h>
@@ -38,6 +42,8 @@ constexpr int SHUT_RDWR = SD_BOTH;
 using HostSocket = int;
 using HostSockLen = socklen_t;
 constexpr HostSocket kInvalidHostSocket = -1;
+constexpr int kHostWouldBlock = EWOULDBLOCK;
+constexpr short kPollUrgent = POLLPRI;
 #endif
 
 namespace {
@@ -177,6 +183,22 @@ int LastHostError() {
   return errno;
 #endif
 }
+bool WouldBlock(int error) {
+#ifdef _WIN32
+  return error == WSAEWOULDBLOCK;
+#else
+  return error == EWOULDBLOCK || error == EAGAIN;
+#endif
+}
+int PollHost(pollfd* polls, size_t count, int timeoutMs) {
+#ifdef _WIN32
+  // WSAPoll rejects an empty set.
+  if (!count) { Sleep(static_cast<DWORD>(std::max(timeoutMs, 0))); return 0; }
+  return WSAPoll(polls, static_cast<ULONG>(count), timeoutMs);
+#else
+  return ::poll(polls, count, timeoutMs);
+#endif
+}
 void Fail(PPCContext& ctx, uint32_t wsaError) {
   rex::system::XThread::SetLastError(wsaError);
   ctx.r3.u64 = kSocketError;
@@ -259,6 +281,14 @@ REX_HOOK_RAW(__imp__NetDll_socket) {
     ctx.r3.u64 = kInvalidGuestSocket;
     return;
   }
+#ifdef _WIN32
+  // Otherwise an ICMP port unreachable fails the socket's next receive.
+  if (type == wsa::kSockDgram) {
+    BOOL report = FALSE;
+    DWORD returned = 0;
+    WSAIoctl(host, SIO_UDP_CONNRESET, &report, sizeof(report), nullptr, 0, &returned, nullptr, nullptr);
+  }
+#endif
   ctx.r3.u64 = Register(host);
   REXKRNL_DEBUG("Guest socket {:08X} type={} protocol={}", ctx.r3.u32, type, protocol);
 }
@@ -540,8 +570,9 @@ REX_HOOK_RAW(__imp__NetDll_getpeername) {
 REX_HOOK_RAW(__imp__NetDll_select) {
   OUTSIDE_GAMESERVER_MODE_USE_RUNTIME(__imp__NetDll_select);
   const uint32_t sets[3] = {ctx.r5.u32, ctx.r6.u32, ctx.r7.u32};
-  const short events[3] = {POLLIN, POLLOUT, POLLPRI};
-  struct Entry { uint32_t handle; size_t set; };
+  const short events[3] = {POLLIN, POLLOUT, kPollUrgent};
+  // One poll entry per socket: Wine's WSAPoll loses events when a socket is listed twice.
+  struct Entry { uint32_t handle; size_t set; size_t poll; };
   std::vector<pollfd> polls;
   std::vector<Entry> entries;
   for (size_t set = 0; set < 3; ++set) {
@@ -551,11 +582,10 @@ REX_HOOK_RAW(__imp__NetDll_select) {
       const uint32_t handle = load_and_swap<uint32_t>(base + sets[set] + 4 + 4 * i);
       const auto host = Lookup(handle);
       if (!host) { Fail(ctx, wsa::kNotSocket); return; }
-      pollfd entry{};
-      entry.fd = *host;
-      entry.events = events[set];
-      polls.push_back(entry);
-      entries.push_back({handle, set});
+      auto poll = std::find_if(polls.begin(), polls.end(), [&](const pollfd& p) { return p.fd == *host; });
+      if (poll == polls.end()) poll = polls.insert(polls.end(), pollfd{*host, 0, 0});
+      poll->events |= events[set];
+      entries.push_back({handle, set, static_cast<size_t>(poll - polls.begin())});
     }
   }
   int timeoutMs = -1;
@@ -564,28 +594,24 @@ REX_HOOK_RAW(__imp__NetDll_select) {
     const int64_t micro = static_cast<int32_t>(load_and_swap<uint32_t>(base + timeout + 4));
     timeoutMs = static_cast<int>(std::clamp<int64_t>(seconds * 1000 + micro / 1000, 0, INT32_MAX));
   }
-#ifdef _WIN32
-  const int ready = polls.empty() ? (Sleep(std::max(timeoutMs, 0)), 0) : WSAPoll(polls.data(), static_cast<ULONG>(polls.size()), timeoutMs);
-#else
-  const int ready = ::poll(polls.data(), polls.size(), timeoutMs);
-#endif
+  const int ready = PollHost(polls.data(), polls.size(), timeoutMs);
   if (ready < 0) { FailFromHost(ctx); return; }
   // Rewrite each set with the ready handles only. As in Winsock, a failed
   // connect is reported in exceptfds and never as writable; an error or hangup
   // makes a socket readable.
   uint32_t total = 0;
   uint32_t kept[3] = {};
-  for (size_t i = 0; i < polls.size(); ++i) {
-    const short revents = polls[i].revents;
-    const size_t set = entries[i].set;
+  for (const auto& entry : entries) {
+    const short revents = polls[entry.poll].revents;
+    const size_t set = entry.set;
     bool isReady = false;
     switch (set) {
       case 0: isReady = revents & (POLLIN | POLLERR | POLLHUP); break;
       case 1: isReady = (revents & POLLOUT) && !(revents & POLLERR); break;
-      case 2: isReady = revents & (POLLPRI | POLLERR); break;
+      case 2: isReady = revents & (kPollUrgent | POLLERR); break;
     }
     if (!isReady) continue;
-    store_and_swap<uint32_t>(base + sets[set] + 4 + 4 * kept[set], entries[i].handle);
+    store_and_swap<uint32_t>(base + sets[set] + 4 + 4 * kept[set], entry.handle);
     ++kept[set];
     ++total;
   }
@@ -666,12 +692,6 @@ REX_HOOK_RAW(__imp__NetDll_WSARecv) {
   Succeed(ctx, 0);
 }
 
-// Gameserver mode is POSIX-only (online_service.cpp); Windows keeps the runtime's calls.
-#ifdef _WIN32
-namespace {
-void CancelPending(uint8_t*, uint32_t) {}
-}  // namespace
-#else
 namespace {
 // WSAOVERLAPPED: Internal (status), InternalHigh (bytes), Offset, OffsetHigh, hEvent.
 constexpr uint32_t kOverlappedStatus = 0x00, kOverlappedBytes = 0x04, kOverlappedEvent = 0x10;
@@ -698,13 +718,13 @@ struct ReceiveRequest {
 };
 
 // Receives into the guest buffers; the host error code on failure.
-struct ReceiveResult { ssize_t bytes; int error; };
+struct ReceiveResult { int64_t bytes; int error; };
 ReceiveResult Receive(uint8_t* base, const ReceiveRequest& request, int flags) {
   std::vector<char> data(std::max<size_t>(request.buffers.total, 1));
   sockaddr_in from{};
   HostSockLen fromLength = sizeof(from);
-  const auto got = ::recvfrom(request.host, data.data(), request.buffers.total, flags,
-                              reinterpret_cast<sockaddr*>(&from), &fromLength);
+  const int64_t got = ::recvfrom(request.host, data.data(), static_cast<int>(request.buffers.total), flags,
+                                 reinterpret_cast<sockaddr*>(&from), &fromLength);
   if (got < 0) return {got, LastHostError()};
   size_t offset = 0;
   for (const auto& [length, buffer] : request.buffers.entries) {
@@ -715,6 +735,18 @@ ReceiveResult Receive(uint8_t* base, const ReceiveRequest& request, int flags) {
   }
   WriteSockaddr(base, request.from, request.fromLength, from);
   return {got, 0};
+}
+// Receives only data already queued, also on a blocking socket.
+ReceiveResult ReceiveQueued(uint8_t* base, const ReceiveRequest& request, int flags) {
+#ifdef _WIN32
+  // Windows has no MSG_DONTWAIT; the poll stands in for it. A receive on the same
+  // socket from another thread between the two calls makes this one block.
+  pollfd poll{request.host, POLLIN, 0};
+  if (PollHost(&poll, 1, 0) == 0) return {-1, kHostWouldBlock};
+  return Receive(base, request, flags);
+#else
+  return Receive(base, request, flags | MSG_DONTWAIT);
+#endif
 }
 
 // Finishes an overlapped request and wakes the guest waiting on its event.
@@ -757,7 +789,7 @@ class PendingReceives {
       std::vector<pollfd> polls;
       for (const auto& request : requests_) polls.push_back({request.host, POLLIN, 0});
       guard.unlock();
-      ::poll(polls.data(), polls.size(), 20);
+      PollHost(polls.data(), polls.size(), 20);
       guard.lock();
       // Requests may have been added or cancelled meanwhile; complete the first
       // request of each readable socket that is still pending.
@@ -765,8 +797,8 @@ class PendingReceives {
         if (!(poll.revents & (POLLIN | POLLERR | POLLHUP))) continue;
         const auto it = std::find_if(requests_.begin(), requests_.end(), [&](const auto& r) { return r.host == poll.fd; });
         if (it == requests_.end()) continue;
-        const auto result = Receive(base_, *it, MSG_DONTWAIT);
-        if (result.bytes < 0 && (result.error == EWOULDBLOCK || result.error == EAGAIN)) continue;
+        const auto result = ReceiveQueued(base_, *it, 0);
+        if (result.bytes < 0 && WouldBlock(result.error)) continue;
         if (result.bytes < 0) Complete(base_, it->overlapped, TranslateHostError(result.error), 0);
         else Complete(base_, it->overlapped, 0, static_cast<uint32_t>(result.bytes));
         requests_.erase(it);
@@ -799,8 +831,8 @@ REX_HOOK_RAW(__imp__NetDll_WSARecvFrom) {
   ReceiveRequest request{ctx.r4.u32, host, ReadBuffers(base, ctx.r5.u32, ctx.r6.u32), ctx.r9.u32, ctx.r10.u32, overlapped};
   const uint32_t bytesAddress = ctx.r7.u32, flagsAddress = ctx.r8.u32;
   const int flags = flagsAddress ? static_cast<int>(load_and_swap<uint32_t>(base + flagsAddress)) : 0;
-  const auto result = Receive(base, request, overlapped ? (flags | MSG_DONTWAIT) : flags);
-  if (result.bytes < 0 && overlapped && (result.error == EWOULDBLOCK || result.error == EAGAIN)) {
+  const auto result = overlapped ? ReceiveQueued(base, request, flags) : Receive(base, request, flags);
+  if (result.bytes < 0 && overlapped && WouldBlock(result.error)) {
     store_and_swap<uint32_t>(base + overlapped + kOverlappedStatus, kStatusPending);
     ResetEvent(load_and_swap<uint32_t>(base + overlapped + kOverlappedEvent));
     Pending().Add(base, std::move(request));
@@ -863,4 +895,3 @@ REX_HOOK_RAW(__imp__NetDll_WSACancelOverlappedIO) {
   Pending().Cancel(base, ctx.r4.u32);
   Succeed(ctx, 0);
 }
-#endif
