@@ -11,10 +11,13 @@
 namespace {
 PPCFunc* Resolve(const char* name) {
 #ifdef _WIN32
-  HMODULE runtime = nullptr;
-  GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                     reinterpret_cast<LPCWSTR>(&rex::system::kernel_state), &runtime);
-  return runtime ? reinterpret_cast<PPCFunc*>(GetProcAddress(runtime, name)) : nullptr;
+  // ONEVS100_RUNTIME_DLL is the runtime's file name for this build configuration.
+  static const HMODULE runtime = GetModuleHandleA(ONEVS100_RUNTIME_DLL);
+  if (!runtime) {
+    REXKRNL_CRITICAL("Runtime {} is not loaded", ONEVS100_RUNTIME_DLL);
+    std::abort();
+  }
+  return reinterpret_cast<PPCFunc*>(GetProcAddress(runtime, name));
 #else
   // The executable's override comes first in symbol lookup; the next one is the runtime's.
   return reinterpret_cast<PPCFunc*>(dlsym(RTLD_NEXT, name));

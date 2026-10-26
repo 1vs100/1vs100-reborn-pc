@@ -86,6 +86,7 @@ endif()
 rexglue_setup_target(onevs100 GPU_PLUGINS xenos)
 if(WIN32)
     target_link_options(onevs100 PRIVATE /MAP:onevs100.map)
+    target_compile_definitions(onevs100 PRIVATE ONEVS100_RUNTIME_DLL="$<TARGET_FILE_NAME:rex::runtime>")
 else()
     # The executable's RUNPATH is $ORIGIN.
     add_custom_command(TARGET onevs100 POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different
