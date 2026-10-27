@@ -58,7 +58,16 @@ set(ONEVS100_SOURCES
     src/jump_hooks.cpp
 )
 
-if(WIN32)
+if(WINDOWS_STORE)
+    # UWP has no minidumps, PlaySound, Win32 dialogs, raw HID or mfplay.
+    # The portable stubs stand in until UWP versions exist.
+    list(APPEND ONEVS100_SOURCES
+        src/dialogue_audio_posix.cpp
+        src/local_profile_dialog_posix.cpp
+        src/native_controls_posix.cpp
+        src/native_video_posix.cpp
+    )
+elseif(WIN32)
     list(APPEND ONEVS100_SOURCES
         src/crash_capture.cpp
         src/dialogue_audio_win32.cpp
@@ -76,7 +85,10 @@ else()
     )
 endif()
 
-if(WIN32)
+if(WINDOWS_STORE)
+    add_executable(onevs100 WIN32 ${ONEVS100_SOURCES})
+    target_link_libraries(onevs100 PRIVATE ws2_32)
+elseif(WIN32)
     add_executable(onevs100 WIN32 ${ONEVS100_SOURCES})
     target_link_libraries(onevs100 PRIVATE dbghelp comdlg32 winmm hid setupapi mfplay ole32 ws2_32)
 else()

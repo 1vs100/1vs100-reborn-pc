@@ -7,6 +7,8 @@
 #include <rex/rex_app.h>
 #include <rex/cvar.h>
 #include <rex/filesystem.h>
+#include <rex/logging.h>
+#include <rex/platform.h>
 #include "local_profile.h"
 #include "content_install.h"
 #include "gameserver_redirect.h"
@@ -35,12 +37,32 @@ class Onevs100App : public rex::ReXApp {
   void OnConfigurePaths(rex::PathConfig& paths) override {
     auto folder = rex::filesystem::GetExecutableFolder();
     if (paths.game_data_root.empty()) paths.game_data_root = folder / "assets";
+#if REX_PLATFORM_WINRT
+    // The package install folder is read-only. A config shipped in the package
+    // seeds the writable one on first run.
+    const auto shipped_config = folder / "onevs100.toml";
+    folder = rex::filesystem::GetUserFolder();
+    std::error_code error;
+    if (!std::filesystem::exists(folder / "onevs100.toml", error) &&
+        std::filesystem::exists(shipped_config, error)) {
+      std::filesystem::copy_file(shipped_config, folder / "onevs100.toml", error);
+      if (error) {
+        config_seed_error_ = error;
+      }
+    }
+#endif
     // All development saves/cache/config stay beside this isolated build.
     paths.user_data_root = folder / "userdata";
     paths.cache_root = folder / "cache";
     paths.config_path = folder / "onevs100.toml";
   }
-  // void OnPostInitLogging() override {}
+  void OnPostInitLogging() override {
+    // Logging starts after OnConfigurePaths.
+    if (config_seed_error_) {
+      REXLOG_WARN("Could not copy the shipped config to LocalState: {}",
+                  config_seed_error_.message());
+    }
+  }
   // void OnPreSetup(rex::RuntimeConfig& config) override {}
   // void OnLoadXexImage(std::string& xex_image) override {}
   void OnPostLoadXexImage() override {
@@ -63,4 +85,6 @@ class Onevs100App : public rex::ReXApp {
   // CreateAchievementNotificationDialog() override;
   // void OnShutdown() override {}
   // void OnConfigurePaths(rex::PathConfig& paths) override {}
+ private:
+  std::error_code config_seed_error_;
 };

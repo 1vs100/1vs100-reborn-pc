@@ -3,7 +3,9 @@
 // startup. A file, or a folder whose files are all installed.
 #include "content_install.h"
 #include <rex/cvar.h>
+#include <rex/filesystem.h>
 #include <rex/logging.h>
+#include <rex/platform.h>
 #include <rex/system/kernel_state.h>
 #include <filesystem>
 #include <system_error>
@@ -13,8 +15,12 @@ REXCVAR_DEFINE_STRING(content_install, "", "Content",
                       "Content package file, or folder of package files, to install at startup");
 
 void InstallConfiguredContent() {
-  const std::filesystem::path source = REXCVAR_GET(content_install);
+  std::filesystem::path source = REXCVAR_GET(content_install);
   if (source.empty()) return;
+#if REX_PLATFORM_WINRT
+  // The working directory of a UWP app is a system folder.
+  if (source.is_relative()) source = rex::filesystem::GetExecutableFolder() / source;
+#endif
   std::error_code error;
   std::vector<std::filesystem::path> packages;
   if (std::filesystem::is_directory(source, error)) {
