@@ -47,9 +47,12 @@ bool LoadOnlineService() {
     return false;
   }
 #ifdef _WIN32
-  // The guest socket layer (guest_sockets.cpp) is implemented for POSIX hosts only.
-  REXKRNL_ERROR("online_service \"gameserver\" is not available on Windows");
-  return false;
+  // Host sockets are used before the title starts Winsock, and from host threads.
+  WSADATA winsock{};
+  if (const int error = WSAStartup(MAKEWORD(2, 2), &winsock); error != 0) {
+    REXKRNL_ERROR("Gameserver mode: WSAStartup failed with error {}", error);
+    return false;
+  }
 #endif
   const std::string host = REXCVAR_GET(gameserver_host);
   if (host.empty() || !ResolveIpv4(host, address)) {
