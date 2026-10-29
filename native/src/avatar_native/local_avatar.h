@@ -36,7 +36,9 @@ namespace local_avatar {
 long long EditorSaveStamp();
 }  // namespace local_avatar
 
-#ifdef _WIN32
+#include <rex/platform.h>
+// UWP apps cannot start other programs.
+#if defined(_WIN32) && !REX_PLATFORM_WINRT
 #include <windows.h>
 // Starts the Avatar Editor (ONEVS100_AVATAR_EDITOR_EXE) on this player's
 // Avatar. It runs alongside the game; its saves are read the next time Avatars

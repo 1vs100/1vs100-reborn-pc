@@ -124,7 +124,7 @@ long long EditorSaveStamp() {
 }
 }  // namespace local_avatar
 
-#ifdef _WIN32
+#if defined(_WIN32) && !REX_PLATFORM_WINRT
 // The built-in Win32 Avatar editor was replaced by the Avatar Editor
 // recompilation on 2026-10-13 (backup: claude\backup\avatar-primary-20261013).
 bool OpenAvatarEditor(HWND owner) {

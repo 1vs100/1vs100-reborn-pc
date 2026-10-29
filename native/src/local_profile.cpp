@@ -4,6 +4,7 @@
 #include <rex/system/kernel_state.h>
 #include <rex/system/xam/user_profile.h>
 #include <rex/filesystem.h>
+#include <rex/platform.h>
 #include <filesystem>
 #include <fstream>
 #include <cstdlib>
@@ -264,7 +265,12 @@ std::filesystem::path PlayerDataFolder() {
 #else
   if (const std::string value = Environment("ONEVS100_PLAYER_DATA"); !value.empty()) return value;
 #endif
+#if REX_PLATFORM_WINRT
+  // The package install folder is read-only.
+  return rex::filesystem::GetUserFolder() / "userdata";
+#else
   return rex::filesystem::GetExecutableFolder() / "userdata";
+#endif
 }
 // Also true when the Avatar Editor saved since the last check (it runs as its
 // own program, so its save is only seen through its file).
