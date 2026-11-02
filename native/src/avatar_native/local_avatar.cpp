@@ -38,7 +38,8 @@ bool WriteAll(const std::filesystem::path& path, const uint8_t* data, size_t siz
 
 bool Load(const av::Catalog* catalog, av::Description* out) {
   const auto bytes = ReadAll(SavePath());
-  if (bytes.size() != av::kDescriptionBytes || !av::ParseAnyDescription(catalog, bytes.data(), bytes.size(), out))
+  if ((bytes.size() != av::kDescriptionBytes && bytes.size() != av::kManifestBytes) ||
+      !av::ParseAnyDescription(catalog, bytes.data(), bytes.size(), out))
     return false;
   return true;
 }
