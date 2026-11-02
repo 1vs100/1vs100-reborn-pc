@@ -88,7 +88,7 @@ REX_HOOK_RAW(sub_8246A590) {
   const uint32_t user = ctx.r3.u32, size = ctx.r4.u32, response = ctx.r5.u32, overlapped = ctx.r6.u32;
   if (user >= 4 || !response) { ctx.r3.u64 = kErrorInvalidParameter; return; }
   if (size < kRequiredSize) { ctx.r3.u64 = kErrorInsufficientBuffer; return; }
-  // Only user 0 is signed in (offline_profile.cpp).
+  // Only user 0 is signed in.
   if (user != 0) { ctx.r3.u64 = kErrorNotLoggedOn; return; }
   const uint8_t country = ConfiguredOnlineCountry();
   if (country == kOnlineCountryUnknown) { ctx.r3.u64 = kErrorInvalidData; return; }

@@ -21,10 +21,6 @@ License: `native/src/avatar_native/third_party/mspack/COPYING.LIB`.
 ## Not included, used at build or run time
 
 - **ReXGlue SDK** (the static recompiler and runtime): obtained separately under its own license.
-- **Steamworks SDK** (`steam_api64`): obtained separately from Valve under the Steamworks SDK license.
-- **AvatarEditorRecomp** (GPL-3.0, https://github.com/panedivitasei/AvatarEditorRecomp):
-  `avatar-editor/build_avatar_editor.ps1` builds it from its own source; it is not
-  copied into this repository.
 
 ## Game content
 

@@ -51,18 +51,17 @@ Reborn's loader thread also runs the matchmaking client and the avatar metadata 
 
 ## Runtime socket defects
 
-The ReXGlue 0.10.0 Linux runtime mishandles guest sockets:
-
+The ReXGlue 0.10.0 Linux runtime mishandled guest sockets. The fixes/various_1vs100 SDK line fixed two of these (Winsock `ioctlsocket` command translation, `XNetQosListen` succeeding); the tree keeps its own overrides below regardless:
 - `bind`, `sendto` and `recvfrom` byte-swap the port and address of a guest `sockaddr_in`, which are already in network order.
 - `select` passes the guest's `nfds` to the host, so host descriptors above it are never polled.
-- `ioctlsocket` passes the Winsock command code (`FIONBIO` 0x8004667E) to the host `ioctl` unchanged.
+- `ioctlsocket` passed the Winsock command code (`FIONBIO` 0x8004667E) to the host `ioctl` unchanged. Fixed in the SDK.
 
 Gameserver mode therefore implements the guest socket calls itself, on host BSD sockets, including overlapped `WSARecvFrom` and `WSASendTo`.
 
 Other runtime gaps that gameserver mode covers:
 
 - `XNetQosLookup` is a stub and `XNetQosServiceLookup` reports no results.
-- `XNetQosListen` always fails, which makes hosting a QNet session fail.
+- `XNetQosListen` always failed, which made hosting a QNet session fail. Fixed in the SDK; `gameserver_qos.cpp` still answers locally.
 - The XLSP server enumerator returns a garbage item count.
 - XHttp is a stub.
 - `XNetDnsLookup` always fails. Gameserver mode resolves `madserver.net` names to the gameserver and other names through the host.

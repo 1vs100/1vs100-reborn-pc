@@ -1,13 +1,14 @@
 #pragma once
 #include "onevs100_init.h"
+#include <filesystem>
+// Avatar asset content root: ONEVS100_NATIVE_AVATAR_CONTENT, else the
+// native_avatar_content setting. Empty when neither is set.
+std::filesystem::path NativeAvatarContentPath();
 bool NativeAvatarEnabled();
 void NativeAvatarInitialize(PPCContext&,uint8_t*);
 void NativeAvatarSizes(PPCContext&,uint8_t*);
 void NativeAvatarAssets(PPCContext&,uint8_t*);
-// Party Avatars (NativeRoom.lua through NativeRoomTransport):
-// "avatar" <xuid>: hex of this player's Avatar manifest when <xuid> is the local
-// profile, else "". "avatarof" <xuid>|<hex>: a party member's manifest, checked
-// and rebuilt from the catalog, then served for that XUID. "ok" or "error:...".
+// Remote Avatars through the gameserver matchmaking relay.
 #include <string>
 std::string NativeAvatarManifestHex(const std::string& xuid);
 std::string NativeAvatarSetRemote(const std::string& value);

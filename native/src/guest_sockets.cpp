@@ -1,6 +1,6 @@
 // Guest Winsock calls in gameserver mode, on host BSD sockets. The runtime's own
 // implementation mistranslates addresses, select sets and ioctl codes (see
-// docs/gameserver-mode.md). Offline mode denies socket creation and leaves every
+// docs/gameserver-mode.md). Without gameserver mode the call is denied and
 // other call to the runtime.
 #include <rex/hook.h>
 #include <rex/logging.h>
@@ -262,7 +262,7 @@ void CancelPending(uint8_t* base, uint32_t handle);
 // socket(caller, af, type, protocol)
 REX_HOOK_RAW(__imp__NetDll_socket) {
   if (!Gameserver()) {
-    REXKRNL_WARN("Offline restoration: denied guest socket creation");
+    REXKRNL_WARN("Denied guest socket creation without gameserver");
     rex::system::XThread::SetLastError(wsa::kNetDown);
     ctx.r3.u64 = kInvalidGuestSocket;
     return;

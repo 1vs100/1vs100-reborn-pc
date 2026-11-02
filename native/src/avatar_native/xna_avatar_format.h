@@ -361,6 +361,8 @@ bool WriteAnimationObject(const std::vector<uint8_t>& stream, bool mirror,
 class Catalog {
  public:
   bool Load(const std::filesystem::path& path);
+  // Same parse over bytes already in memory.
+  bool LoadBytes(const uint8_t* bytes, size_t size);
   bool loaded() const { return !entries_.empty(); }
   const std::vector<Entry>& entries() const { return entries_; }
   const Entry* Find(uint32_t index) const;
@@ -419,7 +421,7 @@ int32_t FindAnimation(const Catalog& catalog, const uint8_t* asset_id);
 std::filesystem::path CatalogPath(const std::filesystem::path& content_root);
 Catalog* SharedCatalog(const std::filesystem::path& content_root);
 // Native PC build: marketplace and award items imported for the Avatar Editor
-// (work\avatar-editor\closet: <guid>.bin + closet_index.tsv). Each becomes an
+// (ONEVS100_AVATAR_CLOSET: <guid>.bin + closet_index.tsv). Each becomes an
 // installed entry through Catalog::AddAsset. SharedCatalog loads the folder
 // named by ONEVS100_AVATAR_CLOSET. Returns how many items were added.
 size_t LoadClosetItems(Catalog& catalog, const std::filesystem::path& folder);

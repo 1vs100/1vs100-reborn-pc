@@ -9,6 +9,8 @@
 #include <rex/filesystem.h>
 #include <rex/logging.h>
 #include <rex/platform.h>
+#include <functional>
+#include <optional>
 #include "local_profile.h"
 #include "content_install.h"
 #include "gameserver_redirect.h"
@@ -55,6 +57,18 @@ class Onevs100App : public rex::ReXApp {
     paths.user_data_root = folder / "userdata";
     paths.cache_root = folder / "cache";
     paths.config_path = folder / "onevs100.toml";
+  }
+  std::optional<rex::PathConfig> OnFinalizePaths(const rex::PathConfig& defaults,
+                                                 std::function<void(rex::PathConfig)>) override {
+    // Without an unpacked game folder, game: is the original game package.
+    auto paths = defaults;
+    std::error_code error;
+    const bool haveGame = std::filesystem::is_regular_file(paths.game_data_root, error) ||
+                          std::filesystem::exists(paths.game_data_root / "default.xex", error);
+    if (!haveGame) {
+      if (auto package = FindGamePackage()) paths.game_data_root = *package;
+    }
+    return paths;
   }
   void OnPostInitLogging() override {
     // Logging starts after OnConfigurePaths.

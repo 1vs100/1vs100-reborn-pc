@@ -15,7 +15,13 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <span>
 #include <string>
+#include <vector>
+#include <string_view>
+#include <system_error>
+#include <rex/filesystem/devices/stfs_container_device.h>
+#include <rex/filesystem/file.h>
 
 #include "third_party/mspack/lzx.h"
 #include "third_party/mspack/mspack.h"
@@ -1886,6 +1892,14 @@ bool Catalog::Load(const std::filesystem::path& path) {
   if (!file.read(reinterpret_cast<char*>(data.data()), length)) {
     return false;
   }
+  return LoadBytes(data.data(), data.size());
+}
+
+bool Catalog::LoadBytes(const uint8_t* bytes, size_t size) {
+  if (!bytes || size < 0x30 || size > (256ll << 20)) {
+    return false;
+  }
+  std::vector<uint8_t> data(bytes, bytes + size);
   const uint32_t version = Be32(data.data() + 0x18);
   const uint32_t count = Be32(data.data() + 0x1C);
   const uint32_t locales = version >= 2 ? Be32(data.data() + 0x28) : 13;
@@ -2487,6 +2501,102 @@ int32_t HeadFeatureForUsage(uint32_t usage) {
   return -1;
 }
 
+namespace {
+// CON, PIRS and LIVE packages all start with their magic where a .toc never
+// has one, so the first four bytes tell a bare pack table from a container.
+bool HasStfsMagic(const std::filesystem::path& path) {
+  std::ifstream file(path, std::ios::binary);
+  if (!file) return false;
+  char magic[4] = {};
+  if (!file.read(magic, 4)) return false;
+  const std::string_view view(magic, 4);
+  return view == "CON " || view == "PIRS" || view == "LIVE";
+}
+
+bool ReadRawFile(const std::filesystem::path& path, std::vector<uint8_t>* out) {
+  std::ifstream file(path, std::ios::binary | std::ios::ate);
+  if (!file) return false;
+  const std::streamoff length = file.tellg();
+  if (length < 0x30 || length > (256ll << 20)) return false;
+  std::vector<uint8_t> bytes(static_cast<size_t>(length));
+  file.seekg(0);
+  if (!file.read(reinterpret_cast<char*>(bytes.data()), length)) return false;
+  *out = std::move(bytes);
+  return true;
+}
+
+// Reads one file out of an STFS package through the runtime container device.
+bool ReadStfsFile(const std::filesystem::path& package, const char* name,
+                  std::vector<uint8_t>* out) {
+  rex::filesystem::StfsContainerDevice device("avatarstfs", package);
+  if (!device.Initialize()) return false;
+  rex::filesystem::Entry* entry = device.ResolvePath(name);
+  if (!entry) return false;
+  const size_t size = entry->size();
+  if (!size || size > (256ull << 20)) return false;
+  using rex::X_STATUS;
+  struct FileDestroy {
+    void operator()(rex::filesystem::File* file) const {
+      if (file) file->Destroy();
+    }
+  };
+  std::unique_ptr<rex::filesystem::File, FileDestroy> file;
+  {
+    rex::filesystem::File* raw = nullptr;
+    if (entry->Open(rex::filesystem::FileAccess::kGenericRead, &raw) !=
+            X_STATUS_SUCCESS ||
+        !raw) {
+      return false;
+    }
+    file.reset(raw);
+  }
+  std::vector<uint8_t> bytes(size);
+  size_t offset = 0;
+  while (offset < size) {
+    size_t got = 0;
+    const X_STATUS status = file->ReadSync(
+        std::span<uint8_t>(bytes.data() + offset, size - offset), offset, &got);
+    if (status != X_STATUS_SUCCESS || !got) {
+      return false;
+    }
+    offset += got;
+  }
+  *out = std::move(bytes);
+  return true;
+}
+
+// The AvatarAssetPack.toc, either as a bare file or extracted from the STFS
+// container that Dashboard content keeps it in. content_root is a bare .toc
+// path when it names a file, else the content folder holding
+// .../FFFE07DF00000002/AvatarAssetPack.toc or the FFFE07DF00000002 node
+// itself as the STFS container.
+bool ReadAvatarTocBytes(const std::filesystem::path& content_root,
+                        std::vector<uint8_t>* out) {
+  std::error_code error;
+  if (std::filesystem::is_regular_file(content_root, error)) {
+    if (HasStfsMagic(content_root)) {
+      return ReadStfsFile(content_root, "AvatarAssetPack.toc", out);
+    }
+    return ReadRawFile(content_root, out);
+  }
+  const std::filesystem::path toc = CatalogPath(content_root);
+  if (std::filesystem::is_regular_file(toc, error)) {
+    return ReadRawFile(toc, out);
+  }
+  // Unextracted tree: the FFFE07DF00000002 node is the container file.
+  if (std::filesystem::is_regular_file(toc.parent_path(), error) &&
+      HasStfsMagic(toc.parent_path())) {
+    return ReadStfsFile(toc.parent_path(), "AvatarAssetPack.toc", out);
+  }
+  // Bare container staged straight under the content root.
+  const std::filesystem::path package = content_root / "FFFE07DF00000002";
+  if (std::filesystem::is_regular_file(package, error) &&
+      HasStfsMagic(package)) {
+    return ReadStfsFile(package, "AvatarAssetPack.toc", out);
+  }
+  return false;
+}
+}  // namespace
 std::filesystem::path CatalogPath(const std::filesystem::path& content_root) {
   return content_root / "0000000000000000" / "FFFE07DF" / "00008000" /
          "FFFE07DF00000002" / "AvatarAssetPack.toc";
@@ -2511,8 +2621,14 @@ Catalog* SharedCatalog(const std::filesystem::path& content_root) {
   }
   attempted = true;
   last_attempt = now;
+  std::vector<uint8_t> toc;
+  if (!ReadAvatarTocBytes(content_root, &toc)) {
+    REXKRNL_WARN("Avatar: no pack table under {}", content_root.string());
+    return nullptr;
+  }
   auto loaded = std::make_unique<Catalog>();
-  if (!loaded->Load(CatalogPath(content_root))) {
+  if (!loaded->LoadBytes(toc.data(), toc.size())) {
+    REXKRNL_WARN("Avatar: pack table ({} bytes) did not parse", toc.size());
     return nullptr;
   }
   if (const char* closet = std::getenv("ONEVS100_AVATAR_CLOSET");

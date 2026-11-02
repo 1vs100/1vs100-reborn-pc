@@ -3,7 +3,6 @@
 #include "onevs100_init.h"
 #include <vector>
 extern "C" REX_FUNC(native_dialogue_play);
-extern "C" REX_FUNC(native_room_call);
 extern "C" REX_FUNC(native_debug_log);
 extern "C" REX_FUNC(native_storage);
 
@@ -61,8 +60,6 @@ const rex::PPCImageInfo& NativeImageConfig() {
     result.push_back({0x8233C3C0, native_8233C3C0});
     result.push_back({0x8233C3C8, native_8233C3C8});
     result.push_back({0x82372B18, native_82372B18});
-    // Top of the thunk reserve; see kRoomThunk in native_room_hook.cpp.
-    result.push_back({0x8299D420, native_room_call});
     result.push_back({0x8299D428, native_debug_log});
     result.push_back({0x8299D430, native_storage});
     result.push_back({0, nullptr});

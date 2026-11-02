@@ -1,7 +1,7 @@
 # Builds the native game and the launcher, then packages a dated Private Alpha Test build:
 #   dist\1vs100-private-alpha-<yyyyMMdd-HHmmss>\  and  dist\1vs100-private-alpha-<yyyyMMdd-HHmmss>.zip
 # Run from anywhere:
-#   powershell -ExecutionPolicy Bypass -File outputs\online-tools\Build-TestPackage.ps1
+#   powershell -ExecutionPolicy Bypass -File tools\Build-TestPackage.ps1
 # The package leaves out your profile, Avatar, saved stats, logs and crash
 # dumps. Only share it with someone entitled to the game files.
 param([switch]$SkipBuild)
@@ -39,9 +39,12 @@ if(-not $SkipBuild) {
 }
 
 # Every Lua file must keep CRLF line endings.
-$bad=@(Get-ChildItem (Join-Path $root 'work\native-parity\assets\lua') -Filter *.lua | Where-Object {
-    $text=[IO.File]::ReadAllText($_.FullName); ($text -replace "`r`n",'') -match "`n" })
-if($bad.Count) { throw ('Lua files with LF line endings: ' + ($bad.Name -join ', ')) }
+$stagedLua=Join-Path $root 'work\native-parity\assets\lua'
+if (Test-Path $stagedLua) {
+    $bad=@(Get-ChildItem $stagedLua -Filter *.lua | Where-Object {
+        $text=[IO.File]::ReadAllText($_.FullName); ($text -replace "`r`n",'') -match "`n" })
+    if($bad.Count) { throw ('Lua files with LF line endings: ' + ($bad.Name -join ', ')) }
+}
 
 $name="1vs100-private-alpha-$stamp"
 $out=Join-Path $root "dist\$name"
@@ -60,7 +63,6 @@ Put 'outputs\online-tools\Collect-Logs.ps1'
 Put 'outputs\online-tools\mods-README.txt'
 Put 'work\native-parity\mods'
 Put 'work\native-avatar-build\onevs100.exe'
-Put 'work\native-avatar-build\steam_api64.dll'
 Put 'work\native-parity\assets'
 Put 'work\native-parity\content'
 Put 'work\native-parity\rexruntime.dll'
@@ -82,7 +84,7 @@ live_title=1 vs 100 LIVE
 bots=1
 bot_count=99
 show_mode=Extended Play
-host_steam_id=
+gameserver_host=
 sponsor=No sponsor (recommended)
 show_skin=Standard
 host_tool=Off
@@ -97,35 +99,24 @@ Set-Content (Join-Path $out 'README.txt') @"
 1 vs 100 (PC build) - Private Alpha Test, build $stamp
 Please do not share this package outside the test group.
 
-Setup (both PCs)
-1. Install and sign in to Steam. Be Steam friends with the host.
-2. Unzip into a NEW folder and open "1vs100 Launcher.exe".
+Setup
+1. Unzip into a NEW folder and open "1vs100 Launcher.exe".
    To keep your profile and stats, copy your old player-data folder into it.
-3. Your gamertag is your Steam display name (accents become plain letters,
-   symbols are dropped, 15 characters max). Without Steam, the first start
-   asks for a gamertag. Picture: Play tab > "Edit profile".
+2. The first start asks for a gamertag. Picture: Play tab > "Edit profile".
+3. For online play set online_service=gameserver and gameserver_host in
+   onevs100.toml to your gameserver.
 
 Avatars
-- In a party, the game sends each player's own Avatar (body, face, colours
-  and clothes) to the others; new in this build.
+- The game sends each player's own Avatar (body, face, colours
+  and clothes) to the others through the gameserver; new in this build.
 - Marketplace items a player has and you do not show as a similar standard
   item (a tee for a tee, glasses for glasses), or the default item for
   costumes, helmets and masks.
-- The Avatar Editor is not part of this package (it is built from each
-  player's own Xbox 360 dashboard files). Without it, your Avatar is the one
-  the game made for your profile.
-
-Playing together
-- Host: Play tab > "Host a party (Steam)". The countdown is 180 s.
-- Guest: Play tab > "Join a friend's party" before the countdown ends.
-- Show mode (Show tab) is the HOST's choice: Extended Play, or Live (Primetime,
-  experimental). Guests automatically play the host's mode and question count.
 
 Controller (Controls tab)
 - Plug the DualSense in by USB before starting. Click inside the game window.
 - "DualSense (USB) direct backup" is on: the game also reads the pad itself.
-- If the pad still does nothing: Steam > Settings > Controller, turn off
-  PlayStation controller support, and close DS4Windows if it is running.
+- If the pad still does nothing: close DS4Windows if it is running.
 - "Mouse button panel" adds a small window of clickable answer/menu buttons.
 - Keyboard: Space = A, Backspace = B, L = X, P = Y, X = Start, W/S = up/down.
 

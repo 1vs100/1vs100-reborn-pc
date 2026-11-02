@@ -2,7 +2,10 @@
 #include "native_bridge.h"
 #include "local_avatar.h"
 #include "../local_profile.h"
+#include <rex/cvar.h>
+#include <rex/filesystem.h>
 #include <rex/hook.h>
+#include <rex/platform.h>
 #include <rex/system/kernel_state.h>
 #include <rex/system/xam/user_profile.h>
 #include <array>
@@ -18,11 +21,21 @@ static_assert(xe::kernel::NativeAvatarHostOffset(0xFDD6E000u)==rex::memory::deta
 using xe::kernel::NativeAvatarGuest;
 namespace a=xe::kernel::xna::avatar;
 namespace xa=xe::kernel::xam;
-bool NativeAvatarEnabled() { const char* p=std::getenv("ONEVS100_NATIVE_AVATAR_CONTENT");return p&&*p; }
+REXCVAR_DEFINE_STRING(native_avatar_content, "", "Avatar",
+                      "Avatar asset content root (folder holding 0000000000000000)");
+std::filesystem::path NativeAvatarContentPath() {
+  if (const char* p = std::getenv("ONEVS100_NATIVE_AVATAR_CONTENT"); p && *p) return p;
+  std::filesystem::path path = REXCVAR_GET(native_avatar_content);
+#if REX_PLATFORM_WINRT
+  if (!path.empty() && path.is_relative()) path = rex::filesystem::GetExecutableFolder() / path;
+#endif
+  return path;
+}
+bool NativeAvatarEnabled() { return !NativeAvatarContentPath().empty(); }
 namespace xe::kernel::xna {
 avatar::Catalog* XnaAvatarCatalog() {
- const char* path=std::getenv("ONEVS100_NATIVE_AVATAR_CONTENT");
- return path&&*path?avatar::SharedCatalog(std::filesystem::path(path)):nullptr;
+  const std::filesystem::path path = NativeAvatarContentPath();
+  return path.empty() ? nullptr : avatar::SharedCatalog(path);
 }
 }
 namespace {
@@ -35,7 +48,7 @@ uint32_t Complete(uint32_t overlap,uint32_t result) {
  }
  return result;
 }
-// Party members' own Avatars, received through the room (NativeRoom.lua).
+// Remote Avatars received through the gameserver matchmaking relay.
 std::mutex remoteMutex;
 std::map<uint64_t,std::array<uint8_t,a::kManifestBytes>> remoteManifests;
 bool RemoteManifest(uint64_t xuid,uint8_t* out) {
@@ -58,7 +71,7 @@ bool WriteManifest(uint8_t* base,uint32_t output,uint64_t xuid,int32_t body,bool
  static std::mt19937 generator(0x1A5100);
  std::lock_guard<std::mutex> lock(mutex);
  std::mt19937 profile(uint32_t(xuid)^uint32_t(xuid>>32));
- // The local player's saved Avatar (Edit Avatar in the profile window).
+
  a::Description description;
  auto* kernel=rex::system::kernel_state();
  const bool local=!random&&kernel&&kernel->user_profile()&&xuid==LocalXuid();

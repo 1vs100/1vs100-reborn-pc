@@ -1,5 +1,5 @@
 @echo off
-rem Builds "1vs100 Launcher.exe" in the workspace root from work\launcher\launcher.cpp.
+rem Builds "1vs100 Launcher.exe" in the workspace root from launcher\launcher.cpp.
 call "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat" >nul
 if errorlevel 1 exit /b %errorlevel%
 rem clang-cl from LLVM: set LLVM_BIN to its bin folder, or have clang-cl on PATH.
