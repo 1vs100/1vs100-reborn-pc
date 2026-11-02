@@ -1,0 +1,49 @@
+name: Set up Clang
+description: >-
+  Install the pinned Clang/LLD/LLVM from apt.llvm.org and link the unversioned
+  tool names (clang, clang++, clang-cl, lld-link, llvm-rc, llvm-mt) the CMake
+  toolchains expect. Version comes from the CLANG_VERSION environment.
+
+runs:
+  using: composite
+  steps:
+    - name: Install Clang from apt.llvm.org
+      shell: bash
+      run: |
+        set -euo pipefail
+        # Add APT source
+        wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
+        chmod +x /tmp/llvm.sh
+        sudo /tmp/llvm.sh "$CLANG_VERSION"
+        sudo apt-get install -y \
+          "clang-$CLANG_VERSION" \
+          "lld-$CLANG_VERSION" \
+          "llvm-$CLANG_VERSION"
+
+    - name: Link unversioned tool names
+      shell: bash
+      run: |
+        set -euo pipefail
+        bind() {
+          local name="$1"; shift
+          for cand in "$@"; do
+            if command -v "$cand" >/dev/null 2>&1; then
+              sudo ln -sf "$(command -v "$cand")" "/usr/local/bin/$name"
+              return 0
+            fi
+          done
+          echo "::error::no candidate for tool '$name' (tried: $*)"
+          return 1
+        }
+        V="$CLANG_VERSION"
+        bind clang "clang-$V" clang
+        bind clang++ "clang++-$V" clang++
+        bind clang-cl "clang-cl-$V" clang-cl
+        bind lld-link "lld-link-$V" lld-link
+        bind llvm-rc "llvm-rc-$V" llvm-rc
+        bind llvm-mt "llvm-mt-$V" llvm-mt
+        bind llvm-lib "llvm-lib-$V" llvm-lib
+        hash -r
+        clang --version
+        clang-cl --version
+        lld-link --version
