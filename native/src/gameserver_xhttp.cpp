@@ -348,8 +348,7 @@ REX_HOOK_RAW(__imp__NetDll_XHttpOpen) {
 // XHttpConnect(session, serverName, port, flags)
 REX_HOOK_RAW(__imp__NetDll_XHttpConnect) {
   if (!Gameserver()) {
-    // Offline mode never contacts a server.
-    REXKRNL_WARN("Offline restoration: denied guest HTTP connection");
+    REXKRNL_WARN("Denied guest HTTP without gameserver");
     rex::system::XThread::SetLastError(xhttp::kErrorCannotConnect);
     ctx.r3.u64 = 0;
     return;

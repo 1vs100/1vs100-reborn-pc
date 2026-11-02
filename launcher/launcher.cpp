@@ -33,11 +33,11 @@ std::wstring root, iniPath;
 
 enum Id {
   kTabs = 100,
-  kPlayOffline = 200, kHostOnline, kJoinOnline, kTestLocal, kEditProfile, kOpenLogs, kAvatarEditor, kImportAvatarItems, kSendLogs,
+  kPlayOffline = 200, kTestLocal, kEditProfile, kOpenLogs, kSendLogs,
   kFullscreen = 300, kWindowSize, kVsync, kRenderScale, kMonitor,
   kKeyboard = 400, kInputBackend, kSensitivity, kDualSenseDirect, kMousePanel,
   kQuestions = 500, kPreShow, kShowTitle, kBots, kShowMode, kLiveTitle, kBotCount,
-  kHostId = 600, kMySteamId, kCopyId,
+  kHostId = 600,
   kSponsor = 700, kSkin, kHostTool, kDebugInput, kFakeLiveHost, kSubtitles, kSponsorDance, kFakeReals, kNoMods,
   kExportContent, kOpenMods,
 };
@@ -90,15 +90,6 @@ std::wstring ComboText(int id) {
 }
 void SetStatus(const std::wstring& text) { SetWindowTextW(statusText, text.c_str()); UpdateWindow(statusText); }
 
-// Steam's running-user record gives this PC's Steam account (SteamID64).
-std::wstring MySteamId() {
-  DWORD account = 0, size = sizeof(account);
-  if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\Valve\\Steam\\ActiveProcess", L"ActiveUser",
-                   RRF_RT_REG_DWORD, nullptr, &account, &size) != ERROR_SUCCESS || !account)
-    return L"";
-  return std::to_wstring(76561197960265728ull + account);
-}
-
 HWND Add(int page, const wchar_t* cls, const wchar_t* text, DWORD style, int x, int y, int w, int h, int id = 0) {
   HWND control = CreateWindowExW(0, cls, text, WS_CHILD | style, x, y, w, h, window,
                                  reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)), instance, nullptr);
@@ -141,6 +132,7 @@ void ShowPage(int page) {
 }
 
 void SaveSettings() {
+  WriteSetting(L"gameserver_host", Text(kHostId));
   WriteSetting(L"fullscreen", Checked(kFullscreen) ? L"1" : L"0");
   WriteSetting(L"window_size", ComboText(kWindowSize));
   WriteSetting(L"vsync", Checked(kVsync) ? L"1" : L"0");
@@ -158,7 +150,6 @@ void SaveSettings() {
   WriteSetting(L"bots", Checked(kBots) ? L"1" : L"0");
   WriteSetting(L"bot_count", Text(kBotCount));
   WriteSetting(L"show_mode", ComboText(kShowMode));
-  WriteSetting(L"host_steam_id", Text(kHostId));
   WriteSetting(L"sponsor", ComboText(kSponsor));
   WriteSetting(L"show_skin", ComboText(kSkin));
   WriteSetting(L"host_tool", ComboText(kHostTool));
@@ -251,33 +242,6 @@ int RunTool(const std::wstring& scriptAndArgs, DWORD timeout) {
   return wait == WAIT_OBJECT_0 ? static_cast<int>(code) : -1;
 }
 
-// The Avatar Editor recompilation (work\avatar-editor, built by
-// build_avatar_editor.cmd). It saves avatar_manifest.bin to
-// player-data\avatar-editor, which the game reads as the local Avatar.
-void OpenAvatarEditor() {
-  const std::wstring folder = root + L"\\work\\avatar-editor\\b";
-  const std::wstring exe = folder + L"\\avatareditor.exe";
-  if (GetFileAttributesW(exe.c_str()) == INVALID_FILE_ATTRIBUTES) {
-    SetStatus(L"The Avatar Editor is not built yet: run work\\avatar-editor\\build_avatar_editor.cmd.");
-    return;
-  }
-  const std::wstring data = root + L"\\player-data\\avatar-editor";
-  CreateDirectoryW((root + L"\\player-data").c_str(), nullptr);
-  CreateDirectoryW(data.c_str(), nullptr);
-  std::wstring command = L"\"" + exe + L"\" --avatar_data_dir=\"" + data + L"\"";
-  STARTUPINFOW startup = {sizeof(startup)};
-  PROCESS_INFORMATION process = {};
-  std::vector<wchar_t> buffer(command.begin(), command.end());
-  buffer.push_back(0);
-  if (!CreateProcessW(exe.c_str(), buffer.data(), nullptr, nullptr, FALSE, 0, nullptr, folder.c_str(), &startup, &process)) {
-    SetStatus(L"Could not start the Avatar Editor.");
-    return;
-  }
-  CloseHandle(process.hThread);
-  CloseHandle(process.hProcess);
-  SetStatus(L"Avatar Editor started. Save your Avatar there, then start a show.");
-}
-
 // First line of a small UTF-8 text file a tool script wrote ("" if missing).
 std::wstring ReadLine(const std::wstring& path) {
   HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
@@ -320,44 +284,6 @@ void SendLogs() {
   }
 }
 
-// Folder picker for the Avatar item import. Empty when cancelled.
-std::wstring PickFolder(const wchar_t* title) {
-  CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
-  BROWSEINFOW info = {};
-  info.hwndOwner = window;
-  info.lpszTitle = title;
-  info.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
-  PIDLIST_ABSOLUTE list = SHBrowseForFolderW(&info);
-  if (!list) return L"";
-  wchar_t path[MAX_PATH] = {};
-  const bool ok = SHGetPathFromIDListW(list, path) != FALSE;
-  CoTaskMemFree(list);
-  return ok ? path : L"";
-}
-
-// Copies the player's own Avatar items (from a copy of their console's Content
-// folder, a USB drive, or saved packages) into work\avatar-editor\closet, which
-// the Avatar Editor and the game both read.
-void ImportAvatarItems() {
-  const std::wstring script = root + L"\\work\\avatar-editor\\Import-AvatarCloset.ps1";
-  if (GetFileAttributesW(script.c_str()) == INVALID_FILE_ATTRIBUTES) {
-    SetStatus(L"The Avatar item import tool is missing (work\\avatar-editor\\Import-AvatarCloset.ps1).");
-    return;
-  }
-  std::wstring folder = PickFolder(L"Choose a folder with your Xbox 360 Avatar items, for example a copy of "
-                                   L"your console's Content folder. Everything inside it is searched.");
-  if (folder.empty()) return;
-  // "D:\" would end the quoted argument with an escaped quote.
-  if (folder.back() == L'\\') folder += L'.';
-  SetStatus(L"Importing Avatar items from " + folder + L" ...");
-  DeleteFileW((root + L"\\work\\avatar-editor\\closet\\last-import.txt").c_str());
-  const int code = RunTool(L"\"" + script + L"\" -Source \"" + folder + L"\"", 1800000);
-  std::wstring summary = ReadLine(root + L"\\work\\avatar-editor\\closet\\last-import.txt");
-  if (code == 0 && !summary.empty()) SetStatus(summary + L" Start a new show to use them.");
-  else SetStatus(summary.empty() ? L"The import did not finish. See outputs\\diagnostics\\import-avatar-closet-*.log."
-                                 : summary);
-}
-
 bool Launch(const std::wstring& mode, bool editProfile = false) {
   SaveSettings();
   std::wstring script = root + L"\\outputs\\online-tools\\Launch-NativeRoomTest.ps1";
@@ -375,15 +301,6 @@ bool Launch(const std::wstring& mode, bool editProfile = false) {
       (Checked(kMousePanel) ? L" -MousePanel" : L"") +
       DebugArgs() +
       L" -GameArgs \"" + GameArgs(editProfile) + L"\"";
-  if (mode == L"SteamJoin") {
-    std::wstring id = Text(kHostId);
-    if (!id.empty()) {
-      bool ok = id.size() >= 15 && id.size() <= 20;
-      for (wchar_t c : id) ok = ok && c >= L'0' && c <= L'9';
-      if (!ok) { SetStatus(L"The host Steam ID on the Online tab should be 17 digits (or leave it empty)."); return false; }
-      command += L" -HostSteamId " + id;
-    }
-  }
   STARTUPINFOW startup = {sizeof(startup)};
   PROCESS_INFORMATION process = {};
   std::vector<wchar_t> buffer(command.begin(), command.end());
@@ -423,19 +340,11 @@ void Build() {
   // Play
   Button(0, L"Play offline", kPlayOffline, x, y);
   Label(0, L"Solo show with offline players (how many: Show tab).", x + 240, y + 8, 400);
-  Button(0, L"Host a party (Steam)", kHostOnline, x, y + 50);
-  Label(0, L"Up to 4 players. Steam friends can join you.", x + 240, y + 58, 400);
-  Button(0, L"Join a friend's party", kJoinOnline, x, y + 100);
-  Label(0, L"Finds a Steam friend hosting, or uses the Online tab ID.", x + 240, y + 108, 400);
   Button(0, L"Test: two copies on this PC", kTestLocal, x, y + 150);
   Label(0, L"Starts a host and a second player (Player2).", x + 240, y + 158, 360);
-  Button(0, L"Avatar Editor", kAvatarEditor, x, y + 200);
-  Label(0, L"Change your Avatar, with your imported closet. The game uses\n"
-           L"your saved Avatar the next time Avatars load.", x + 240, y + 200, 420, 36);
   Button(0, L"Edit profile", kEditProfile, x, y + 250);
   Label(0, L"Gamertag and picture for this PC.", x + 240, y + 258, 360);
   Button(0, L"Open logs folder", kOpenLogs, x, y + 300, 220, 30);
-  Button(0, L"Import Avatar items...", kImportAvatarItems, x + 240, y + 300, 220, 30);
   Button(0, L"Send logs", kSendLogs, x + 480, y + 300, 170, 30);
   // Display
   Check(1, L"Fullscreen", kFullscreen, x, y);
@@ -456,8 +365,7 @@ void Build() {
   Edit(2, kSensitivity, x + 170, y + 84, 80, ReadSetting(L"mouse_sensitivity", L"1.0"));
   Check(2, L"DualSense (USB) direct backup: also read the pad directly as player 1", kDualSenseDirect, x, y + 128, 620);
   Check(2, L"Mouse button panel: a small window of clickable answer and menu buttons", kMousePanel, x, y + 160, 620);
-  Label(2, L"Click inside the game window first. If Steam Input claims the DualSense, turn off\n"
-           L"Steam > Settings > Controller > PlayStation controller support, or use the direct backup.", x, y + 196, 620, 40);
+  Label(2, L"Click inside the game window first before using the keyboard.", x, y + 196, 620, 40);
   // Show
   Label(3, L"Questions per show", x, y + 4, 170);
   Combo(3, kQuestions, x + 180, y, 200, {L"3 (quick test)", L"5", L"10", L"20", L"Full show (37)"},
@@ -477,14 +385,9 @@ void Build() {
   Label(3, L"In an online room only the host's settings apply: everyone plays the host's mode,\n"
            L"question count and schedule.", x, y + 240, 560, 40);
   // Online
-  Label(4, L"Your Steam ID (share it with friends who join you)", x, y, 420);
-  std::wstring mine = MySteamId();
-  Edit(4, kMySteamId, x, y + 24, 240, mine.empty() ? L"Steam is not running" : mine, ES_READONLY);
-  Button(4, L"Copy", kCopyId, x + 252, y + 22, 90, 30);
-  Label(4, L"Host's Steam ID (optional; empty = find a friend's party)", x, y + 72, 460);
-  Edit(4, kHostId, x, y + 96, 240, ReadSetting(L"host_steam_id", L""), ES_NUMBER);
-  Label(4, L"Steam must be running on both PCs. Rooms use the Steam development app ID 480.\n"
-           L"Internet play has not been tested yet; two copies on one PC have.", x, y + 140, 620, 44);
+  Label(4, L"Gameserver host (IPv4 or name)", x, y, 420);
+  Edit(4, kHostId, x, y + 24, 240, ReadSetting(L"gameserver_host", L""), 0);
+  Label(4, L"Set online_service=gameserver and gameserver_host in onevs100.toml.", x, y + 72, 620, 44);
   // Debug: original development switches and mods (applied to the next launch).
   Label(5, L"Sponsor", x, y + 4, 120);
   Combo(5, kSponsor, x + 130, y, 240, {L"No sponsor (recommended)", L"Sprint (original)"},
@@ -522,18 +425,6 @@ void Build() {
   ShowPage(0);
 }
 
-void CopyText(const std::wstring& text) {
-  if (!OpenClipboard(window)) return;
-  EmptyClipboard();
-  HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, (text.size() + 1) * sizeof(wchar_t));
-  if (memory) {
-    memcpy(GlobalLock(memory), text.c_str(), (text.size() + 1) * sizeof(wchar_t));
-    GlobalUnlock(memory);
-    SetClipboardData(CF_UNICODETEXT, memory);
-  }
-  CloseClipboard();
-}
-
 LRESULT CALLBACK Proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
   switch (message) {
     case WM_CREATE: {
@@ -554,8 +445,6 @@ LRESULT CALLBACK Proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
     case WM_COMMAND:
       switch (LOWORD(wparam)) {
         case kPlayOffline: SetStatus(L"Starting an offline show..."); if (Launch(L"Offline")) SetStatus(L"Game started."); return 0;
-        case kHostOnline: SetStatus(L"Starting a party..."); if (Launch(L"SteamHost")) SetStatus(L"Hosting a party. Invite friends from the Steam overlay or Invite Friends."); return 0;
-        case kJoinOnline: SetStatus(L"Joining..."); if (Launch(L"SteamJoin")) SetStatus(L"Game started; it looks for the party."); return 0;
         case kTestLocal:
           SetStatus(L"Starting the host copy...");
           if (Launch(L"LocalHost")) {
@@ -565,8 +454,6 @@ LRESULT CALLBACK Proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
           }
           return 0;
         case kEditProfile: SetStatus(L"Opening the profile editor..."); if (Launch(L"Offline", true)) SetStatus(L"Game started with the profile editor."); return 0;
-        case kAvatarEditor: OpenAvatarEditor(); return 0;
-        case kImportAvatarItems: ImportAvatarItems(); return 0;
         case kSendLogs: SendLogs(); return 0;
         case kOpenLogs: ShellExecuteW(hwnd, L"open", (root + L"\\outputs\\diagnostics").c_str(), nullptr, nullptr, SW_SHOWNORMAL); return 0;
         case kExportContent: {
@@ -587,7 +474,6 @@ LRESULT CALLBACK Proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
           ShellExecuteW(hwnd, L"open", mods.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
           return 0;
         }
-        case kCopyId: CopyText(Text(kMySteamId)); SetStatus(L"Steam ID copied."); return 0;
       }
       return 0;
     case WM_CLOSE:

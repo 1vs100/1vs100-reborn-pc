@@ -1,6 +1,4 @@
-// Guest DNS. Offline mode denies it so retired services are never contacted.
-// Gameserver mode answers it: Massive's madserver.net hosts resolve to the
-// gameserver, other names through the host. The runtime's lookup always fails.
+// Guest DNS answers madserver.net with the gameserver and other names via host.
 // Sockets: guest_sockets.cpp; HTTP: gameserver_xhttp.cpp.
 #include <rex/hook.h>
 #include <rex/memory/utils.h>
@@ -59,15 +57,14 @@ std::vector<uint32_t> Resolve(const std::string& host) {
 REX_HOOK_RAW(__imp__NetDll_XNetDnsLookup) {
   const uint32_t resultAddress = ctx.r6.u32;
   if (CurrentOnlineService() != OnlineService::Gameserver) {
-    REXKRNL_WARN("Offline restoration: denied guest DNS lookup");
     if (resultAddress) store_and_swap<uint32_t>(base + resultAddress, 0);
-    ctx.r3.u64 = kWsaNetDown;  // No asynchronous request was started.
+    ctx.r3.u64 = kWsaNetDown;
     return;
   }
   if (!ctx.r4.u32) { ctx.r3.u64 = kWsaInvalidArgument; return; }
   const std::string host(reinterpret_cast<const char*>(base + ctx.r4.u32));
   const auto addresses = Resolve(host);
-  REXKRNL_INFO("Gameserver mode: DNS {} -> {} address(es)", host, addresses.size());
+  REXKRNL_INFO("DNS {} -> {} address(es)", host, addresses.size());
   if (resultAddress) {
     const uint32_t dns = REX_KERNEL_MEMORY()->SystemHeapAlloc(kDnsSize);
     std::memset(base + dns, 0, kDnsSize);

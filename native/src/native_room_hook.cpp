@@ -2,24 +2,16 @@
 #include <rex/hook.h>
 #include <rex/system/xmemory.h>
 #include <rex/memory/utils.h>
-#include "native_room.h"
 #include "local_profile.h"
 #include "native_video.h"
-#include "avatar_native/native_provider.h"
 #include <rex/filesystem.h>
 #include <cstring>
-#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <string>
 
-// Host-only entry points in the dispatch thunk reserve [8298D438, 8299D438).
-// The runtime's AllocateThunk hands out reserve slots upward from 8298D438 for
-// kernel callbacks, so the old fixed slots 8298D440/8298D448 were overwritten
-// at startup and Lua calls to them never reached these functions. Use the top
-// of the reserve instead, far from the allocator. Mapped in main.cpp.
-constexpr uint32_t kRoomThunk = 0x8299D420;
+// Host entry points in the dispatch thunk reserve. Mapped in main.cpp.
 // NativeDebugLog(text) writes a Lua diagnostic line to the runtime log.
 // Lua print() output never reaches the log in this build.
 constexpr uint32_t kDebugLogThunk = 0x8299D428;
@@ -41,25 +33,6 @@ static std::string Argument(PPCContext& ctx, uint8_t* base, uint32_t lua, int in
   if (auto address = frame.ctx.r3.u32; address && length <= 65536)
     value.assign(reinterpret_cast<const char*>(base+address), length);
   return value;
-}
-extern "C" REX_FUNC(native_room_call) {
-  auto lua = ctx.r3.u32;
-  auto operation = Argument(ctx, base, lua, 1);
-  const auto value = Argument(ctx, base, lua, 2);
-  // Party Avatars are served by the native Avatar provider, not the transport.
-  auto result = operation == "avatar"   ? NativeAvatarManifestHex(value)
-              : operation == "avatarof" ? NativeAvatarSetRemote(value)
-                                        : NativeRoomOperation(operation, value);
-  if (operation == "mode") REXKRNL_INFO("Native room Lua call verified mode={}", result);
-  auto* memory = REX_KERNEL_MEMORY();
-  uint32_t scratch = memory->SystemHeapAlloc(static_cast<uint32_t>(result.size()+1), 16);
-  if (!scratch) { ctx.r3.s64 = 0; return; }
-  std::memcpy(base+scratch, result.c_str(), result.size()+1);
-  rex::CallFrame frame(ctx);
-  frame.ctx.r3.u64 = lua; frame.ctx.r4.u64 = scratch; frame.ctx.r5.u64 = result.size();
-  sub_82135D70(frame.ctx, base); // lua_pushlstring copies into Lua-owned storage.
-  memory->SystemHeapFree(scratch);
-  ctx.r3.s64 = 1;
 }
 static void PushString(PPCContext& ctx, uint8_t* base, uint32_t lua, const std::string& text) {
   auto* memory = REX_KERNEL_MEMORY();
@@ -146,10 +119,6 @@ static void RegisterNativeGlobals(PPCContext& ctx, uint8_t* base, uint32_t lua, 
   RegisterGlobal(ctx, base, lua, kDebugLogThunk, "NativeDebugLog");
   RegisterGlobal(ctx, base, lua, kStorageThunk, "NativeStorage");
   REXKRNL_INFO("Native debug log Lua API registered ({}) L={:08X}", where, lua);
-  if (!std::getenv("ONEVS100_ROOM_MODE")) return;
-  RegisterGlobal(ctx, base, lua, kRoomThunk, "NativeRoomTransport");
-  REXKRNL_INFO("Native room Lua API registered ({}) L={:08X} mode={}", where, lua,
-               NativeRoomOperation("mode", ""));
 }
 REX_HOOK_RAW(sub_82135EE8) {
   auto lua = ctx.r3.u32;

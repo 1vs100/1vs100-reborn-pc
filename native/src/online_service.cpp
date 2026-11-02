@@ -12,14 +12,13 @@
 #include <sys/socket.h>
 #endif
 
-REXCVAR_DEFINE_STRING(online_service, "offline", "Online",
-                      "offline: shows with bots and Steam parties; gameserver: the 1 vs 100 gameserver");
+REXCVAR_DEFINE_STRING(online_service, "gameserver", "Online", "gameserver: the 1 vs 100 gameserver");
 REXCVAR_DEFINE_STRING(gameserver_host, "", "Online", "Gameserver IPv4 address or host name");
 REXCVAR_DEFINE_STRING(guest_bind_address, "", "Online",
                       "Host IPv4 address for guest sockets bound to any address; empty binds to any");
 
 namespace {
-OnlineService service = OnlineService::Offline;
+OnlineService service = OnlineService::Gameserver;
 GameserverAddress address{};
 std::string hostName;
 std::optional<GuestBindAddress> bindAddress;
@@ -38,12 +37,8 @@ bool ResolveIpv4(const std::string& host, GameserverAddress& out) {
 
 bool LoadOnlineService() {
   const std::string mode = REXCVAR_GET(online_service);
-  if (mode == "offline") {
-    service = OnlineService::Offline;
-    return true;
-  }
   if (mode != "gameserver") {
-    REXKRNL_ERROR("online_service \"{}\" is neither offline nor gameserver", mode);
+    REXKRNL_ERROR("online_service \"{}\" is not gameserver", mode);
     return false;
   }
 #ifdef _WIN32

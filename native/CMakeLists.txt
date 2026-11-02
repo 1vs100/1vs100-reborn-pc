@@ -37,7 +37,6 @@ set(ONEVS100_SOURCES
     src/local_profile.cpp
     src/dialogue_hook.cpp
     src/native_room_hook.cpp
-    src/room_clock.cpp
     src/avatar_probe.cpp
     src/avatar_native/native_provider.cpp
     src/avatar_native/local_avatar.cpp
@@ -46,10 +45,6 @@ set(ONEVS100_SOURCES
     src/avatar_native/third_party/mspack/lzxd.c
     src/avatar_native/third_party/mspack/system.c
     src/avatar_native/third_party/mspack/logging.cc
-    src/avatar_texture_upload.cpp
-    src/avatar_model_probe.cpp
-    src/avatar_joint_derive.cpp
-    src/avatar_joint_probe.cpp
     src/exit_probe.cpp
     src/shared_body.cpp
     src/platform_compat.cpp
@@ -106,36 +101,4 @@ else()
 endif()
 
 target_include_directories(onevs100 PRIVATE src/avatar_native third_party/1vs100-mm-protocol)
-# Steamworks SDK (not included). Without it the room transport reports Steam as unavailable.
-set(ONEVS100_STEAM_SDK "$ENV{STEAMWORKS_SDK}" CACHE PATH "Steamworks SDK folder (contains public/ and redistributable_bin/)")
-if(EXISTS "${ONEVS100_STEAM_SDK}/public/steam/steam_api.h")
-  if(WIN32)
-    set(ONEVS100_STEAM_LIB "${ONEVS100_STEAM_SDK}/redistributable_bin/win64/steam_api64.lib")
-    set(ONEVS100_STEAM_RUNTIME "${ONEVS100_STEAM_SDK}/redistributable_bin/win64/steam_api64.dll")
-  else()
-    set(ONEVS100_STEAM_LIB "${ONEVS100_STEAM_SDK}/redistributable_bin/linux64/libsteam_api.so")
-    set(ONEVS100_STEAM_RUNTIME "${ONEVS100_STEAM_LIB}")
-  endif()
-  target_sources(onevs100 PRIVATE src/native_room_steam.cpp)
-  target_include_directories(onevs100 PRIVATE "${ONEVS100_STEAM_SDK}/public")
-  target_link_libraries(onevs100 PRIVATE "${ONEVS100_STEAM_LIB}")
-  add_custom_command(TARGET onevs100 POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different
-    "${ONEVS100_STEAM_RUNTIME}" "$<TARGET_FILE_DIR:onevs100>")
-  message(STATUS "Steamworks SDK: ${ONEVS100_STEAM_SDK}")
-else()
-  target_sources(onevs100 PRIVATE src/native_room_unavailable.cpp)
-  if(ONEVS100_STEAM_SDK)
-    message(WARNING "No public/steam/steam_api.h in ONEVS100_STEAM_SDK=${ONEVS100_STEAM_SDK}: building without Steam parties")
-  else()
-    message(STATUS "Steamworks SDK not set: building without Steam parties")
-  endif()
-endif()
 target_include_directories(onevs100 PRIVATE src/avatar_native/third_party/mspack)
-
-add_executable(avatar_catalog_test
- src/avatar_native/catalog_test.cpp src/avatar_native/native_assets.cc
- src/avatar_native/xna_avatar_format.cc src/avatar_native/third_party/mspack/lzxd.c
- src/avatar_native/third_party/mspack/system.c src/avatar_native/third_party/mspack/logging.cc)
-target_include_directories(avatar_catalog_test PRIVATE src/avatar_native src/avatar_native/third_party/mspack)
-target_compile_definitions(avatar_catalog_test PRIVATE NATIVE_AVATAR_CATALOG_TEST NOMINMAX)
-target_link_libraries(avatar_catalog_test PRIVATE rex::runtime)

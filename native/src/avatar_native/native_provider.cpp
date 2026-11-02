@@ -35,7 +35,7 @@ uint32_t Complete(uint32_t overlap,uint32_t result) {
  }
  return result;
 }
-// Party members' own Avatars, received through the room (NativeRoom.lua).
+// Remote Avatars received through the gameserver matchmaking relay.
 std::mutex remoteMutex;
 std::map<uint64_t,std::array<uint8_t,a::kManifestBytes>> remoteManifests;
 bool RemoteManifest(uint64_t xuid,uint8_t* out) {
@@ -58,7 +58,7 @@ bool WriteManifest(uint8_t* base,uint32_t output,uint64_t xuid,int32_t body,bool
  static std::mt19937 generator(0x1A5100);
  std::lock_guard<std::mutex> lock(mutex);
  std::mt19937 profile(uint32_t(xuid)^uint32_t(xuid>>32));
- // The local player's saved Avatar (Edit Avatar in the profile window).
+
  a::Description description;
  auto* kernel=rex::system::kernel_state();
  const bool local=!random&&kernel&&kernel->user_profile()&&xuid==LocalXuid();

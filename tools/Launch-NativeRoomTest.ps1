@@ -1,9 +1,6 @@
 # Modes: Offline (solo), LocalHost + LocalJoin (two copies on this PC, shared
-# show over 127.0.0.1), SteamHost (party of up to 4 via a friends-only Steam
-# lobby) + SteamJoin [-HostSteamId <id>] (internet, Steam P2P; untested until a
-# second Steam account is available).
-param([ValidateSet('Offline','LocalHost','LocalJoin','SteamHost','SteamJoin')][string]$Mode='Offline',
-      [string]$HostSteamId='',
+# show over 127.0.0.1).
+param([ValidateSet('Offline','LocalHost','LocalJoin')][string]$Mode='Offline',
       [string]$ShowTitle='',[string]$LiveTitle='',[switch]$NoBots,[string]$GameArgs='',
       [ValidateRange(0,37)][int]$Questions=2,[ValidateRange(10,240)][int]$PreShowSeconds=30,
       [switch]$NoMenuBlur,[switch]$DualSenseDirect,[switch]$MousePanel,
@@ -24,7 +21,6 @@ $exe=Join-Path $stage 'onevs100-room.exe'
 foreach($process in Get-Process | Where-Object { $_.Path -eq $exe }) { Stop-Process -Id $process.Id }
 Copy-Item (Join-Path $root 'work/native-avatar-build/onevs100.exe') $exe
 foreach($dll in @('rexruntime.dll','rexgpu-xenos.dll')) { Copy-Item (Join-Path $reference $dll) $stage }
-Copy-Item (Join-Path $root 'work/native-avatar-build/steam_api64.dll') $stage
 Copy-Item (Join-Path $reference 'assets') $stage -Recurse -Force
 # Mods: text and image replacements inside the staged UI packages (the reference
 # copies stay original). Shipped mods (prize-free text, points glyph) first, then
@@ -67,9 +63,6 @@ if($Mode -eq 'LocalJoin') {
     $currentName=Get-Content $nameFile -ErrorAction SilentlyContinue | Select-Object -First 1
     if(-not $currentName -or $currentName -eq $referenceName) { Set-Content $nameFile 'Player2' }
 }
-# SteamJoin: with -HostSteamId it connects to that host; without, it joins the
-# first Steam friend found hosting a 1 vs 100 party (or an accepted invite).
-if($HostSteamId -and -not ($HostSteamId -match '^\d{15,20}$')) { throw '-HostSteamId must be a SteamID64' }
 # One profile, Avatar and saved stats (season score, streaks) for every mode on
 # this PC: player-data\ in the workspace. The second test copy (LocalJoin) keeps
 # its own folder and identity slot so it is a different player.
@@ -80,7 +73,6 @@ New-Item -ItemType Directory -Force (Join-Path $playerData 'profiles') | Out-Nul
 if(-not(Test-Path (Join-Path $playerData 'profiles/local-name.txt')) -and (Test-Path $referenceProfiles)) {
     Copy-Item (Join-Path $referenceProfiles '*') (Join-Path $playerData 'profiles')
 }
-Set-Content (Join-Path $stage 'steam_appid.txt') '480'
 # Live (Primetime): players must be in the lobby before The One and the Mob are
 # picked, or they wait as join-in-progress for a next round that never comes when
 # nobody else can be The One. Loading takes ~35 s, so allow at least 2 minutes.
@@ -146,41 +138,21 @@ if($NoBots) {
     $path=Join-Path $stage 'assets/lua/statelobby.lua'
     WriteLua $path ([IO.File]::ReadAllText($path)+"`r`nNATIVE_DISABLE_BOTS = true -- launcher: no offline players`r`n")
 }
-# Room modes activate NativeRoom.lua (shared show hosted by LocalHost/SteamHost).
-$path=Join-Path $stage 'assets/lua/luamockserver.lua'
-WriteLua $path ([IO.File]::ReadAllText($path)+"`r`nif type(NativeRoomTransport)=='function' then NativeRoomTransport('mode','') end`r`n")
-# Bridge probe: the load-time call above runs before the engine registers the
-# native globals. Probe again from the first mock GET calls made while playing,
-# logging "LUA: bridge probe ..." (and "Native room Lua call verified" in room modes).
-WriteLua $path ([IO.File]::ReadAllText($path)+"`r`ndo local done=false local original=LuaServer.MockGetMessage LuaServer.MockGetMessage=function(...) if not done and type(NativeDebugLog)=='function' then done=true local mode=type(NativeRoomTransport)=='function' and NativeRoomTransport('mode','') or 'absent' NativeDebugLog('bridge probe transport='..type(NativeRoomTransport)..' mode='..tostring(mode)) end return original(...) end end`r`n")
 if($NoMenuBlur) {
     # Diagnostic: is the black main-menu background the native blur pass?
     $path=Join-Path $stage 'assets/lua/menu.lua'
     WriteLua $path ([IO.File]::ReadAllText($path)+"`r`n-- isolated diagnostic: menu blur disabled`r`nEnableBlur=function() end DisableBlur=function() end`r`n")
 }
 $log=Join-Path $root ('outputs/diagnostics/native-room-'+$Mode.ToLower()+'-'+(Get-Date -Format yyyyMMdd-HHmmss)+'.log')
-$oldMode=[Environment]::GetEnvironmentVariable('ONEVS100_ROOM_MODE','Process')
 $oldContent=[Environment]::GetEnvironmentVariable('ONEVS100_NATIVE_AVATAR_CONTENT','Process')
 # Extra player-1 input sources in the game (native_controls.cpp).
 $controlVars=@{ONEVS100_DUALSENSE_HID=$(if($DualSenseDirect){'1'}else{$null});ONEVS100_MOUSE_PANEL=$(if($MousePanel){'1'}else{$null})}
-# Avatar closet: marketplace/award items imported for the Avatar Editor
-# (work\avatar-editor\Import-AvatarCloset). The game reads them so Avatars
-# saved in the editor keep those items. Players without the closet see the
-# console's default item in that slot instead.
-$closetDir=@((Join-Path $root 'work\avatar-editor\closet'),(Join-Path $root 'avatar-closet')) | Where-Object { Test-Path (Join-Path $_ 'closet_index.tsv') } | Select-Object -First 1
-$controlVars['ONEVS100_AVATAR_CLOSET']=$(if($closetDir){$closetDir}else{$null})
-# The Avatar Editor (launcher > Avatar Editor; the game's profile window opens it too).
-$avatarEditor=Join-Path $root 'work\avatar-editor\b\avatareditor.exe'
-$controlVars['ONEVS100_AVATAR_EDITOR_EXE']=$(if(Test-Path $avatarEditor){$avatarEditor}else{$null})
 $oldControlVars=@{}
 foreach($key in $controlVars.Keys) { $oldControlVars[$key]=[Environment]::GetEnvironmentVariable($key,'Process') }
 $sdlHints=@{SDL_JOYSTICK_HIDAPI='1';SDL_JOYSTICK_HIDAPI_PS5='1';SDL_GAMECONTROLLER_IGNORE_DEVICES='';SDL_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT='';SDL_HIDAPI_IGNORE_DEVICES=''}
 $oldSdlHints=@{}
 foreach($key in $sdlHints.Keys) { $oldSdlHints[$key]=[Environment]::GetEnvironmentVariable($key,'Process') }
 try {
-    $roomMode=@{LocalHost='local-host';LocalJoin='local-join';SteamHost='steam-host';SteamJoin='steam-join'}[$Mode]
-    [Environment]::SetEnvironmentVariable('ONEVS100_ROOM_MODE',$roomMode,'Process')
-    [Environment]::SetEnvironmentVariable('ONEVS100_ROOM_PEER',$(if($Mode -eq 'SteamJoin'){$HostSteamId}else{$null}),'Process')
     [Environment]::SetEnvironmentVariable('ONEVS100_PLAYER_DATA',$playerData,'Process')
     [Environment]::SetEnvironmentVariable('ONEVS100_PROFILE_SLOT',$(if($profileSlot){$profileSlot}else{$null}),'Process')
     [Environment]::SetEnvironmentVariable('ONEVS100_NATIVE_AVATAR_CONTENT',(Join-Path $reference 'content'),'Process')
@@ -195,7 +167,6 @@ try {
     foreach($key in $controlVars.Keys) { [Environment]::SetEnvironmentVariable($key,$controlVars[$key],'Process') }
     if($DualSenseDirect) { Write-Output 'Controller: USB DualSense direct backup on (player 1).' }
     if($MousePanel) { Write-Output 'Controller: mouse button panel on.' }
-    if($closetDir) { Write-Output "Avatar closet: $closetDir" }
     $process=Start-Process -FilePath $exe -WorkingDirectory $stage -WindowStyle Normal -ArgumentList (@("--log_file=$log",'--log_max_file_size_mb=64')+$gameFlags) -PassThru
     $process.Id | Set-Content (Join-Path $root 'work/native-room-visible-pid.txt')
     $log | Set-Content (Join-Path $root 'work/native-room-visible-log.txt')
@@ -204,8 +175,6 @@ try {
 } finally {
     foreach($key in $sdlHints.Keys) { [Environment]::SetEnvironmentVariable($key,$oldSdlHints[$key],'Process') }
     foreach($key in $controlVars.Keys) { [Environment]::SetEnvironmentVariable($key,$oldControlVars[$key],'Process') }
-    [Environment]::SetEnvironmentVariable('ONEVS100_ROOM_MODE',$oldMode,'Process')
-    [Environment]::SetEnvironmentVariable('ONEVS100_ROOM_PEER',$null,'Process')
     [Environment]::SetEnvironmentVariable('ONEVS100_PLAYER_DATA',$null,'Process')
     [Environment]::SetEnvironmentVariable('ONEVS100_PROFILE_SLOT',$null,'Process')
     [Environment]::SetEnvironmentVariable('ONEVS100_NATIVE_AVATAR_CONTENT',$oldContent,'Process')

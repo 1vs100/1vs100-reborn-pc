@@ -1,6 +1,5 @@
 #include "local_profile.h"
 #include "local_profile_internal.h"
-#include "local_avatar.h"
 #include <windows.h>
 #include <commdlg.h>
 #include <filesystem>
@@ -33,17 +32,11 @@ LRESULT CALLBACK ProfileProc(HWND window, UINT message, WPARAM wparam, LPARAM lp
       }
       return 0;
     }
-    if (LOWORD(wparam) == 102) {
-      if (OpenAvatarEditor(window))
-        SetWindowTextW(errorLabel, L"Avatar Editor opened. Save your Avatar there, then click Save profile here.");
-      return 0;
-    }
     if (LOWORD(wparam) == IDOK) {
       char name[64] = {};
       GetWindowTextA(nameEdit, name, sizeof(name));
-      if (!SteamGamertag().empty()) std::strncpy(name, SteamGamertag().c_str(), sizeof(name) - 1);
       if (!ValidName(name)) {
-        SetWindowTextW(errorLabel, L"Use 1–15 letters, numbers, spaces, _ or -.");
+        SetWindowTextW(errorLabel, L"Use 1-15 letters, numbers, spaces, _ or -.");
         SetFocus(nameEdit);
         return 0;
       }
@@ -62,7 +55,6 @@ LRESULT CALLBACK ProfileProc(HWND window, UINT message, WPARAM wparam, LPARAM lp
 }
 bool EditLocalProfile() {
   accepted=false; selectedPicture.clear();
-  NoteAvatarEditorStamp();
   // Bounded automated startup tests do not create a user profile or open a dialog.
   if (CommandLineHas("--headless=true")) return false;
   WNDCLASSW cls = {};
@@ -72,26 +64,21 @@ bool EditLocalProfile() {
   cls.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
   cls.lpszClassName = L"OneVs100LocalProfile";
   RegisterClassW(&cls);
-  HWND window = CreateWindowExW(WS_EX_DLGMODALFRAME, cls.lpszClassName, L"Edit offline profile",
+  HWND window = CreateWindowExW(WS_EX_DLGMODALFRAME, cls.lpszClassName, L"Edit profile",
       WS_CAPTION | WS_SYSMENU, (GetSystemMetrics(SM_CXSCREEN)-480)/2,
       (GetSystemMetrics(SM_CYSCREEN)-290)/2, 480, 290, nullptr, nullptr, cls.hInstance, nullptr);
   if (!window) return false;
-  CreateWindowW(L"STATIC", SteamGamertag().empty() ? L"Choose a gamertag for your local player."
-                                              : L"Your gamertag is your Steam name.", WS_CHILD|WS_VISIBLE,
+  CreateWindowW(L"STATIC", L"Choose a gamertag for your local player.", WS_CHILD|WS_VISIBLE,
       22, 20, 420, 24, window, nullptr, cls.hInstance, nullptr);
   nameEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD|WS_VISIBLE|WS_TABSTOP|ES_AUTOHSCROLL,
       22, 53, 420, 28, window, reinterpret_cast<HMENU>(100), cls.hInstance, nullptr);
   SendMessageW(nameEdit, EM_SETLIMITTEXT, 15, 0);
   SetWindowTextA(nameEdit,LocalGamertag().c_str());
-  if (!SteamGamertag().empty()) EnableWindow(nameEdit, FALSE);
-  errorLabel = CreateWindowW(L"STATIC", SteamGamertag().empty() ? L"Saved on this computer. No Xbox Live account required."
-                                                          : L"To change it, change your Steam name. Avatar and picture are saved on this computer.",
+  errorLabel = CreateWindowW(L"STATIC", L"Saved on this computer.",
       WS_CHILD|WS_VISIBLE,
       22, 91, 420, 38, window, nullptr, cls.hInstance, nullptr);
   CreateWindowW(L"BUTTON", L"Choose picture...", WS_CHILD|WS_VISIBLE|WS_TABSTOP,
       22,135,160,30,window,reinterpret_cast<HMENU>(101),cls.hInstance,nullptr);
-  CreateWindowW(L"BUTTON", L"Avatar Editor...", WS_CHILD|WS_VISIBLE|WS_TABSTOP,
-      192,135,160,30,window,reinterpret_cast<HMENU>(102),cls.hInstance,nullptr);
   CreateWindowW(L"BUTTON", L"Save profile", WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_DEFPUSHBUTTON,
       182, 190, 130, 30, window, reinterpret_cast<HMENU>(IDOK), cls.hInstance, nullptr);
   CreateWindowW(L"BUTTON", L"Cancel", WS_CHILD|WS_VISIBLE|WS_TABSTOP,

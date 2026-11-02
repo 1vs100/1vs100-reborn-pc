@@ -419,7 +419,7 @@ int32_t FindAnimation(const Catalog& catalog, const uint8_t* asset_id);
 std::filesystem::path CatalogPath(const std::filesystem::path& content_root);
 Catalog* SharedCatalog(const std::filesystem::path& content_root);
 // Native PC build: marketplace and award items imported for the Avatar Editor
-// (work\avatar-editor\closet: <guid>.bin + closet_index.tsv). Each becomes an
+// (ONEVS100_AVATAR_CLOSET: <guid>.bin + closet_index.tsv). Each becomes an
 // installed entry through Catalog::AddAsset. SharedCatalog loads the folder
 // named by ONEVS100_AVATAR_CLOSET. Returns how many items were added.
 size_t LoadClosetItems(Catalog& catalog, const std::filesystem::path& folder);

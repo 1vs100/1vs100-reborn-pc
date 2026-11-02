@@ -2,20 +2,11 @@
 #include <rex/memory/utils.h>
 #include <rex/system/xam/user_profile.h>
 #include <cstring>
-#include "online_service.h"
 #include "local_profile.h"
 #include <rex/system/kernel_state.h>
 
-// The offline build replaces the unavailable Friends UI with its local editor.
-// XN_SYS_AVATARCHANGED (XNID(0, XNCAT_SYSTEM, 0x17)): the game reloads Avatars.
-static void NotifyIfAvatarChanged() {
-  if (!TakeLocalAvatarChanged()) return;
-  REXKRNL_WARN("Offline profile: local Avatar saved; notifying the game");
-  REX_KERNEL_STATE()->BroadcastNotification(0x00000017, 0);
-}
 REX_HOOK_RAW(__imp__XamShowFriendsUI) {
   EditLocalProfile();
-  NotifyIfAvatarChanged();
   ctx.r3.u64 = 0;
 }
 
@@ -24,9 +15,7 @@ REX_HOOK_RAW(__imp__XamShowFriendsUI) {
 // The in-game SIGN IN button opens the local profile editor instead of the
 // unavailable Xbox Guide, so a profile can be created or renamed at any time.
 REX_HOOK_RAW(__imp__XamShowSigninUI) {
-  REXKRNL_WARN("Offline sign-in UI: opening local profile editor");
   EditLocalProfile();
-  NotifyIfAvatarChanged();
   REX_KERNEL_STATE()->BroadcastNotification(0x0000000A, 1);  // XN_SYS_SIGNINCHANGED
   REX_KERNEL_STATE()->BroadcastNotification(0x00000009, 0);  // XN_SYS_UI off
   ctx.r3.u64 = 0;
@@ -35,7 +24,7 @@ REX_HOOK_RAW(__imp__XamShowSigninUI) {
 REX_HOOK_RAW(__imp__XamUserGetMembershipTierFromXUID) {
   const auto& profile = REX_KERNEL_STATE()->user_profile();
   const bool localProfile = profile && ctx.r3.u64 == LocalXuid();
-  REXKRNL_WARN("Offline membership lookup local_profile={}", localProfile);
+  
   ctx.r3.u64 = localProfile ? 6 : 0;
 }
 
@@ -61,7 +50,7 @@ REX_HOOK_RAW(__imp__XamUserGetSigninInfo) {
   rex::memory::store_and_swap<uint32_t>(base + output + 12, 2);
   const auto& name = LocalGamertag();
   std::memcpy(base + output + 24, name.c_str(), name.size() + 1);
-  REXKRNL_WARN("Offline profile supplied local sign-in info; Xbox Live remains disconnected");
+  
   ctx.r3.u64 = 0;
 }
 
@@ -78,9 +67,7 @@ REX_HOOK_RAW(__imp__XamUserGetName) {
   ctx.r3.u64 = 0;
 }
 
-// Primetime resolves to privilege 223 in the original name-to-ID routines
-// at 821940FC and 82194404. Offline mode grants local game access only;
-// gameserver mode grants every privilege, as on a Live Gold profile.
+// Grants every privilege, as on a Live Gold profile.
 REX_HOOK_RAW(__imp__XamUserCheckPrivilege) {
   const uint32_t user = ctx.r3.u32;
   const uint32_t privilege = ctx.r4.u32;
@@ -93,10 +80,10 @@ REX_HOOK_RAW(__imp__XamUserCheckPrivilege) {
     ctx.r3.u64 = 1317; // ERROR_NO_SUCH_USER
     return;
   }
-  const bool localAccess = CurrentOnlineService() == OnlineService::Gameserver || privilege == 223 ||
-                           privilege == 254 || privilege == 251 || privilege == 252;
+  (void)privilege;
+  const bool localAccess = true;
   rex::memory::store_and_swap<uint32_t>(base + output, localAccess ? 1 : 0);
-  REXKRNL_WARN("Offline profile privilege user={} id={} local_access={}", user, privilege, localAccess);
+  
   ctx.r3.u64 = 0;
 }
 
@@ -112,7 +99,7 @@ REX_HOOK_RAW(__imp__XamProfileFindAccount) {
   const auto& profile = REX_KERNEL_STATE()->user_profile();
   if (!output) { ctx.r3.u64 = 0x80070057; return; }
   if (!profile || xuid != LocalXuid()) {
-    REXKRNL_WARN("Offline account lookup: unknown XUID");
+    
     ctx.r3.u64 = 0x80070490;  // HRESULT_FROM_WIN32(ERROR_NOT_FOUND)
     return;
   }
@@ -125,7 +112,7 @@ REX_HOOK_RAW(__imp__XamProfileFindAccount) {
   // cached_user_flags: tier 6 (Gold) << 20, language 1 (English) << 25.
   // Bit 24 (parental controls enabled) stays clear.
   rex::memory::store_and_swap<uint32_t>(base + output + 0x30, (6u << 20) | (1u << 25));
-  REXKRNL_WARN("Offline account lookup: local adult profile supplied");
+  
   ctx.r3.u64 = 0;
 }
 

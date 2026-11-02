@@ -3,16 +3,15 @@
 #include <optional>
 #include <string>
 
-// Where the game's online features go, chosen by the online_service setting.
-enum class OnlineService { Offline, Gameserver };
+// Gameserver selected by the online_service setting.
+enum class OnlineService { Gameserver };
 
 // IPv4 address of the gameserver, most significant byte first.
 struct GameserverAddress {
   uint32_t value;
 };
 
-// Reads and checks the settings; false (logged) when gameserver mode is set
-// without a usable gameserver_host. Call once before the title starts.
+// Reads settings; false when gameserver_host is unusable. Call once before start.
 bool LoadOnlineService();
 OnlineService CurrentOnlineService();
 // Valid only in gameserver mode.
