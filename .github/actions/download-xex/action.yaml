@@ -1,32 +1,43 @@
 name: Download default.xex
 description: >-
   Fetch the game's default.xex into native/assets/default.xex (codegen input;
-  also keeps the build-time codegen target satisfied). Configuration comes
-  from the environment so callers can pass secrets through step `env:`
-  (composite-step `env:`/`inputs` expressions are not evaluated by every
-  runner, notably act):
-    XEX_URL    HTTPS URL of default.xex (required).
-    XEX_AUTH   value for the Authorization header (optional).
-    XEX_SHA256 expected SHA-256 of default.xex, verified when set (optional).
+  also keeps the build-time codegen target satisfied).
+
+inputs:
+  url:
+    description: HTTPS URL of default.xex
+    required: true
+  auth:
+    description: Value for the Authorization header
+    required: false
+    default: ''
+  sha256:
+    description: Expected SHA-256 of default.xex, verified when set
+    required: false
+    default: ''
 
 runs:
   using: composite
   steps:
     - name: Download default.xex
       shell: bash
+      env:
+        XEX_URL: ${{ inputs.url }}
+        XEX_AUTH: ${{ inputs.auth }}
+        XEX_SHA256: ${{ inputs.sha256 }}
       run: |
         set -euo pipefail
-        if [ -z "${XEX_URL:-}" ]; then
+        if [ -z "$XEX_URL" ]; then
           echo "::error::XEX_URL is not set"
           exit 1
         fi
         auth=()
-        if [ -n "${XEX_AUTH:-}" ]; then
+        if [ -n "$XEX_AUTH" ]; then
           auth=(-H "Authorization: $XEX_AUTH")
         fi
         mkdir -p native/assets
         curl -fsSL "${auth[@]}" -o native/assets/default.xex "$XEX_URL"
-        if [ -n "${XEX_SHA256:-}" ]; then
+        if [ -n "$XEX_SHA256" ]; then
           echo "$XEX_SHA256  native/assets/default.xex" | sha256sum -c -
         fi
         ls -la native/assets/default.xex

@@ -2,13 +2,20 @@ name: Set up Clang
 description: >-
   Install the pinned Clang/LLD/LLVM from apt.llvm.org and link the unversioned
   tool names (clang, clang++, clang-cl, lld-link, llvm-rc, llvm-mt) the CMake
-  toolchains expect. Version comes from the CLANG_VERSION environment.
+  toolchains expect.
+
+inputs:
+  version:
+    description: Clang major version
+    required: true
 
 runs:
   using: composite
   steps:
     - name: Install Clang from apt.llvm.org
       shell: bash
+      env:
+        CLANG_VERSION: ${{ inputs.version }}
       run: |
         set -euo pipefail
         # Add APT source
@@ -22,6 +29,8 @@ runs:
 
     - name: Link unversioned tool names
       shell: bash
+      env:
+        CLANG_VERSION: ${{ inputs.version }}
       run: |
         set -euo pipefail
         bind() {

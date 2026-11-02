@@ -49,7 +49,7 @@ defaults:
 
 env:
   SDK_REPO: 1vs100/rexglue-sdk
-  SDK_REF: feat/uwp
+  SDK_REF: fixes/various_1vs100
   CLANG_VERSION: "22"
   XWIN_VERSION: 0.10.0
   MSVC_MAJOR: "17" # vsdownload.py manifest major; 17 == Visual Studio 2022 line
@@ -72,6 +72,9 @@ jobs:
 
       - name: Check out rexglue-sdk
         uses: ./.github/actions/checkout-sdk
+        with:
+          repo: ${{ env.SDK_REPO }}
+          ref: ${{ env.SDK_REF }}
 
       - name: Install build tools
         # The rexglue codegen tool builds from the Linux desktop SDK tree, so
@@ -90,13 +93,15 @@ jobs:
 
       - name: Set up Clang
         uses: ./.github/actions/setup-clang
+        with:
+          version: ${{ env.CLANG_VERSION }}
 
       - name: Download default.xex
         uses: ./.github/actions/download-xex
-        env:
-          XEX_URL: ${{ secrets.XEX_URL }}
-          XEX_AUTH: ${{ secrets.XEX_AUTH }}
-          XEX_SHA256: ${{ secrets.XEX_SHA256 }}
+        with:
+          url: ${{ secrets.XEX_URL }}
+          auth: ${{ secrets.XEX_AUTH }}
+          sha256: ${{ secrets.XEX_SHA256 }}
 
       - name: Configure (game + SDK from source)
         run: |
@@ -174,6 +179,9 @@ jobs:
 
       - name: Check out rexglue-sdk
         uses: ./.github/actions/checkout-sdk
+        with:
+          repo: ${{ env.SDK_REPO }}
+          ref: ${{ env.SDK_REF }}
 
       - name: Install build tools
         run: |
@@ -193,6 +201,8 @@ jobs:
 
       - name: Set up Clang
         uses: ./.github/actions/setup-clang
+        with:
+          version: ${{ env.CLANG_VERSION }}
 
       - name: Restore MSVC cache (msvc-wine)
         if: matrix.needs_msvc
@@ -297,10 +307,10 @@ jobs:
 
       - name: Download default.xex
         uses: ./.github/actions/download-xex
-        env:
-          XEX_URL: ${{ secrets.XEX_URL }}
-          XEX_AUTH: ${{ secrets.XEX_AUTH }}
-          XEX_SHA256: ${{ secrets.XEX_SHA256 }}
+        with:
+          url: ${{ secrets.XEX_URL }}
+          auth: ${{ secrets.XEX_AUTH }}
+          sha256: ${{ secrets.XEX_SHA256 }}
 
       - name: Download codegen output
         uses: actions/download-artifact@v4

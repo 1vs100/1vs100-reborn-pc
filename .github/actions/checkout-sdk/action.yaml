@@ -1,6 +1,6 @@
 name: Check out rexglue-sdk
 description: >-
-  Clone the pinned rexglue-sdk branch (SDK_REPO/SDK_REF environment) and
+  Clone the pinned rexglue-sdk branch and
   initialize the submodules a desktop-platform configure needs.
 
 inputs:
