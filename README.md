@@ -20,31 +20,14 @@ The Xbox 360 game 1 vs 100, rebuilt for the PC with the [ReXGlue](https://github
 |---|---|---|
 | Gameserver | yes | yes |
 
-## What you need
+## Setup
 
-From **your own** Xbox 360 and copy of the game (none of this is provided here):
+You need files from your own Xbox 360. This repository ships no game content.
 
-- The 1 vs 100 game package (`default.xex` and its media).
-- For host voice lines: the show package for your language (folder `dlcs/shows`, for example `7BEC809CCC282E8C9D18EFAD8F4407AA6204DFC8` for US English). Copy its `media/audio/vo.xwb` and `vo.xsb` to `assets/Show/media/audio/`.
-- For gameserver mode: the show and episode packages, and the stock retail 2.0.1149.0 game files.
-
-## Starting the game on Linux
-
-Run the executable from its build folder and point it at your game files:
-
-```
-cd build/linux
-./onevs100 --game_data_root=../../native/assets
-```
-
-Without `--game_data_root` the game looks for an `assets` folder next to the executable. Every setting in `onevs100.toml` can also be given on the command line, for example `--online_service=gameserver --gameserver_host=1vs100.example.org`.
-
-## Playing on a gameserver
-
-Gameserver mode runs the game's own online code against a [gameserver](https://github.com/1vs100/gameserver). It needs the stock retail 2.0.1149.0 game files with their original Lua scripts, not the Lua from this repository.
-
-Put these settings in `onevs100.toml` next to the executable:
-
+1. Put the 1 vs 100 game files where the executable finds them. Copy `default.xex` and its media into `native/assets/` before building, or into an `assets/` folder next to the built executable. You can also pass `--game_data_root=<folder>`.
+2. Point the game at your avatar content. Set `ONEVS100_NATIVE_AVATAR_CONTENT` to the content folder holding `0000000000000000/FFFE07DF/...`, to the `AvatarAssetPack.toc` file itself, or to the `FFFE07DF00000002` package from a dashboard system update. Without it the game runs with no avatars.
+3. For host voice lines, copy `vo.xwb` and `vo.xsb` from your show package (`dlcs/shows/<id>/media/audio/`, for example `7BEC809CCC282E8C9D18EFAD8F4407AA6204DFC8` for US English) to `assets/Show/media/audio/`.
+4. For online play you need the stock retail 2.0.1149.0 game files with their original Lua scripts, plus the show and episode packages. Put these settings in `onevs100.toml` next to the executable:
 ```
 [Online]
 online_service = "gameserver"
@@ -53,13 +36,16 @@ gameserver_host = "1vs100.example.org"
 [Content]
 content_install = "/path/to/packages"
 ```
-
-- `gameserver_host` is the server's host name or IPv4 address.
-- `content_install` names a show or episode package, or a folder of them. They are installed when the game starts.
-- To run two copies on one PC, give each its own `guest_bind_address`, for example `127.0.0.1` and `127.0.0.2`.
+`gameserver_host` is the server's host name or IPv4 address. `content_install` names a show or episode package file, or a folder of them. The game installs them at startup. To run two copies on one PC, give each its own `guest_bind_address`, for example `127.0.0.1` and `127.0.0.2`.
+5. Run the game:
+```
+cd build/linux
+./onevs100
+```
+Every setting in `onevs100.toml` also works as a command line flag, for example `--online_service=gameserver --gameserver_host=1vs100.example.org`.
+6. Set your gamertag. On Linux there is no profile window, so write it in `profiles/local-name.txt` in the player data folder. On Windows use `Edit profile`, or pass `--edit_profile`.
 
 [docs/gameserver-mode.md](docs/gameserver-mode.md) has the developer details.
-
 ## Linux notes
 
 - The game window uses SDL's X11 driver. On a Wayland desktop it runs through XWayland. Set `SDL_VIDEO_DRIVER` to override it.
@@ -74,7 +60,6 @@ content_install = "/path/to/packages"
 | `lua/` | Lua we added to the game: `NativeDebug.lua` (debug switches, skins). |
 | `launcher/` | `1vs100 Launcher.exe` (Windows): Play / Display / Controls / Show / Online / Debug tabs. |
 | `tools/` | Launch, packaging, mods (XZP), export, log-collection scripts; `tools/test/` Lua unit tests. |
-| `avatar-editor/` | Build script for the [Avatar Editor recompilation](https://github.com/panedivitasei/AvatarEditorRecomp) and the Avatar item (closet) importer. |
 | `docs/` | Developer notes, such as gameserver mode. |
 
 ## Building
