@@ -1,17 +1,19 @@
 # Builds the game for every supported platform.
 #
-# Chain: `codegen` runs first. It downloads default.xex from a secret URL and
-# runs `rexglue codegen`, then uploads the generated sources as an artifact.
-# `build` consumes that artifact in a platform matrix (linux / windows / uwp),
-# so codegen runs once even though every platform builds the SDK from source
-# with its own toolchain.
+# Chain: `codegen-key` resolves the SDK ref to a commit and derives the cache
+# key for the generated sources from that commit, the XEX hash and the codegen
+# config files. `codegen` runs `rexglue codegen` only when no cache entry has
+# that key. `build` restores the generated sources from the cache in a
+# platform matrix (linux / windows / uwp). Every compile goes through ccache,
+# one cache per toolchain, so an unchanged SDK is not recompiled.
 #
 # Repository secrets:
 #   XEX_URL             (required) HTTPS URL of your default.xex.
 #   XEX_AUTH            (optional) sent as the `Authorization` header when
 #                       downloading XEX_URL (e.g. `Bearer <token>`).
-#   XEX_SHA256          (optional) expected SHA-256 of default.xex; the
-#                       download is verified against it when set.
+#   XEX_SHA256          (required) expected SHA-256 of default.xex; the
+#                       download is verified against it and it is part of
+#                       the codegen cache key.
 #   SDL3_UWP_PREFIX_URL (required for the uwp leg) URL of a zip holding a
 #                       shared SDL3-uwp install prefix built with MSVC
 #                       (bin/SDL3.dll, lib/SDL3.lib, ... at the zip root).
@@ -21,9 +23,7 @@
 # themselves there instead of failing.
 #
 # Layout notes:
-# - The XEX is downloaded BEFORE the codegen artifact in `build` on purpose:
-#   the build-time codegen target re-runs only when an input is newer than the
-#   outputs, and the freshly extracted artifact must stay the newest files.
+# - Precompiled headers are disabled in CI because ccache cannot reuse them.
 # - The Windows legs cross-compile from Linux with clang-cl. The desktop leg
 #   needs only an xwin splat; the Store leg additionally needs an MSVC
 #   install (headers/libs only, provided by mstorsjo/msvc-wine) and the
@@ -59,24 +59,81 @@ env:
   MSVC_ROOT: ${{ github.workspace }}/msvc
 
 jobs:
+  codegen-key:
+    name: codegen cache key
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    outputs:
+      sdk_sha: ${{ steps.key.outputs.sdk_sha }}
+      key: ${{ steps.key.outputs.key }}
+    steps:
+      - name: Check out the codegen config
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: native
+
+      - name: Derive the key
+        id: key
+        env:
+          XEX_SHA256: ${{ secrets.XEX_SHA256 }}
+          CONFIG_HASH: ${{ hashFiles('native/onevs100_manifest.toml', 'native/branch-targets.toml', 'native/boundaries-v3.toml', 'native/switch-fix.toml') }}
+        run: |
+          set -euo pipefail
+          if [ -z "$XEX_SHA256" ]; then
+            echo "::error::XEX_SHA256 secret is not set"
+            exit 1
+          fi
+          if [[ "$SDK_REF" =~ ^[0-9a-f]{40}$ ]]; then
+            sdk_sha="$SDK_REF"
+          else
+            refs="$(git ls-remote "https://github.com/$SDK_REPO" \
+              "refs/heads/$SDK_REF" "refs/tags/$SDK_REF" "refs/tags/$SDK_REF^{}")"
+            # An annotated tag lists the tag object first; ^{} is its commit.
+            sdk_sha="$(printf '%s\n' "$refs" | awk '
+              $2 ~ /\^\{\}$/ { peeled = $1 }
+              NR == 1 { first = $1 }
+              END { print (peeled != "" ? peeled : first) }')"
+          fi
+          if [ -z "$sdk_sha" ]; then
+            echo "::error::$SDK_REF not found in $SDK_REPO"
+            exit 1
+          fi
+          # Job outputs that contain a secret are dropped, so hash it again.
+          xex="$(printf '%s' "$XEX_SHA256" | sha256sum | cut -c1-16)"
+          echo "sdk_sha=$sdk_sha" >> "$GITHUB_OUTPUT"
+          echo "key=codegen-$sdk_sha-$xex-$CONFIG_HASH" >> "$GITHUB_OUTPUT"
+
   codegen:
     name: rexglue codegen
+    needs: [codegen-key]
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     steps:
+      - name: Look up the generated sources
+        id: lookup
+        uses: actions/cache/restore@v4
+        with:
+          path: native/generated/default-v5
+          key: ${{ needs.codegen-key.outputs.key }}
+          lookup-only: true
+
       - name: Check out the game
+        if: steps.lookup.outputs.cache-hit != 'true'
         uses: actions/checkout@v4
         with:
           submodules: true
 
       - name: Check out rexglue-sdk
+        if: steps.lookup.outputs.cache-hit != 'true'
         uses: ./.github/actions/checkout-sdk
         with:
           repo: ${{ env.SDK_REPO }}
-          ref: ${{ env.SDK_REF }}
+          ref: ${{ needs.codegen-key.outputs.sdk_sha }}
 
       - name: Install build tools
+        if: steps.lookup.outputs.cache-hit != 'true'
         # The rexglue codegen tool builds from the Linux desktop SDK tree, so
         # this job needs the same SDL system dependencies as the linux leg.
         run: |
@@ -92,11 +149,19 @@ jobs:
             libdbus-1-dev libudev-dev
 
       - name: Set up Clang
+        if: steps.lookup.outputs.cache-hit != 'true'
         uses: ./.github/actions/setup-clang
         with:
           version: ${{ env.CLANG_VERSION }}
 
+      - name: Set up ccache
+        if: steps.lookup.outputs.cache-hit != 'true'
+        uses: ./.github/actions/setup-ccache
+        with:
+          key: ccache-codegen-clang${{ env.CLANG_VERSION }}
+
       - name: Download default.xex
+        if: steps.lookup.outputs.cache-hit != 'true'
         uses: ./.github/actions/download-xex
         with:
           url: ${{ secrets.XEX_URL }}
@@ -104,16 +169,20 @@ jobs:
           sha256: ${{ secrets.XEX_SHA256 }}
 
       - name: Configure (game + SDK from source)
+        if: steps.lookup.outputs.cache-hit != 'true'
         run: |
           cmake -S native -B build/codegen -G Ninja \
             -DCMAKE_BUILD_TYPE="$CMAKE_BUILD_TYPE" \
             -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+            -DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON \
             -DREXSDK_DIR="$GITHUB_WORKSPACE/rexglue-sdk"
 
       - name: Build the rexglue codegen tool
+        if: steps.lookup.outputs.cache-hit != 'true'
         run: cmake --build build/codegen --target rexglue --parallel
 
       - name: Run rexglue codegen
+        if: steps.lookup.outputs.cache-hit != 'true'
         run: |
           REXGLUE_BIN="$(find "$GITHUB_WORKSPACE/rexglue-sdk/out" -maxdepth 3 -name rexglue -type f -executable | head -n 1)"
           if [ -z "$REXGLUE_BIN" ]; then
@@ -123,18 +192,20 @@ jobs:
           "$REXGLUE_BIN" --version
           "$REXGLUE_BIN" codegen native/onevs100_manifest.toml
 
-      - name: Upload codegen output
-        uses: actions/upload-artifact@v4
+      - name: Save the generated sources
+        if: steps.lookup.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
         with:
-          name: codegen-default-v5
           path: native/generated/default-v5
-          retention-days: 7
-          compression-level: 9
-          if-no-files-found: error
+          key: ${{ needs.codegen-key.outputs.key }}
+
+      - name: Show ccache statistics
+        if: always() && steps.lookup.outputs.cache-hit != 'true'
+        run: ccache --show-stats || true
 
   build:
     name: build (${{ matrix.platform }})
-    needs: [codegen]
+    needs: [codegen-key, codegen]
     runs-on: ubuntu-24.04
     timeout-minutes: ${{ matrix.timeout }}
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
@@ -181,7 +252,7 @@ jobs:
         uses: ./.github/actions/checkout-sdk
         with:
           repo: ${{ env.SDK_REPO }}
-          ref: ${{ env.SDK_REF }}
+          ref: ${{ needs.codegen-key.outputs.sdk_sha }}
 
       - name: Install build tools
         run: |
@@ -203,6 +274,11 @@ jobs:
         uses: ./.github/actions/setup-clang
         with:
           version: ${{ env.CLANG_VERSION }}
+
+      - name: Set up ccache
+        uses: ./.github/actions/setup-ccache
+        with:
+          key: ccache-${{ matrix.platform }}-clang${{ env.CLANG_VERSION }}
 
       - name: Restore MSVC cache (msvc-wine)
         if: matrix.needs_msvc
@@ -305,24 +381,19 @@ jobs:
             exit 1
           fi
 
-      - name: Download default.xex
-        uses: ./.github/actions/download-xex
+      - name: Restore the generated sources
+        uses: actions/cache/restore@v4
         with:
-          url: ${{ secrets.XEX_URL }}
-          auth: ${{ secrets.XEX_AUTH }}
-          sha256: ${{ secrets.XEX_SHA256 }}
-
-      - name: Download codegen output
-        uses: actions/download-artifact@v4
-        with:
-          name: codegen-default-v5
           path: native/generated/default-v5
+          key: ${{ needs.codegen-key.outputs.key }}
+          fail-on-cache-miss: true
 
       - name: Configure
         run: |
           args=(
             -DCMAKE_BUILD_TYPE="$CMAKE_BUILD_TYPE"
             -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+            -DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON
             -DREXSDK_DIR="$GITHUB_WORKSPACE/rexglue-sdk"
           )
           case "${{ matrix.platform }}" in
@@ -338,6 +409,10 @@ jobs:
 
       - name: Build onevs100
         run: cmake --build "${{ matrix.build_dir }}" --target onevs100 --parallel
+
+      - name: Show ccache statistics
+        if: always()
+        run: ccache --show-stats || true
 
       - name: Upload binaries
         uses: actions/upload-artifact@v4
