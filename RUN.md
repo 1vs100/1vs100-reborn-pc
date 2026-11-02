@@ -14,6 +14,9 @@ Get the game running: copy your files into place, set three settings, start it.
 | Avatar content: the content folder with `0000000000000000/FFFE07DF/...`, the `AvatarAssetPack.toc` file itself, or the `FFFE07DF00000002` package from a dashboard system update | Anywhere, then set `ONEVS100_NATIVE_AVATAR_CONTENT` to it |
 | Show and episode packages (gameserver mode needs them) | Anywhere, then list them in `content_install` |
 | Your gamertag (Linux only, plain text, 15 characters max) | `profiles/local-name.txt` inside the player data folder |
+| Your avatar, if you have one (1020-byte `avatar.bin`, e.g. from an old profile backup) | `profiles/avatar.bin` inside the player data folder. Without it the game builds one from your profile id |
+
+Make your avatar at [360sona.com](https://360sona.com), the Xbox 360 avatar editor rebuilt for the browser. The avatar asset files it and the game are built from come from Xbox 360 System Update 17559 ([CD + USB download](https://archive.org/details/xbox-360-system-update-17559-cd-usb)).
 
 ## Settings
 
