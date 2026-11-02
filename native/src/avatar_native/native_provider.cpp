@@ -2,7 +2,10 @@
 #include "native_bridge.h"
 #include "local_avatar.h"
 #include "../local_profile.h"
+#include <rex/cvar.h>
+#include <rex/filesystem.h>
 #include <rex/hook.h>
+#include <rex/platform.h>
 #include <rex/system/kernel_state.h>
 #include <rex/system/xam/user_profile.h>
 #include <array>
@@ -18,11 +21,21 @@ static_assert(xe::kernel::NativeAvatarHostOffset(0xFDD6E000u)==rex::memory::deta
 using xe::kernel::NativeAvatarGuest;
 namespace a=xe::kernel::xna::avatar;
 namespace xa=xe::kernel::xam;
-bool NativeAvatarEnabled() { const char* p=std::getenv("ONEVS100_NATIVE_AVATAR_CONTENT");return p&&*p; }
+REXCVAR_DEFINE_STRING(native_avatar_content, "", "Avatar",
+                      "Avatar asset content root (folder holding 0000000000000000)");
+std::filesystem::path NativeAvatarContentPath() {
+  if (const char* p = std::getenv("ONEVS100_NATIVE_AVATAR_CONTENT"); p && *p) return p;
+  std::filesystem::path path = REXCVAR_GET(native_avatar_content);
+#if REX_PLATFORM_WINRT
+  if (!path.empty() && path.is_relative()) path = rex::filesystem::GetExecutableFolder() / path;
+#endif
+  return path;
+}
+bool NativeAvatarEnabled() { return !NativeAvatarContentPath().empty(); }
 namespace xe::kernel::xna {
 avatar::Catalog* XnaAvatarCatalog() {
- const char* path=std::getenv("ONEVS100_NATIVE_AVATAR_CONTENT");
- return path&&*path?avatar::SharedCatalog(std::filesystem::path(path)):nullptr;
+  const std::filesystem::path path = NativeAvatarContentPath();
+  return path.empty() ? nullptr : avatar::SharedCatalog(path);
 }
 }
 namespace {

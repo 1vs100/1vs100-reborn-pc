@@ -24,8 +24,8 @@ The Xbox 360 game 1 vs 100, rebuilt for the PC with the [ReXGlue](https://github
 
 You need files from your own Xbox 360. This repository ships no game content.
 
-1. Put the 1 vs 100 game files where the executable finds them. Copy `default.xex` and its media into `native/assets/` before building, or into an `assets/` folder next to the built executable. You can also pass `--game_data_root=<folder>`.
-2. Point the game at your avatar content. Set `ONEVS100_NATIVE_AVATAR_CONTENT` to the content folder holding `0000000000000000/FFFE07DF/...`, to the `AvatarAssetPack.toc` file itself, or to the `FFFE07DF00000002` package from a dashboard system update. Without it the game runs with no avatars. Make yours at [360sona.com](https://360sona.com) (**My Sonas → Import / Export → Save the description (.bin)**) and save it as `profiles/avatar.bin` in the player data folder, otherwise the game builds one from your profile id. The asset files come from Xbox 360 System Update 17559 ([CD + USB download](https://archive.org/details/xbox-360-system-update-17559-cd-usb)).
+1. Put the 1 vs 100 game files where the executable finds them. Copy `default.xex` and its media into `native/assets/` before building, or into an `assets/` folder next to the built executable. You can also pass `--game_data_root=<folder>`. Without an unpacked game folder, the untouched game package listed in `content_install` is used as-is.
+2. Point the game at your avatar content. Set `ONEVS100_NATIVE_AVATAR_CONTENT` (or the `native_avatar_content` setting) to the content folder holding `0000000000000000/FFFE07DF/...`, to the `AvatarAssetPack.toc` file itself, or to the `FFFE07DF00000002` package from a dashboard system update. Without it the game runs with no avatars. Make yours at [360sona.com](https://360sona.com) (**My Sonas → Import / Export → Save the description (.bin)**) and save it as `profiles/avatar.bin` in the player data folder, otherwise the game builds one from your profile id. The asset files come from Xbox 360 System Update 17559 ([CD + USB download](https://archive.org/details/xbox-360-system-update-17559-cd-usb)).
 3. For host voice lines, copy `vo.xwb` and `vo.xsb` from your show package (`dlcs/shows/<id>/media/audio/`, for example `7BEC809CCC282E8C9D18EFAD8F4407AA6204DFC8` for US English) to `assets/Show/media/audio/`.
 4. For online play you need the stock retail 2.0.1149.0 game files with their original Lua scripts, plus the show and episode packages. Put these settings in `onevs100.toml` next to the executable:
 ```
@@ -36,7 +36,7 @@ gameserver_host = "1vs100.example.org"
 [Content]
 content_install = "/path/to/packages"
 ```
-`gameserver_host` is the server's host name or IPv4 address. `content_install` names a show or episode package file, or a folder of them. The game installs them at startup. To run two copies on one PC, give each its own `guest_bind_address`, for example `127.0.0.1` and `127.0.0.2`.
+`gameserver_host` is the server's host name or IPv4 address. `content_install` names the game package, a show or episode package file, or a folder of them. The game uses them in place at startup, never extracted. To run two copies on one PC, give each its own `guest_bind_address`, for example `127.0.0.1` and `127.0.0.2`.
 5. Run the game:
 ```
 cd build/linux

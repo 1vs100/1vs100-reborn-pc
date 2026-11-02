@@ -9,10 +9,10 @@ Get the game running: copy your files into place, set three settings, start it.
 
 | Copy this | To here |
 |---|---|
-| `default.xex` and its media (the 1 vs 100 game package) | `assets/` |
+| `default.xex` and its media (the 1 vs 100 game package), or the untouched game package itself (used straight from `content_install`, no unpacking needed) | `assets/` |
 | `vo.xwb` and `vo.xsb` from your show package (`dlcs/shows/<id>/media/audio/`) | `assets/Show/media/audio/` |
-| Avatar content: the content folder with `0000000000000000/FFFE07DF/...`, the `AvatarAssetPack.toc` file itself, or the `FFFE07DF00000002` package from a dashboard system update | Anywhere, then set `ONEVS100_NATIVE_AVATAR_CONTENT` to it |
-| Show and episode packages (gameserver mode needs them) | Anywhere, then list them in `content_install` |
+| Avatar content: the content folder with `0000000000000000/FFFE07DF/...`, the `AvatarAssetPack.toc` file itself, or the `FFFE07DF00000002` package from a dashboard system update | Anywhere, then set `ONEVS100_NATIVE_AVATAR_CONTENT` (or the `native_avatar_content` setting) to it |
+| The game package, show and episode packages (gameserver mode needs the shows) | Anywhere, then list them in `content_install`. They are used in place, never extracted |
 | Your gamertag (Linux only, plain text, 15 characters max) | `profiles/local-name.txt` inside the player data folder |
 | Your avatar: the `.bin` exported from 360sona, or from an old profile backup | `profiles/avatar.bin` inside the player data folder. Without it the game builds one from your profile id |
 
