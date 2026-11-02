@@ -361,6 +361,8 @@ bool WriteAnimationObject(const std::vector<uint8_t>& stream, bool mirror,
 class Catalog {
  public:
   bool Load(const std::filesystem::path& path);
+  // Same parse over bytes already in memory.
+  bool LoadBytes(const uint8_t* bytes, size_t size);
   bool loaded() const { return !entries_.empty(); }
   const std::vector<Entry>& entries() const { return entries_; }
   const Entry* Find(uint32_t index) const;
