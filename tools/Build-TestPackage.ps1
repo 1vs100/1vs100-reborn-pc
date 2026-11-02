@@ -1,7 +1,7 @@
 # Builds the native game and the launcher, then packages a dated Private Alpha Test build:
 #   dist\1vs100-private-alpha-<yyyyMMdd-HHmmss>\  and  dist\1vs100-private-alpha-<yyyyMMdd-HHmmss>.zip
 # Run from anywhere:
-#   powershell -ExecutionPolicy Bypass -File outputs\online-tools\Build-TestPackage.ps1
+#   powershell -ExecutionPolicy Bypass -File tools\Build-TestPackage.ps1
 # The package leaves out your profile, Avatar, saved stats, logs and crash
 # dumps. Only share it with someone entitled to the game files.
 param([switch]$SkipBuild)
@@ -39,9 +39,12 @@ if(-not $SkipBuild) {
 }
 
 # Every Lua file must keep CRLF line endings.
-$bad=@(Get-ChildItem (Join-Path $root 'work\native-parity\assets\lua') -Filter *.lua | Where-Object {
-    $text=[IO.File]::ReadAllText($_.FullName); ($text -replace "`r`n",'') -match "`n" })
-if($bad.Count) { throw ('Lua files with LF line endings: ' + ($bad.Name -join ', ')) }
+$stagedLua=Join-Path $root 'work\native-parity\assets\lua'
+if (Test-Path $stagedLua) {
+    $bad=@(Get-ChildItem $stagedLua -Filter *.lua | Where-Object {
+        $text=[IO.File]::ReadAllText($_.FullName); ($text -replace "`r`n",'') -match "`n" })
+    if($bad.Count) { throw ('Lua files with LF line endings: ' + ($bad.Name -join ', ')) }
+}
 
 $name="1vs100-private-alpha-$stamp"
 $out=Join-Path $root "dist\$name"

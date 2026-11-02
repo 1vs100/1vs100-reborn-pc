@@ -3,8 +3,8 @@
 #
 # Includes: the two newest game logs (native-room-*.log, with their rolled-over
 # parts) and the newest crash dumps/stacks from outputs\diagnostics. Leaves
-# out player-data (profile, Avatar, saved stats). Game logs name your gamertag
-# and Steam ID; nothing else personal.
+# out player-data (profile, Avatar, saved stats). Game logs name your gamertag;
+# nothing else personal.
 # Writes the zip's path to outputs\diagnostics\last-logs.txt for the launcher.
 $ErrorActionPreference = 'Stop'
 $root = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent

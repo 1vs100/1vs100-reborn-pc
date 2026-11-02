@@ -2621,10 +2621,14 @@ Catalog* SharedCatalog(const std::filesystem::path& content_root) {
   }
   attempted = true;
   last_attempt = now;
-  auto loaded = std::make_unique<Catalog>();
   std::vector<uint8_t> toc;
-  if (!ReadAvatarTocBytes(content_root, &toc) ||
-      !loaded->LoadBytes(toc.data(), toc.size())) {
+  if (!ReadAvatarTocBytes(content_root, &toc)) {
+    REXKRNL_WARN("Avatar: no pack table under {}", content_root.string());
+    return nullptr;
+  }
+  auto loaded = std::make_unique<Catalog>();
+  if (!loaded->LoadBytes(toc.data(), toc.size())) {
+    REXKRNL_WARN("Avatar: pack table ({} bytes) did not parse", toc.size());
     return nullptr;
   }
   if (const char* closet = std::getenv("ONEVS100_AVATAR_CLOSET");

@@ -24,16 +24,10 @@ dist/
 *.pdb
 *.map
 *.zip
-avatar-editor/AvatarEditorRecomp/
-avatar-editor/b/
-avatar-editor/xr/
-avatar-editor/assets/
 
-# Player data, closet, logs
+# Player data and logs
 player-data/
 userdata/
-avatar-editor/closet/
-avatar-closet/
 outputs/
 mods/_export/
 *.log

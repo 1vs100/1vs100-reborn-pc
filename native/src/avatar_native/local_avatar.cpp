@@ -7,6 +7,7 @@
 #include <random>
 #include <string>
 #include <vector>
+#include <rex/logging.h>
 
 namespace av = xe::kernel::xna::avatar;
 
@@ -39,8 +40,12 @@ bool WriteAll(const std::filesystem::path& path, const uint8_t* data, size_t siz
 bool Load(const av::Catalog* catalog, av::Description* out) {
   const auto bytes = ReadAll(SavePath());
   if ((bytes.size() != av::kDescriptionBytes && bytes.size() != av::kManifestBytes) ||
-      !av::ParseAnyDescription(catalog, bytes.data(), bytes.size(), out))
+      !av::ParseAnyDescription(catalog, bytes.data(), bytes.size(), out)) {
+    if (!bytes.empty()) {
+      REXKRNL_WARN("Avatar: ignoring {} ({} bytes, unreadable)", SavePath().string(), bytes.size());
+    }
     return false;
+  }
   return true;
 }
 

@@ -43,7 +43,10 @@ cd build/linux
 ./onevs100
 ```
 Every setting in `onevs100.toml` also works as a command line flag, for example `--online_service=gameserver --gameserver_host=1vs100.example.org`.
-6. Set your gamertag. On Linux there is no profile window, so write it in `profiles/local-name.txt` in the player data folder. On Windows use `Edit profile`, or pass `--edit_profile`.
+6. Set your gamertag. On Linux there is no profile window, so write it in `profiles/local-name.txt` in the player data folder. On Windows use `Edit profile`, or pass `--edit_profile` (Windows only). Names take 1-15 characters: letters, numbers, spaces, `_` or `-`, with no leading or trailing space.
+7. The player data folder is `userdata/` next to the executable on a direct run, or `player-data/` in the workspace when launched from the launcher. Give `content_install` and avatar paths as absolute paths; relative ones resolve against the process working directory, not the executable.
+
+The game also reads these environment variables: `ONEVS100_NATIVE_AVATAR_CONTENT` (avatar content, or the `native_avatar_content` setting), `ONEVS100_PLAYER_DATA` (player data folder), `ONEVS100_PROFILE_SLOT` (second copy identity), `ONEVS100_PROFILE_XUID` (forced profile id, hex).
 
 [docs/gameserver-mode.md](docs/gameserver-mode.md) has the developer details.
 ## Linux notes
@@ -67,7 +70,7 @@ Every setting in `onevs100.toml` also works as a command line flag, for example 
 You need:
 
 - Windows 10/11 with Visual Studio 18 (C++ workload, CMake, Ninja) and LLVM/clang 23, or Linux with clang 22, CMake 3.25+ and Ninja.
-- A [ReXGlue SDK](https://github.com/rexglue/rexglue-sdk) nightly build for your platform, `nightly-20261002-bd833a2a` or newer. To build against an SDK source tree instead, such as [our fork](https://github.com/1vs100/rexglue-sdk), pass `-DREXSDK_DIR=<rexglue-sdk>` in place of `CMAKE_PREFIX_PATH`.
+- A [ReXGlue SDK](https://github.com/rexglue/rexglue-sdk) source checkout on branch `fixes/various_1vs100` (which includes `feat/uwp`) or newer, with submodules initialized. Pass it with `-DREXSDK_DIR=<rexglue-sdk>`; a prebuilt SDK package does not work, the in-place content support needs the newer source.
 
 Steps:
 
@@ -76,16 +79,16 @@ Steps:
 3. Generate the recompiled code from **your** `default.xex`: `rexglue codegen native/onevs100_manifest.toml`
 4. Configure and build. On Windows:
    ```
-   cmake -S native -B build -G Ninja -DCMAKE_BUILD_TYPE=Release ^
-     -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl ^
-     -DCMAKE_PREFIX_PATH=<ReXGlue SDK>\win-amd64
+    cmake -S native -B build -G Ninja -DCMAKE_BUILD_TYPE=Release ^
+      -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl ^
+      -DREXSDK_DIR=<rexglue-sdk>
    cmake --build build --target onevs100
    ```
    On Linux:
    ```
-   cmake -S native -B build/linux -G Ninja -DCMAKE_BUILD_TYPE=Release \
-     -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
-     -DCMAKE_PREFIX_PATH=<ReXGlue SDK linux-amd64 folder>
+    cmake -S native -B build/linux -G Ninja -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+      -DREXSDK_DIR=<rexglue-sdk>
    cmake --build build/linux --target onevs100
    ```
 5. Launcher (Windows): `launcher\build_launcher.cmd` (set `LLVM_BIN` or put clang-cl on PATH).

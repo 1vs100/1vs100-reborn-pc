@@ -136,7 +136,7 @@ class Controls {
           if (openFailLogged_) continue;
           openFailLogged_ = true;
           Log("Native controls: DualSense found but could not be opened, error " + std::to_string(GetLastError()) +
-              " (another program may hold it, e.g. Steam Input or DS4Windows)");
+              " (another program may hold it, e.g. DS4Windows)");
           continue;
         }
         openFailLogged_ = false;

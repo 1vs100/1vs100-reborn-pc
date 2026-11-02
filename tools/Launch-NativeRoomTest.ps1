@@ -1,6 +1,7 @@
-# Modes: Offline (solo), LocalHost + LocalJoin (two copies on this PC, shared
-# show over 127.0.0.1).
-param([ValidateSet('Offline','LocalHost','LocalJoin')][string]$Mode='Offline',
+# Modes: Offline (solo test staging), LocalHost + LocalJoin (two staged
+# copies on this PC), Gameserver (staged copy for community-server play with
+# stock game files; no Lua is patched).
+param([ValidateSet('Offline','LocalHost','LocalJoin','Gameserver')][string]$Mode='Offline',
       [string]$ShowTitle='',[string]$LiveTitle='',[switch]$NoBots,[string]$GameArgs='',
       [ValidateRange(0,37)][int]$Questions=2,[ValidateRange(10,240)][int]$PreShowSeconds=30,
       [switch]$NoMenuBlur,[switch]$DualSenseDirect,[switch]$MousePanel,
@@ -80,68 +81,72 @@ if($ShowMode -eq 'Live' -and $PreShowSeconds -lt 120) {
     Write-Output "Live show: countdown raised from $PreShowSeconds to 120 seconds so you are in the lobby before roles are picked."
     $PreShowSeconds=120
 }
-$clock=[DateTime]::UtcNow
-$epoch=$clock.ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
-$start=$clock.AddSeconds($PreShowSeconds).ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
-$end=$clock.AddSeconds($PreShowSeconds).AddHours(1).ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
-function WriteLua([string]$path,[string]$text) {
-    $text=($text -replace "`r`n","`n") -replace "`n","`r`n"
-    [IO.File]::WriteAllText($path,$text,[Text.UTF8Encoding]::new($false))
-}
-$path=Join-Path $stage 'assets/startup/startup.lua'
-$text=[IO.File]::ReadAllText($path) -replace "OFFLINE_CLOCK_EPOCH = '[^']+'", "OFFLINE_CLOCK_EPOCH = '$epoch'"
-WriteLua $path $text
-# Show mode: grid GameType 1 = Live (Primetime), 2 = Extended Play. In a room
-# the host's session (with its GameType) is the show every copy plays.
-$gameType=if($ShowMode -eq 'Live'){1}else{2}
-$path=Join-Path $stage 'assets/startup/startup.lua'
-WriteLua $path ([IO.File]::ReadAllText($path) -replace 'OFFLINE_SESSION_GAME_TYPE = \d', "OFFLINE_SESSION_GAME_TYPE = $gameType")
-$path=Join-Path $stage 'assets/lua/program.lua'
-$text=[IO.File]::ReadAllText($path) -replace "OFFLINE_SESSION_START='[^']+'", "OFFLINE_SESSION_START='$start'"
-$text=$text -replace "OFFLINE_SESSION_END='[^']+'", "OFFLINE_SESSION_END='$end'"
-WriteLua $path $text
-if($Questions -gt 0) {
-    $path=Join-Path $stage 'assets/lua/eptimings.lua'
-    WriteLua $path ([IO.File]::ReadAllText($path)+"`r`nEPTimingsTable.maxNumberOfQuestions=$Questions -- isolated short lifecycle test`r`n")
-    # The original show's last question (37) carries the final x3 bonus, and the
-    # LastQuestion jumbotron formats LOCALIZE("MULTIPLIER", EPBonusQuestions[last]).
-    # A shortened show must move that bonus to its new last question, or the
-    # multiplier is nil (locale.lua:81 FormatLocString crash) and scoring differs.
-    $path=Join-Path $stage 'assets/lua/data.lua'
-    WriteLua $path ([IO.File]::ReadAllText($path)+"`r`n-- isolated short lifecycle test: final-question bonus moves to question $Questions`r`ndo local bonus=GameData.EPBonusQuestions NATIVE_EP_BONUS_FULL={} for q,v in pairs(bonus) do NATIVE_EP_BONUS_FULL[q]=v end local final=bonus[37] for q in pairs(bonus) do if q>=$Questions then bonus[q]=nil end end bonus[$Questions]=final end`r`n")
-}
-# Launcher "Show" tab options (only the host's apply in a shared room).
-$path=Join-Path $stage 'assets/lua/program.lua'
-# Live mode uses its own marquee title when one is given.
-$title=((&{ if($ShowMode -eq 'Live' -and $LiveTitle){$LiveTitle}else{$ShowTitle} }) -replace '[^A-Za-z0-9 !?.,-]','')
-if($title.Length -gt 24) { $title=$title.Substring(0,24) }
-if($title) { WriteLua $path ([IO.File]::ReadAllText($path)+"`r`nNATIVE_SHOW_TITLE = `"$title`" -- launcher show title`r`n") }
-# Launcher Debug tab: switches read when the game's Lua loads (globals.lua runs
-# first; NativeDebug.lua applies the NATIVE_* ones).
-$skinNames=@{Standard='';Holiday='Holiday';TheBigGame='TheBigGame';XboxLIVE='XboxLIVE';ColinCorp='ColinCorp';Sprint='Sprint'}
-$debugLua="`r`n-- launcher Debug tab`r`n"
-$debugLua+="NATIVE_SPONSORSHIP = $(if($Sponsor -eq 'Sprint'){'true'}else{'false'})`r`n"
-if($skinNames[$Skin]) { $debugLua+="NATIVE_SHOW_SKIN = '$($skinNames[$Skin])'`r`n" }
-if($HostTool -ne 'Off') { $debugLua+="NATIVE_HOST_TOOL = '$($HostTool.ToLower())'`r`n" }
-if($DebugInput) { $debugLua+="NATIVE_DEBUG_INPUT = true`r`n" }
-if($SponsorDance) { $debugLua+="NATIVE_SPONSOR_DANCE = true`r`n" }
-if($FakeLiveHost) { $debugLua+="DEFAULT_FAKE_LIVE_HOST = true`r`n" }
-if($Subtitles) { $debugLua+="DEFAULT_SHOW_SUBTITLES = true`r`n" }
-if($FakeReals) { $debugLua+="CONTENT_USE_FAKEREALS = true`r`n" }
-# Show tab: offline players in an Extended Play show (Live keeps a 100-seat Mob).
-if($BotCount -ne 99) { $debugLua+="NATIVE_BOT_COUNT = $BotCount`r`n" }
-$path=Join-Path $stage 'assets/lua/globals.lua'
-WriteLua $path ([IO.File]::ReadAllText($path)+$debugLua)
-Write-Output "Bots: $(if($NoBots){'off'}else{$BotCount}) (Extended Play)"
-Write-Output "Debug: sponsor=$Sponsor skin=$Skin hostTool=$HostTool debugInput=$DebugInput fakeLiveHost=$FakeLiveHost subtitles=$Subtitles sponsorDance=$SponsorDance fakeReals=$FakeReals mods=$(-not $NoMods)"
-if($NoBots) {
-    $path=Join-Path $stage 'assets/lua/statelobby.lua'
-    WriteLua $path ([IO.File]::ReadAllText($path)+"`r`nNATIVE_DISABLE_BOTS = true -- launcher: no offline players`r`n")
-}
-if($NoMenuBlur) {
-    # Diagnostic: is the black main-menu background the native blur pass?
-    $path=Join-Path $stage 'assets/lua/menu.lua'
-    WriteLua $path ([IO.File]::ReadAllText($path)+"`r`n-- isolated diagnostic: menu blur disabled`r`nEnableBlur=function() end DisableBlur=function() end`r`n")
+# Offline test shows patch session timing and launcher options into the
+# staged Lua. Gameserver mode runs the stock files untouched.
+if ($Mode -ne 'Gameserver') {
+    $clock=[DateTime]::UtcNow
+    $epoch=$clock.ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
+    $start=$clock.AddSeconds($PreShowSeconds).ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
+    $end=$clock.AddSeconds($PreShowSeconds).AddHours(1).ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
+    function WriteLua([string]$path,[string]$text) {
+        $text=($text -replace "`r`n","`n") -replace "`n","`r`n"
+        [IO.File]::WriteAllText($path,$text,[Text.UTF8Encoding]::new($false))
+    }
+    $path=Join-Path $stage 'assets/startup/startup.lua'
+    $text=[IO.File]::ReadAllText($path) -replace "OFFLINE_CLOCK_EPOCH = '[^']+'", "OFFLINE_CLOCK_EPOCH = '$epoch'"
+    WriteLua $path $text
+    # Show mode: grid GameType 1 = Live (Primetime), 2 = Extended Play. In a room
+    # the host's session (with its GameType) is the show every copy plays.
+    $gameType=if($ShowMode -eq 'Live'){1}else{2}
+    $path=Join-Path $stage 'assets/startup/startup.lua'
+    WriteLua $path ([IO.File]::ReadAllText($path) -replace 'OFFLINE_SESSION_GAME_TYPE = \d', "OFFLINE_SESSION_GAME_TYPE = $gameType")
+    $path=Join-Path $stage 'assets/lua/program.lua'
+    $text=[IO.File]::ReadAllText($path) -replace "OFFLINE_SESSION_START='[^']+'", "OFFLINE_SESSION_START='$start'"
+    $text=$text -replace "OFFLINE_SESSION_END='[^']+'", "OFFLINE_SESSION_END='$end'"
+    WriteLua $path $text
+    if($Questions -gt 0) {
+        $path=Join-Path $stage 'assets/lua/eptimings.lua'
+        WriteLua $path ([IO.File]::ReadAllText($path)+"`r`nEPTimingsTable.maxNumberOfQuestions=$Questions -- isolated short lifecycle test`r`n")
+        # The original show's last question (37) carries the final x3 bonus, and the
+        # LastQuestion jumbotron formats LOCALIZE("MULTIPLIER", EPBonusQuestions[last]).
+        # A shortened show must move that bonus to its new last question, or the
+        # multiplier is nil (locale.lua:81 FormatLocString crash) and scoring differs.
+        $path=Join-Path $stage 'assets/lua/data.lua'
+        WriteLua $path ([IO.File]::ReadAllText($path)+"`r`n-- isolated short lifecycle test: final-question bonus moves to question $Questions`r`ndo local bonus=GameData.EPBonusQuestions NATIVE_EP_BONUS_FULL={} for q,v in pairs(bonus) do NATIVE_EP_BONUS_FULL[q]=v end local final=bonus[37] for q in pairs(bonus) do if q>=$Questions then bonus[q]=nil end end bonus[$Questions]=final end`r`n")
+    }
+    # Launcher "Show" tab options (only the host's apply in a shared room).
+    $path=Join-Path $stage 'assets/lua/program.lua'
+    # Live mode uses its own marquee title when one is given.
+    $title=((&{ if($ShowMode -eq 'Live' -and $LiveTitle){$LiveTitle}else{$ShowTitle} }) -replace '[^A-Za-z0-9 !?.,-]','')
+    if($title.Length -gt 24) { $title=$title.Substring(0,24) }
+    if($title) { WriteLua $path ([IO.File]::ReadAllText($path)+"`r`nNATIVE_SHOW_TITLE = `"$title`" -- launcher show title`r`n") }
+    # Launcher Debug tab: switches read when the game's Lua loads (globals.lua runs
+    # first; NativeDebug.lua applies the NATIVE_* ones).
+    $skinNames=@{Standard='';Holiday='Holiday';TheBigGame='TheBigGame';XboxLIVE='XboxLIVE';ColinCorp='ColinCorp';Sprint='Sprint'}
+    $debugLua="`r`n-- launcher Debug tab`r`n"
+    $debugLua+="NATIVE_SPONSORSHIP = $(if($Sponsor -eq 'Sprint'){'true'}else{'false'})`r`n"
+    if($skinNames[$Skin]) { $debugLua+="NATIVE_SHOW_SKIN = '$($skinNames[$Skin])'`r`n" }
+    if($HostTool -ne 'Off') { $debugLua+="NATIVE_HOST_TOOL = '$($HostTool.ToLower())'`r`n" }
+    if($DebugInput) { $debugLua+="NATIVE_DEBUG_INPUT = true`r`n" }
+    if($SponsorDance) { $debugLua+="NATIVE_SPONSOR_DANCE = true`r`n" }
+    if($FakeLiveHost) { $debugLua+="DEFAULT_FAKE_LIVE_HOST = true`r`n" }
+    if($Subtitles) { $debugLua+="DEFAULT_SHOW_SUBTITLES = true`r`n" }
+    if($FakeReals) { $debugLua+="CONTENT_USE_FAKEREALS = true`r`n" }
+    # Show tab: offline players in an Extended Play show (Live keeps a 100-seat Mob).
+    if($BotCount -ne 99) { $debugLua+="NATIVE_BOT_COUNT = $BotCount`r`n" }
+    $path=Join-Path $stage 'assets/lua/globals.lua'
+    WriteLua $path ([IO.File]::ReadAllText($path)+$debugLua)
+    Write-Output "Bots: $(if($NoBots){'off'}else{$BotCount}) (Extended Play)"
+    Write-Output "Debug: sponsor=$Sponsor skin=$Skin hostTool=$HostTool debugInput=$DebugInput fakeLiveHost=$FakeLiveHost subtitles=$Subtitles sponsorDance=$SponsorDance fakeReals=$FakeReals mods=$(-not $NoMods)"
+    if($NoBots) {
+        $path=Join-Path $stage 'assets/lua/statelobby.lua'
+        WriteLua $path ([IO.File]::ReadAllText($path)+"`r`nNATIVE_DISABLE_BOTS = true -- launcher: no offline players`r`n")
+    }
+    if($NoMenuBlur) {
+        # Diagnostic: is the black main-menu background the native blur pass?
+        $path=Join-Path $stage 'assets/lua/menu.lua'
+        WriteLua $path ([IO.File]::ReadAllText($path)+"`r`n-- isolated diagnostic: menu blur disabled`r`nEnableBlur=function() end DisableBlur=function() end`r`n")
+    }
 }
 $log=Join-Path $root ('outputs/diagnostics/native-room-'+$Mode.ToLower()+'-'+(Get-Date -Format yyyyMMdd-HHmmss)+'.log')
 $oldContent=[Environment]::GetEnvironmentVariable('ONEVS100_NATIVE_AVATAR_CONTENT','Process')

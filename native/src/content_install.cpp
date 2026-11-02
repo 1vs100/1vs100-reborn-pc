@@ -40,24 +40,38 @@ std::vector<std::filesystem::path> ConfiguredPackages() {
 }  // namespace
 
 std::optional<std::filesystem::path> FindGamePackage() {
+  std::vector<std::filesystem::path> games;
   for (const auto& package : ConfiguredPackages()) {
     auto header = rex::filesystem::StfsContainerDevice::ReadPackageHeader(package);
-    if (header && header->metadata.execution_info.title_id == kGameTitleId) return package;
+    if (header && header->metadata.execution_info.title_id == kGameTitleId) games.push_back(package);
   }
+  if (games.size() > 1) {
+    REXKRNL_WARN("content_install: {} game packages found, using {}", games.size(),
+                 games.front().filename().string());
+  }
+  if (!games.empty()) return games.front();
   return std::nullopt;
 }
 
 void InstallConfiguredContent() {
+  const std::string source = REXCVAR_GET(content_install);
+  if (source.empty()) return;
   const auto packages = ConfiguredPackages();
   if (packages.empty()) {
-    REXKRNL_ERROR("content_install: no package files at {}",
-                  std::string(REXCVAR_GET(content_install)));
+    REXKRNL_ERROR("content_install: no package files at {}", source);
     return;
   }
   auto* content = REX_KERNEL_STATE()->content_manager();
+  size_t registered = 0;
   for (const auto& package : packages) {
+    if (!rex::filesystem::StfsContainerDevice::ReadPackageHeader(package)) continue;
     const auto result = content->RegisterPackage(package);
-    if (result) REXKRNL_ERROR("content_install: {} failed ({:08X})", package.string(), result);
-    else REXKRNL_INFO("content_install: {} registered", package.filename().string());
+    if (result) {
+      REXKRNL_ERROR("content_install: {} failed ({:08X})", package.string(), result);
+    } else {
+      REXKRNL_INFO("content_install: {} registered", package.filename().string());
+      ++registered;
+    }
   }
+  if (!registered) REXKRNL_WARN("content_install: no content packages in {}", source);
 }

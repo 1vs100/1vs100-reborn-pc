@@ -63,7 +63,9 @@ class Onevs100App : public rex::ReXApp {
     // Without an unpacked game folder, game: is the original game package.
     auto paths = defaults;
     std::error_code error;
-    if (!std::filesystem::exists(paths.game_data_root, error)) {
+    const bool haveGame = std::filesystem::is_regular_file(paths.game_data_root, error) ||
+                          std::filesystem::exists(paths.game_data_root / "default.xex", error);
+    if (!haveGame) {
       if (auto package = FindGamePackage()) paths.game_data_root = *package;
     }
     return paths;

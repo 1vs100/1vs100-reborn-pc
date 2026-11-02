@@ -33,7 +33,7 @@ std::wstring root, iniPath;
 
 enum Id {
   kTabs = 100,
-  kPlayOffline = 200, kTestLocal, kEditProfile, kOpenLogs, kSendLogs,
+  kPlayOnline = 200, kEditProfile, kOpenLogs, kSendLogs,
   kFullscreen = 300, kWindowSize, kVsync, kRenderScale, kMonitor,
   kKeyboard = 400, kInputBackend, kSensitivity, kDualSenseDirect, kMousePanel,
   kQuestions = 500, kPreShow, kShowTitle, kBots, kShowMode, kLiveTitle, kBotCount,
@@ -57,6 +57,8 @@ std::wstring FindRoot() {
   std::wstring folder = ExeFolder();
   for (int i = 0; i < 4; ++i) {
     std::wstring script = folder + L"\\outputs\\online-tools\\Launch-NativeRoomTest.ps1";
+    if (GetFileAttributesW(script.c_str()) == INVALID_FILE_ATTRIBUTES)
+      script = folder + L"\\tools\\Launch-NativeRoomTest.ps1";
     if (GetFileAttributesW(script.c_str()) != INVALID_FILE_ATTRIBUTES) return folder;
     auto slash = folder.find_last_of(L"\\/");
     if (slash == std::wstring::npos) break;
@@ -338,14 +340,12 @@ void Build() {
   }
   const int x = 34, y = 112;
   // Play
-  Button(0, L"Play offline", kPlayOffline, x, y);
-  Label(0, L"Solo show with offline players (how many: Show tab).", x + 240, y + 8, 400);
-  Button(0, L"Test: two copies on this PC", kTestLocal, x, y + 150);
-  Label(0, L"Starts a host and a second player (Player2).", x + 240, y + 158, 360);
-  Button(0, L"Edit profile", kEditProfile, x, y + 250);
-  Label(0, L"Gamertag and picture for this PC.", x + 240, y + 258, 360);
-  Button(0, L"Open logs folder", kOpenLogs, x, y + 300, 220, 30);
-  Button(0, L"Send logs", kSendLogs, x + 480, y + 300, 170, 30);
+  Button(0, L"Play online", kPlayOnline, x, y);
+  Label(0, L"Join the community server (set it on the Online tab).", x + 240, y + 8, 400);
+  Button(0, L"Edit profile", kEditProfile, x, y + 100);
+  Label(0, L"Gamertag and picture for this PC.", x + 240, y + 108, 360);
+  Button(0, L"Open logs folder", kOpenLogs, x, y + 150, 220, 30);
+  Button(0, L"Send logs", kSendLogs, x + 480, y + 150, 170, 30);
   // Display
   Check(1, L"Fullscreen", kFullscreen, x, y);
   Label(1, L"Window size", x, y + 44, 160);
@@ -444,16 +444,8 @@ LRESULT CALLBACK Proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
       return 0;
     case WM_COMMAND:
       switch (LOWORD(wparam)) {
-        case kPlayOffline: SetStatus(L"Starting an offline show..."); if (Launch(L"Offline")) SetStatus(L"Game started."); return 0;
-        case kTestLocal:
-          SetStatus(L"Starting the host copy...");
-          if (Launch(L"LocalHost")) {
-            Sleep(4000);
-            SetStatus(L"Starting the second copy...");
-            if (Launch(L"LocalJoin")) SetStatus(L"Two copies started (host and Player2).");
-          }
-          return 0;
-        case kEditProfile: SetStatus(L"Opening the profile editor..."); if (Launch(L"Offline", true)) SetStatus(L"Game started with the profile editor."); return 0;
+        case kPlayOnline: SetStatus(L"Starting the game..."); if (Launch(L"Gameserver")) SetStatus(L"Game started; it joins the server."); return 0;
+        case kEditProfile: SetStatus(L"Opening the profile editor..."); if (Launch(L"Gameserver", true)) SetStatus(L"Game started with the profile editor."); return 0;
         case kSendLogs: SendLogs(); return 0;
         case kOpenLogs: ShellExecuteW(hwnd, L"open", (root + L"\\outputs\\diagnostics").c_str(), nullptr, nullptr, SW_SHOWNORMAL); return 0;
         case kExportContent: {
