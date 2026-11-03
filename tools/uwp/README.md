@@ -27,17 +27,7 @@ The prefix is an install tree with `bin/SDL3.dll` and `lib/SDL3.lib` at its root
 
 `package/manifest.txt` is the single file list for both this onboarding and the desktop launcher's Files tab. Lines are `<sha256-hex> <size> <kind> <relative/path>`, with paths relative to the user-data root (`content/...`, `avatar-content/...`).
 
-Regenerate it from reference files:
-
-```
-mkdir -p /tmp/uwp-store
-ln -s <your content dir> /tmp/uwp-store/content
-ln -s <your avatar-content dir> /tmp/uwp-store/avatar-content
-python3 tools/uwp/make_manifest.py --store /tmp/uwp-store \
-    --kinds tools/uwp/manifest-kinds.txt --out package/manifest.txt
-```
-
-`tools/uwp/manifest-kinds.txt` curates kinds (`game`, `launch`, `show`, `episode`, `avatar`) and file names. The script fills in hashes and sizes. Commit the resulting `package/manifest.txt`. It is embedded in the UWP build and shipped in the desktop release archives for the launcher.
+Content packages are named `<content id>58`, the name the game looks for. Edit the file by hand and keep it identical to the table in the 1vs100-reborn-x360 INSTALL.md. It is embedded in the UWP build and shipped in the desktop release archives for the launcher.
 
 ## Code layout
 
