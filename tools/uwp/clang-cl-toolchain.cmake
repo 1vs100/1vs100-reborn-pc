@@ -13,6 +13,7 @@ set(CMAKE_CXX_COMPILER clang-cl)
 set(CMAKE_LINKER lld-link)
 set(CMAKE_RC_COMPILER llvm-rc)
 set(CMAKE_MT llvm-mt)
+set(CMAKE_AR llvm-lib)
 
 if(NOT DEFINED ENV{MSVC_ROOT})
   set(ENV{MSVC_ROOT} "$ENV{HOME}/.local/share/msvc")

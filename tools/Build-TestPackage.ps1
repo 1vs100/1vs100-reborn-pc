@@ -33,7 +33,7 @@ if(-not $SkipBuild) {
     Write-Output 'Native build OK.'
     $launcherLog=Join-Path $diag "build-launcher-$stamp.log"
     Write-Output "Building the launcher (log: $launcherLog) ..."
-    $code=RunBuild (Join-Path $root 'work\launcher\build_launcher.cmd') $launcherLog
+    $code=RunBuild (Join-Path $root 'work\tools\dev-launcher\build_launcher.cmd') $launcherLog
     if($code -ne 0) { Get-Content $launcherLog -Tail 40; throw "Launcher build failed (exit $code). See $launcherLog" }
     Write-Output 'Launcher build OK.'
 }

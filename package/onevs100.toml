@@ -1,0 +1,3 @@
+online_service = "gameserver"
+gameserver_host = "1vs100.fans"
+fullscreen = true

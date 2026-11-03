@@ -1,0 +1,451 @@
+# Builds the game for every supported platform.
+#
+# Chain: `codegen-key` resolves the SDK ref to a commit and derives the cache
+# key for the generated sources from that commit, the XEX hash and the codegen
+# config files. `codegen` runs `rexglue codegen` only when no cache entry has
+# that key. `build` restores the generated sources from the cache in a
+# platform matrix (linux / windows / uwp). Every compile goes through ccache,
+# one cache per toolchain, so an unchanged SDK is not recompiled.
+#
+# Repository secrets:
+#   XEX_URL             (required) HTTPS URL of your default.xex.
+#   XEX_AUTH            (optional) sent as the `Authorization` header when
+#                       downloading XEX_URL (e.g. `Bearer <token>`).
+#   XEX_SHA256          (required) expected SHA-256 of default.xex; the
+#                       download is verified against it and it is part of
+#                       the codegen cache key.
+#   SDL3_UWP_PREFIX_URL (required for the uwp leg) URL of a zip holding a
+#                       shared SDL3-uwp install prefix built with MSVC
+#                       (bin/SDL3.dll, lib/SDL3.lib, ... at the zip root).
+#   SDL3_UWP_AUTH       (optional) `Authorization` header for that URL.
+#
+# Fork pull requests cannot read secrets, so the secret-dependent jobs skip
+# themselves there instead of failing.
+#
+# Layout notes:
+# - Precompiled headers are disabled in CI because ccache cannot reuse them.
+# - The Windows legs cross-compile from Linux with clang-cl. The desktop leg
+#   needs only an xwin splat; the Store leg additionally needs an MSVC
+#   install (headers/libs only, provided by mstorsjo/msvc-wine) and the
+#   prebuilt SDL3-uwp prefix above.
+
+name: build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  SDK_REPO: 1vs100/rexglue-sdk
+  SDK_REF: fixes/various_1vs100
+  CLANG_VERSION: "22"
+  XWIN_VERSION: 0.10.0
+  MSVC_MAJOR: "17" # vsdownload.py manifest major; 17 == Visual Studio 2022 line
+  MSVC_CACHE_VERSION: v1 # bump to force a fresh MSVC download
+  CMAKE_BUILD_TYPE: Release
+  XWIN_ROOT: ${{ github.workspace }}/xwin-splat
+  MSVC_ROOT: ${{ github.workspace }}/msvc
+
+jobs:
+  codegen-key:
+    name: codegen cache key
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    outputs:
+      sdk_sha: ${{ steps.key.outputs.sdk_sha }}
+      key: ${{ steps.key.outputs.key }}
+    steps:
+      - name: Check out the codegen config
+        uses: actions/checkout@v7
+        with:
+          sparse-checkout: native
+
+      - name: Derive the key
+        id: key
+        env:
+          XEX_SHA256: ${{ secrets.XEX_SHA256 }}
+          CONFIG_HASH: ${{ hashFiles('native/onevs100_manifest.toml', 'native/branch-targets.toml', 'native/boundaries-v3.toml', 'native/switch-fix.toml') }}
+        run: |
+          set -euo pipefail
+          if [ -z "$XEX_SHA256" ]; then
+            echo "::error::XEX_SHA256 secret is not set"
+            exit 1
+          fi
+          if [[ "$SDK_REF" =~ ^[0-9a-f]{40}$ ]]; then
+            sdk_sha="$SDK_REF"
+          else
+            refs="$(git ls-remote "https://github.com/$SDK_REPO" \
+              "refs/heads/$SDK_REF" "refs/tags/$SDK_REF" "refs/tags/$SDK_REF^{}")"
+            # An annotated tag lists the tag object first; ^{} is its commit.
+            sdk_sha="$(printf '%s\n' "$refs" | awk '
+              $2 ~ /\^\{\}$/ { peeled = $1 }
+              NR == 1 { first = $1 }
+              END { print (peeled != "" ? peeled : first) }')"
+          fi
+          if [ -z "$sdk_sha" ]; then
+            echo "::error::$SDK_REF not found in $SDK_REPO"
+            exit 1
+          fi
+          # Job outputs that contain a secret are dropped, so hash it again.
+          xex="$(printf '%s' "$XEX_SHA256" | sha256sum | cut -c1-16)"
+          echo "sdk_sha=$sdk_sha" >> "$GITHUB_OUTPUT"
+          echo "key=codegen-$sdk_sha-$xex-$CONFIG_HASH" >> "$GITHUB_OUTPUT"
+
+  codegen:
+    name: rexglue codegen
+    needs: [codegen-key]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - name: Look up the generated sources
+        id: lookup
+        uses: actions/cache/restore@v6
+        with:
+          path: native/generated/default-v5
+          key: ${{ needs.codegen-key.outputs.key }}
+          lookup-only: true
+
+      - name: Check out the game
+        if: steps.lookup.outputs.cache-hit != 'true'
+        uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - name: Check out rexglue-sdk
+        if: steps.lookup.outputs.cache-hit != 'true'
+        uses: ./.github/actions/checkout-sdk
+        with:
+          repo: ${{ env.SDK_REPO }}
+          ref: ${{ needs.codegen-key.outputs.sdk_sha }}
+
+      - name: Install build tools
+        if: steps.lookup.outputs.cache-hit != 'true'
+        # The rexglue codegen tool builds from the Linux desktop SDK tree, so
+        # this job needs the same SDL system dependencies as the linux leg.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build nasm pkg-config python3 \
+            libx11-dev libx11-xcb-dev libxext-dev libxcursor-dev libxrandr-dev \
+            libxfixes-dev \
+            libxi-dev libxinerama-dev libxss-dev libxkbcommon-dev \
+            libxtst-dev libxdamage-dev libxrender-dev libxxf86vm-dev \
+            libxcomposite-dev libibus-1.0-dev \
+            libwayland-dev wayland-protocols libegl1-mesa-dev \
+            libgl1-mesa-dev libasound2-dev libpulse-dev libpipewire-0.3-dev \
+            libdbus-1-dev libudev-dev
+
+      - name: Set up Clang
+        if: steps.lookup.outputs.cache-hit != 'true'
+        uses: ./.github/actions/setup-clang
+        with:
+          version: ${{ env.CLANG_VERSION }}
+
+      - name: Set up ccache
+        if: steps.lookup.outputs.cache-hit != 'true'
+        uses: ./.github/actions/setup-ccache
+        with:
+          key: ccache-codegen-clang${{ env.CLANG_VERSION }}
+
+      - name: Download default.xex
+        if: steps.lookup.outputs.cache-hit != 'true'
+        uses: ./.github/actions/download-xex
+        with:
+          url: ${{ secrets.XEX_URL }}
+          auth: ${{ secrets.XEX_AUTH }}
+          sha256: ${{ secrets.XEX_SHA256 }}
+
+      - name: Configure (game + SDK from source)
+        if: steps.lookup.outputs.cache-hit != 'true'
+        run: |
+          cmake -S native -B build/codegen -G Ninja \
+            -DCMAKE_BUILD_TYPE="$CMAKE_BUILD_TYPE" \
+            -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+            -DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON \
+            -DREXSDK_DIR="$GITHUB_WORKSPACE/rexglue-sdk"
+
+      - name: Build the rexglue codegen tool
+        if: steps.lookup.outputs.cache-hit != 'true'
+        run: cmake --build build/codegen --target rexglue --parallel
+
+      - name: Run rexglue codegen
+        if: steps.lookup.outputs.cache-hit != 'true'
+        run: |
+          REXGLUE_BIN="$(find "$GITHUB_WORKSPACE/rexglue-sdk/out" -maxdepth 3 -name rexglue -type f -executable | head -n 1)"
+          if [ -z "$REXGLUE_BIN" ]; then
+            echo "::error::rexglue codegen binary not found under rexglue-sdk/out"
+            exit 1
+          fi
+          "$REXGLUE_BIN" --version
+          "$REXGLUE_BIN" codegen native/onevs100_manifest.toml
+
+      - name: Save the generated sources
+        if: steps.lookup.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: native/generated/default-v5
+          key: ${{ needs.codegen-key.outputs.key }}
+
+      - name: Show ccache statistics
+        if: always() && steps.lookup.outputs.cache-hit != 'true'
+        run: ccache --show-stats || true
+
+  build:
+    name: build (${{ matrix.platform }})
+    needs: [codegen-key, codegen]
+    runs-on: ubuntu-24.04
+    timeout-minutes: ${{ matrix.timeout }}
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux
+            timeout: 180
+            build_dir: build/linux
+            artifact: onevs100-linux-amd64
+            files: |
+              build/linux/onevs100
+              build/linux/librexruntime.so
+              build/linux/librexgpu-xenos.so
+              build/linux/content/.keep
+              build/linux/onevs100.toml
+              build/linux/RUN.md
+              build/linux/launcher
+          - platform: windows
+            timeout: 240
+            build_dir: build/win
+            artifact: onevs100-win-amd64
+            needs_xwin: true
+            files: |
+              build/win/onevs100.exe
+              build/win/rexruntime.dll
+              build/win/rexgpu-xenos.dll
+              build/win/content/.keep
+              build/win/onevs100.toml
+              build/win/RUN.md
+              build/win/launcher.exe
+          - platform: uwp
+            timeout: 300
+            build_dir: build/uwp
+            artifact: onevs100-uwp-amd64
+            needs_xwin: true
+            needs_msvc: true
+            needs_sdl_prefix: true
+            files: |
+              build/uwp/onevs100.exe
+              build/uwp/rexruntime.dll
+              build/uwp/rexgpu-xenos.dll
+              build/uwp/SDL3.dll
+              build/uwp/content/.keep
+              build/uwp/onevs100.toml
+              build/uwp/RUN.md
+    steps:
+      - name: Check out the game
+        uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - name: Check out rexglue-sdk
+        uses: ./.github/actions/checkout-sdk
+        with:
+          repo: ${{ env.SDK_REPO }}
+          ref: ${{ needs.codegen-key.outputs.sdk_sha }}
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build nasm pkg-config python3 curl unzip git
+          if [ "${{ matrix.platform }}" = "linux" ]; then
+            sudo apt-get install -y libx11-dev libx11-xcb-dev libxext-dev \
+              libxcursor-dev \
+              libxrandr-dev libxfixes-dev libxi-dev libxinerama-dev \
+              libxss-dev libxkbcommon-dev libxtst-dev libxdamage-dev \
+              libxrender-dev libxxf86vm-dev libxcomposite-dev \
+              libibus-1.0-dev libwayland-dev \
+              wayland-protocols libegl1-mesa-dev libgl1-mesa-dev \
+              libasound2-dev libpulse-dev libpipewire-0.3-dev libdbus-1-dev \
+              libudev-dev
+          fi
+
+      - name: Set up Clang
+        uses: ./.github/actions/setup-clang
+        with:
+          version: ${{ env.CLANG_VERSION }}
+
+      - name: Set up ccache
+        uses: ./.github/actions/setup-ccache
+        with:
+          key: ccache-${{ matrix.platform }}-clang${{ env.CLANG_VERSION }}
+
+      - name: Restore MSVC cache (msvc-wine)
+        if: matrix.needs_msvc
+        id: msvc-cache
+        uses: actions/cache@v6
+        with:
+          path: ${{ github.workspace }}/msvc
+          key: msvc-major${{ env.MSVC_MAJOR }}-${{ env.MSVC_CACHE_VERSION }}
+          restore-keys: msvc-major${{ env.MSVC_MAJOR }}-
+
+      - name: Provision MSVC with msvc-wine
+        if: matrix.needs_msvc && steps.msvc-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y python3 msitools gcab ca-certificates
+          command -v msiextract gcab
+          git clone --depth 1 https://github.com/mstorsjo/msvc-wine.git "$RUNNER_TEMP/msvc-wine"
+          python3 "$RUNNER_TEMP/msvc-wine/vsdownload.py" --accept-license \
+            --major "$MSVC_MAJOR" --dest "$MSVC_ROOT" --architecture x64 \
+            --cache "$RUNNER_TEMP/msvc-dl-cache"
+          chmod +x "$RUNNER_TEMP/msvc-wine/install.sh"
+          "$RUNNER_TEMP/msvc-wine/install.sh" "$MSVC_ROOT"
+          for d in "$MSVC_ROOT/VC/Tools/MSVC" "$MSVC_ROOT/Windows Kits/10/Include" "$MSVC_ROOT/Windows Kits/10/Lib"; do
+            if [ ! -d "$d" ]; then
+              echo "::error::MSVC install is missing $d"
+              exit 1
+            fi
+          done
+
+      - name: Detect MSVC and Windows SDK versions
+        if: matrix.needs_msvc
+        run: |
+          set -euo pipefail
+          {
+            echo "MSVC_VERSION=$(ls "$MSVC_ROOT/VC/Tools/MSVC/" | grep -E '^[0-9]' | sort -V | tail -n 1)"
+            echo "WINSDK_VERSION=$(ls "$MSVC_ROOT/Windows Kits/10/Include/" | grep -E '^[0-9]+\.' | sort -V | tail -n 1)"
+          } >> "$GITHUB_ENV"
+
+      - name: Install xwin and splat the Windows SDK
+        if: matrix.needs_xwin
+        env:
+          # Set by the Detect step above on the uwp leg (MSVC is provisioned
+          # first, so the splat matches its SDK); empty elsewhere, where xwin
+          # splats its default SDK.
+          WINSDK_VERSION: ${{ env.WINSDK_VERSION }}
+        run: |
+          set -euo pipefail
+          name="xwin-$XWIN_VERSION-x86_64-unknown-linux-musl"
+          url="https://github.com/Jake-Shadle/xwin/releases/download/$XWIN_VERSION/$name.tar.gz"
+          curl -fsSL -o "$RUNNER_TEMP/$name.tar.gz" "$url"
+          # The .sha256 file holds only the hash, without a file name or newline.
+          expected="$(curl -fsSL "$url.sha256" | awk '{ print $1 }')"
+          echo "$expected  $RUNNER_TEMP/$name.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/$name.tar.gz" -C "$RUNNER_TEMP"
+          sudo install -m 755 "$RUNNER_TEMP/$name/xwin" /usr/local/bin/xwin
+          # xwin 0.10.0 takes --sdk-version before the subcommand, has no
+          # --cache-dir flag, and moves (not copies) files out of its default
+          # ./.xwin-cache: so it runs from the workspace, otherwise the splat
+          # fails with "Invalid cross-device link".
+          splat_args=(--accept-license)
+          if [ -n "${WINSDK_VERSION:-}" ]; then
+            splat_args+=(--sdk-version "${WINSDK_VERSION%.0}")
+          fi
+          splat_args+=(splat --output "$XWIN_ROOT")
+          xwin "${splat_args[@]}"
+          for d in "$XWIN_ROOT/crt/include" "$XWIN_ROOT/sdk/include/um" \
+                   "$XWIN_ROOT/sdk/lib/um/x86_64" "$XWIN_ROOT/crt/lib/x86_64"; do
+            if [ ! -d "$d" ]; then
+              echo "::error::xwin splat is missing $d"
+              exit 1
+            fi
+          done
+
+      - name: Download SDL3-uwp prefix
+        if: matrix.needs_sdl_prefix
+        env:
+          SDL3_UWP_PREFIX_URL: ${{ secrets.SDL3_UWP_PREFIX_URL }}
+          SDL3_UWP_AUTH: ${{ secrets.SDL3_UWP_AUTH }}
+        run: |
+          set -euo pipefail
+          if [ -z "$SDL3_UWP_PREFIX_URL" ]; then
+            echo "::error::SDL3_UWP_PREFIX_URL secret is not set"
+            exit 1
+          fi
+          auth=()
+          if [ -n "$SDL3_UWP_AUTH" ]; then
+            auth=(-H "Authorization: $SDL3_UWP_AUTH")
+          fi
+          curl -fsSL "${auth[@]}" -o "$RUNNER_TEMP/sdl3-uwp-prefix.zip" "$SDL3_UWP_PREFIX_URL"
+          mkdir -p "$GITHUB_WORKSPACE/sdl3-uwp-prefix"
+          unzip -q -o "$RUNNER_TEMP/sdl3-uwp-prefix.zip" -d "$GITHUB_WORKSPACE/sdl3-uwp-prefix"
+          if [ ! -f "$GITHUB_WORKSPACE/sdl3-uwp-prefix/bin/SDL3.dll" ] || \
+             [ ! -f "$GITHUB_WORKSPACE/sdl3-uwp-prefix/lib/SDL3.lib" ]; then
+            echo "::error::SDL3-uwp prefix must unzip to <prefix>/ with bin/SDL3.dll and lib/SDL3.lib (zip the prefix contents, not a wrapper folder)"
+            exit 1
+          fi
+
+      - name: Restore the generated sources
+        uses: actions/cache/restore@v6
+        with:
+          path: native/generated/default-v5
+          key: ${{ needs.codegen-key.outputs.key }}
+          fail-on-cache-miss: true
+
+      - name: Configure
+        run: |
+          args=(
+            -DCMAKE_BUILD_TYPE="$CMAKE_BUILD_TYPE"
+            -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+            -DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON
+            -DREXSDK_DIR="$GITHUB_WORKSPACE/rexglue-sdk"
+          )
+          case "${{ matrix.platform }}" in
+            windows)
+              args+=(-DCMAKE_TOOLCHAIN_FILE="$GITHUB_WORKSPACE/tools/win/clang-cl-toolchain.cmake")
+              ;;
+            uwp)
+              args+=(-DCMAKE_TOOLCHAIN_FILE="$GITHUB_WORKSPACE/tools/uwp/clang-cl-toolchain.cmake"
+                     -DREXGLUE_SDL3_UWP_PREFIX="$GITHUB_WORKSPACE/sdl3-uwp-prefix")
+              ;;
+          esac
+          cmake -S native -B "${{ matrix.build_dir }}" -G Ninja "${args[@]}"
+
+      - name: Build onevs100
+        run: cmake --build "${{ matrix.build_dir }}" --target onevs100 --parallel
+
+      - name: Build launcher
+        if: matrix.platform != 'uwp'
+        run: |
+          args=(
+            -DCMAKE_BUILD_TYPE=Release
+            -DCMAKE_RUNTIME_OUTPUT_DIRECTORY="$GITHUB_WORKSPACE/${{ matrix.build_dir }}"
+          )
+          if [ "${{ matrix.platform }}" = "windows" ]; then
+            args+=(-DCMAKE_TOOLCHAIN_FILE="$GITHUB_WORKSPACE/tools/win/clang-cl-toolchain.cmake")
+          else
+            args+=(-DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++)
+          fi
+          cmake -S launcher -B "${{ matrix.build_dir }}-launcher" -G Ninja "${args[@]}"
+          cmake --build "${{ matrix.build_dir }}-launcher" --parallel
+
+      - name: Show ccache statistics
+        if: always()
+        run: ccache --show-stats || true
+
+      - name: Stage release files
+        run: |
+          mkdir -p "${{ matrix.build_dir }}/content"
+          touch "${{ matrix.build_dir }}/content/.keep"
+          cp RUN.md package/onevs100.toml "${{ matrix.build_dir }}/"
+
+      - name: Upload binaries
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.files }}
+          retention-days: 7
+          if-no-files-found: error
+          include-hidden-files: true
