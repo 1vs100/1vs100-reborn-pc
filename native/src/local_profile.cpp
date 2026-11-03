@@ -9,9 +9,17 @@
 #include <cstdlib>
 #include <cctype>
 #include <cstring>
+#include <optional>
+#include <rex/logging.h>
 #ifdef _WIN32
 #include <windows.h>
+#if REX_PLATFORM_WINRT
+#include <thread>
+#include <winrt/windows.foundation.collections.h>
+#include <winrt/windows.system.h>
+#else
 #pragma comment(lib, "advapi32.lib")
+#endif
 #else
 #include <unistd.h>
 #endif
@@ -22,6 +30,31 @@ bool NameChar(unsigned char c) {
   return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
          (c >= '0' && c <= '9') || c == ' ' || c == '_' || c == '-';
 }
+#if REX_PLATFORM_WINRT
+// Gamertag of the signed-in Xbox account. "Gamertag" is not in KnownUserProperties;
+// the documented name properties are empty on Xbox. No property carries the XUID.
+std::optional<std::string> AccountGamertag() {
+  std::optional<std::string> result;
+  // Blocking WinRT calls are not allowed on the UI thread.
+  std::thread([&] {
+    try {
+      using namespace winrt::Windows::System;
+      const auto names = winrt::single_threaded_vector<winrt::hstring>({L"Gamertag"});
+      for (const auto& user : User::FindAllAsync().get()) {
+        const auto props = user.GetPropertiesAsync(names.GetView()).get();
+        const auto name = props.TryLookup(L"Gamertag").try_as<winrt::hstring>();
+        if (name && !name->empty()) {
+          result = winrt::to_string(*name);
+          return;
+        }
+      }
+    } catch (const winrt::hresult_error& error) {
+      REXKRNL_ERROR("Account gamertag lookup failed: {}", winrt::to_string(error.message()));
+    }
+  }).join();
+  return result;
+}
+#endif
 std::string Environment(const char* name) {
   const char* value = std::getenv(name);
   return value ? value : "";
@@ -84,7 +117,10 @@ uint64_t LocalXuid() {
   // second test copy on the same PC.
   static const uint64_t derivedXuid = [] {
     uint32_t hash = 2166136261u;  // FNV-1a
-#ifdef _WIN32
+#if REX_PLATFORM_WINRT
+    // Gamertags are unique, so the same account gets the same XUID on every console.
+    for (unsigned char c : "xbox|" + gamertag) { hash ^= c; hash *= 16777619u; }
+#elif defined(_WIN32)
     std::wstring seed;
     for (const wchar_t* name : {L"COMPUTERNAME", L"USERNAME", L"ONEVS100_PROFILE_SLOT"}) {
       wchar_t value[256] = {};
@@ -119,6 +155,15 @@ std::filesystem::path PlayerDataFolder() {
 #endif
 }
 void InitializeLocalProfile() {
+#if REX_PLATFORM_WINRT
+  if (auto name = AccountGamertag()) {
+    if (ValidName(*name)) {
+      gamertag = *name;
+      return;
+    }
+    REXKRNL_ERROR("Account gamertag \"{}\" is not a valid in-game name", *name);
+  }
+#endif
   std::ifstream saved(PlayerDataFolder() / "profiles" / "local-name.txt");
   std::string name;
   const bool requested = CommandLineHas("--edit_profile");

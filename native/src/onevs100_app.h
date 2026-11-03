@@ -18,7 +18,7 @@
 #include "online_service.h"
 #include <rex/system/kernel_state.h>
 #if REX_PLATFORM_WINRT
-#include <winrt/Windows.ApplicationModel.h>
+#include <winrt/windows.applicationmodel.h>
 #include "uwp_onboarding/gate.h"
 #endif
 #include <cstdlib>
