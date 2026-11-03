@@ -46,6 +46,44 @@ Every setting in `onevs100.toml` also works as a command line flag, for example 
 
 The game also reads these environment variables: `ONEVS100_NATIVE_AVATAR_CONTENT` (avatar content, or the `native_avatar_content` setting), `ONEVS100_PLAYER_DATA` (player data folder), `ONEVS100_PROFILE_SLOT` (second copy identity), `ONEVS100_PROFILE_XUID` (forced profile id, hex).
 
+## Controls and settings
+
+Any standard controller works through SDL out of the box: Xbox, DualSense/DualShock (via HIDAPI), Switch Pro and generic DirectInput pads, with rumble. On Windows you can use the native XInput driver instead with `input_backend = "xinput"`.
+
+Keyboard play is off by default. Turn it on with `mnk_mode = true` (below). Defaults:
+
+| Pad | Keys |
+|---|---|
+| Left stick | `W` `A` `S` `D` |
+| Right stick | Arrow keys, or the mouse with `mnk_mouse = true` (`mnk_sensitivity`, 0.01–10) |
+| A / B / X / Y | `;` or `Space` / `'` or `Backspace` / `L` / `P` |
+| LB / RB | `1` / `3` |
+| LT / RT | `Q` or `I` / `E` or `O` |
+| LS / RS press | `F` / `K` |
+| D-pad | `Shift` + arrows |
+| Back / Start | `Z` or `Tab` / `X` or `Enter` |
+
+Every binding is remappable with a `keybind_*` setting (e.g. `keybind_a = "Space"`), same names as the table.
+
+Windows only: `ONEVS100_DUALSENSE_HID=1` reads a USB DualSense directly as a backup if SDL doesn't claim the pad (close DS4Windows first), and `ONEVS100_MOUSE_PANEL=1` adds a small always-on-top window of clickable answer/menu buttons. Both merge into player 1's input while the game window has focus.
+
+### Settings reference
+
+`onevs100.toml` next to the executable holds flat `name = value` keys; every key also works as a `--name=value` flag. The launcher only manages `gameserver_host` and `fullscreen` — extra keys survive a Launch, hand-written comments don't.
+
+| Setting | Default | What it does |
+|---|---|---|
+| `online_service` / `gameserver_host` / `guest_bind_address` | `gameserver` / unset | server play; server host/IP; second copy's bind IP |
+| `content` | `content` | game/show/episode package(s), used in place |
+| `native_avatar_content` | unset | avatar assets, `AvatarAssetPack.toc`, or update package |
+| `fullscreen` | `true` | fullscreen or windowed |
+| `mnk_mode` / `mnk_mouse` / `mnk_sensitivity` / `mnk_passthrough` | off | keyboard-pad emulation (above) |
+| `input_backend` | `sdl` | `sdl` or (Windows) `xinput` |
+| `keybind_*` | see table | keyboard remap |
+| `audio_backend` | `sdl` | audio driver |
+| `lua_print_log` | `false` | write the title's Lua `print` output to the log |
+
+Environment overrides: `ONEVS100_NATIVE_AVATAR_CONTENT`, `ONEVS100_PLAYER_DATA`, `ONEVS100_PROFILE_SLOT`, `ONEVS100_PROFILE_XUID`, `ONEVS100_DUALSENSE_HID`, `ONEVS100_MOUSE_PANEL`, and `SDL_VIDEO_DRIVER` on Linux. Gamertag and avatar live in `userdata/profiles/` (`local-name.txt`, `avatar.bin`). The remaining `vulkan_*` / `d3d12_*` / `gpu_*` knobs come from the ReXGlue SDK and keep their tested defaults; the debug-show switches (skins, Host Tool, debug menu) live in `lua/NativeDebug.lua` and the dev launcher's Debug tab.
 [docs/gameserver-mode.md](docs/gameserver-mode.md) has the developer details.
 ## Linux notes
 
@@ -59,7 +97,7 @@ The game also reads these environment variables: `ONEVS100_NATIVE_AVATAR_CONTENT
 |---|---|
 | `native/` | The PC side of the game: CMake project for the recompiled executable and our C++ (gameserver mode, Avatar provider, controls, video). |
 | `lua/` | Lua we added to the game: `NativeDebug.lua` (debug switches, skins). |
-| `launcher/` | The player launcher for Windows and Linux: gamertag, avatar, gameserver host, windowed mode. |
+| `launcher/` | The player launcher for Windows and Linux: gamertag, avatar, gameserver host, windowed mode, keyboard controls. |
 | `tools/dev-launcher/` | `1vs100 Launcher.exe` (Windows, development): Play / Display / Controls / Show / Online / Debug tabs. |
 | `tools/` | Launch, packaging, mods (XZP), export, log-collection scripts; `tools/test/` Lua unit tests. |
 | `docs/` | Developer notes, such as gameserver mode. |

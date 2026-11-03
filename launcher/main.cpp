@@ -178,6 +178,8 @@ struct Settings {
   bool windowed = false;
   std::string content = "content";
   std::string avatarAssets;
+  bool keyboard = false;
+  bool mouse_look = false;
 };
 
 // Missing keys take the game's own defaults, except the host, which the
@@ -194,6 +196,8 @@ std::expected<Settings, Error> LoadSettings(const fs::path& config) {
   if (auto fullscreen = table["fullscreen"].value<bool>()) settings.windowed = !*fullscreen;
   if (auto content = table["content"].value<std::string>()) settings.content = *content;
   if (auto assets = table["native_avatar_content"].value<std::string>()) settings.avatarAssets = *assets;
+  if (auto keyboard = table["mnk_mode"].value<bool>()) settings.keyboard = *keyboard;
+  if (auto mouse_look = table["mnk_mouse"].value<bool>()) settings.mouse_look = *mouse_look;
   return settings;
 }
 
@@ -210,6 +214,8 @@ std::expected<void, Error> SaveSettings(const fs::path& config, const Settings& 
   }
   table.insert_or_assign("gameserver_host", settings.host);
   table.insert_or_assign("fullscreen", !settings.windowed);
+  table.insert_or_assign("mnk_mode", settings.keyboard);
+  table.insert_or_assign("mnk_mouse", settings.mouse_look);
   std::ofstream out(config, std::ios::trunc);
   out << table << '\n';
   out.flush();
@@ -524,6 +530,8 @@ struct App {
   std::array<char, 64> gamertag{};
   std::array<char, 512> host{};
   bool windowed = false;
+  bool keyboard = false;
+  bool mouse_look = false;
   Status status;
   SDL_Window* window = nullptr;
   Uint32 dialog_event = 0;
@@ -548,12 +556,21 @@ struct App {
     windowed = settings->windowed;
     contentSetting = settings->content;
     avatarAssetsSetting = settings->avatarAssets;
+    keyboard = settings->keyboard;
+    mouse_look = settings->mouse_look;
     RefreshFiles(*this);
   }
 
   std::expected<void, Error> Save() {
     if (auto saved = SaveGamertag(paths, gamertag.data()); !saved) return saved;
-    return SaveSettings(paths.config, Settings{host.data(), windowed});
+    Settings out;
+    out.host = host.data();
+    out.windowed = windowed;
+    out.content = contentSetting;
+    out.avatarAssets = avatarAssetsSetting;
+    out.keyboard = keyboard;
+    out.mouse_look = mouse_look;
+    return SaveSettings(paths.config, out);
   }
 
   bool AvatarPresent() const {
@@ -759,6 +776,13 @@ void DrawSettingsTab(App& app) {
   ImGui::Dummy(ImVec2(0, 6));
   SectionLabel("DISPLAY");
   ImGui::Checkbox("Windowed mode", &app.windowed);
+
+  ImGui::Dummy(ImVec2(0, 6));
+  SectionLabel("CONTROLS");
+  ImGui::Checkbox("Keyboard controls (WASD + arrows, Space = A)", &app.keyboard);
+  ImGui::BeginDisabled(!app.keyboard);
+  ImGui::Checkbox("Mouse aims the right stick", &app.mouse_look);
+  ImGui::EndDisabled();
 }
 
 void StatusIcon(bool ok) {
