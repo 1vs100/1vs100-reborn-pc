@@ -16,10 +16,11 @@
 #include "gameserver_redirect.h"
 #include "matchmaking_client.h"
 #include "online_service.h"
+#include "xma_kick.h"
+#include <rex/system/kernel_state.h>
 #ifdef _WIN32
 #include "audio_xaudio2.h"
 #endif
-#include <rex/system/kernel_state.h>
 #if REX_PLATFORM_WINRT
 #include <winrt/windows.applicationmodel.h>
 #include "uwp_onboarding/gate.h"
@@ -135,7 +136,8 @@ class Onevs100App : public rex::ReXApp {
   // std::unique_ptr<rex::ui::ImGuiDialog> CreateAchievementsOverlay() override;
   // std::unique_ptr<rex::ui::AchievementNotificationDialog>
   // CreateAchievementNotificationDialog() override;
-  // void OnShutdown() override {}
+  void OnPreLaunchModule() override { rex::audio::StartXmaKicker(); }
+  void OnShutdown() override { rex::audio::StopXmaKicker(); }
   // void OnConfigurePaths(rex::PathConfig& paths) override {}
  private:
   std::error_code config_seed_error_;
