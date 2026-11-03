@@ -27,6 +27,10 @@ similar-item substitution) are under the same terms.
 unmodified apart from build glue (`logging.cc`, `config.h`).
 License: `native/src/avatar_native/third_party/mspack/COPYING.LIB`.
 
+## CrashCourse2Recomp XAudio2 backend
+
+`native/src/audio_xaudio2.{h,cpp}` is copied from [CrashCourse2Recomp](https://github.com/panedivitasei/CrashCourse2Recomp) with its author's permission. It was ported there from masterspike52/reDAHM and is based on Xenia's XAudio2 driver (BSD 3-Clause).
+
 ## Not included, used at build or run time
 
 - **ReXGlue SDK** (the static recompiler and runtime): obtained separately under its own license.

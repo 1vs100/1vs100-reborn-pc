@@ -16,6 +16,9 @@
 #include "gameserver_redirect.h"
 #include "matchmaking_client.h"
 #include "online_service.h"
+#ifdef _WIN32
+#include "audio_xaudio2.h"
+#endif
 #include <rex/system/kernel_state.h>
 #if REX_PLATFORM_WINRT
 #include <winrt/windows.applicationmodel.h>
@@ -39,6 +42,9 @@ class Onevs100App : public rex::ReXApp {
     if (!LoadOnlineService()) std::exit(1);
     InitializeLocalProfile();
     config.gpu_plugin = "xenos";
+#ifdef _WIN32
+    config.audio_factory = REX_AUDIO_BACKEND(xaudio2::XAudio2AudioSystem);
+#endif
   }
   void OnConfigurePaths(rex::PathConfig& paths) override {
     auto folder = rex::filesystem::GetExecutableFolder();

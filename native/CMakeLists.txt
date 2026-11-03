@@ -149,6 +149,8 @@ endif()
 
 rexglue_setup_target(onevs100 GPU_PLUGINS xenos)
 if(WIN32)
+    target_sources(onevs100 PRIVATE src/audio_xaudio2.cpp)
+    target_link_libraries(onevs100 PRIVATE xaudio2)
     target_link_options(onevs100 PRIVATE /MAP:onevs100.map)
     target_compile_definitions(onevs100 PRIVATE ONEVS100_RUNTIME_DLL="$<TARGET_FILE_NAME:rex::runtime>")
 else()
