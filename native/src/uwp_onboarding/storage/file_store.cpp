@@ -16,7 +16,9 @@ constexpr const char* kCacheFileName = ".verified";
 constexpr const char* kIncomingDirName = ".incoming";
 
 std::filesystem::path Utf8Path(const std::string& utf8) {
-  return std::filesystem::path(std::u8string(utf8.begin(), utf8.end()));
+  // char8_t is disabled by the toolchain, so a path cannot be built from
+  // u8string; u8path still takes a UTF-8 std::string here and checks it.
+  return std::filesystem::u8path(utf8);
 }
 
 std::string HexDigest(const Sha256Digest& digest) {
