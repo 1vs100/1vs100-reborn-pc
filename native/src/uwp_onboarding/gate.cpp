@@ -16,6 +16,8 @@ bool EnsureGameFiles(const std::filesystem::path& userRoot) {
     if (probe.AllReady()) return true;
   }
 
+  // XInput is absent in AppContainer; WGI is the only gamepad backend and SDL 3.4 disables it by default.
+  SDL_SetHint(SDL_HINT_JOYSTICK_WGI, "1");
   if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) {
     SDL_Log("onboarding SDL_Init failed: %s", SDL_GetError());
     return false;
@@ -25,7 +27,7 @@ bool EnsureGameFiles(const std::filesystem::path& userRoot) {
   if (!SDL_CreateWindowAndRenderer("1 vs 100 Setup", onboarding::ui::kWidth, onboarding::ui::kHeight,
                                    SDL_WINDOW_RESIZABLE, &window, &renderer)) {
     SDL_Log("onboarding window creation failed: %s", SDL_GetError());
-    SDL_Quit();
+    SDL_QuitSubSystem(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD);
     return false;
   }
   SDL_SetRenderLogicalPresentation(renderer, onboarding::ui::kWidth, onboarding::ui::kHeight,
@@ -61,7 +63,7 @@ bool EnsureGameFiles(const std::filesystem::path& userRoot) {
 
   SDL_DestroyRenderer(renderer);
   SDL_DestroyWindow(window);
-  SDL_Quit();
+  SDL_QuitSubSystem(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD);
   return ready;
 }
 
