@@ -24,19 +24,17 @@ The Xbox 360 game 1 vs 100, rebuilt for the PC with the [ReXGlue](https://github
 
 You need files from your own Xbox 360. This repository ships no game content.
 
-1. Put the 1 vs 100 game files where the executable finds them. List the untouched game package in `content_install` (used as-is, no unpacking), or unpack `default.xex` and its media into an `assets/` folder next to the built executable. You can also pass `--game_data_root=<folder>`.
+1. Put the 1 vs 100 game files where the executable finds them. Put the untouched game package in the `content/` folder next to the executable (used as-is, no unpacking), or unpack `default.xex` and its media into an `assets/` folder next to the built executable. You can also pass `--game_data_root=<folder>`.
 2. Point the game at your avatar content. Set `ONEVS100_NATIVE_AVATAR_CONTENT` (or the `native_avatar_content` setting) to the content folder holding `0000000000000000/FFFE07DF/...`, to the `AvatarAssetPack.toc` file itself, or to the `FFFE07DF00000002` package from a dashboard system update. Without it the game runs with no avatars. Make yours at [360sona.com](https://360sona.com) (**My Sonas → Import / Export → Save the description (.bin)**) and save it as `profiles/avatar.bin` in the player data folder, otherwise the game builds one from your profile id. The asset files come from Xbox 360 System Update 17559 ([CD + USB download](https://archive.org/details/xbox-360-system-update-17559-cd-usb)).
-3. Host voice lines need no copying: with the show package in `content_install`, the game reads `vo.xwb`/`vo.xsb` from the package itself.
+3. Host voice lines need no copying: with the show package in `content`, the game reads `vo.xwb`/`vo.xsb` from the package itself.
 4. For online play you need the stock retail 2.0.1149.0 game files with their original Lua scripts, plus the show and episode packages. Put these settings in `onevs100.toml` next to the executable:
 ```
-[Online]
+# onevs100.toml uses flat keys (no [sections]): each line is `name = value`.
 online_service = "gameserver"
 gameserver_host = "1vs100.example.org"
-
-[Content]
-content_install = "/path/to/packages"
+content = "/path/to/packages"
 ```
-`gameserver_host` is the server's host name or IPv4 address. `content_install` names the game package, a show or episode package file, or a folder of them. The game uses them in place at startup, never extracted. To run two copies on one PC, give each its own `guest_bind_address`, for example `127.0.0.1` and `127.0.0.2`.
+`gameserver_host` is the server's host name or IPv4 address. `content` names the game package, a show or episode package file, or a folder of them. It defaults to `content/` next to the executable. The game uses them in place at startup, never extracted. To run two copies on one PC, give each its own `guest_bind_address`, for example `127.0.0.1` and `127.0.0.2`.
 5. Run the game:
 ```
 cd build/linux
@@ -44,7 +42,7 @@ cd build/linux
 ```
 Every setting in `onevs100.toml` also works as a command line flag, for example `--online_service=gameserver --gameserver_host=1vs100.example.org`.
 6. Set your gamertag. On Linux there is no profile window, so write it in `profiles/local-name.txt` in the player data folder. On Windows use `Edit profile`, or pass `--edit_profile` (Windows only). Names take 1-15 characters: letters, numbers, spaces, `_` or `-`, with no leading or trailing space.
-7. The player data folder is `userdata/` next to the executable on a direct run, or `player-data/` in the workspace when launched from the launcher. Give `content_install` and avatar paths as absolute paths; relative ones resolve against the process working directory, not the executable.
+7. The player data folder is `userdata/` next to the executable, whether you run `onevs100` directly or press Launch. A relative `content` path resolves against the executable folder. Give avatar paths as absolute paths.
 
 The game also reads these environment variables: `ONEVS100_NATIVE_AVATAR_CONTENT` (avatar content, or the `native_avatar_content` setting), `ONEVS100_PLAYER_DATA` (player data folder), `ONEVS100_PROFILE_SLOT` (second copy identity), `ONEVS100_PROFILE_XUID` (forced profile id, hex).
 
@@ -61,7 +59,8 @@ The game also reads these environment variables: `ONEVS100_NATIVE_AVATAR_CONTENT
 |---|---|
 | `native/` | The PC side of the game: CMake project for the recompiled executable and our C++ (gameserver mode, Avatar provider, controls, video). |
 | `lua/` | Lua we added to the game: `NativeDebug.lua` (debug switches, skins). |
-| `launcher/` | `1vs100 Launcher.exe` (Windows): Play / Display / Controls / Show / Online / Debug tabs. |
+| `launcher/` | The player launcher for Windows and Linux: gamertag, avatar, gameserver host, windowed mode. |
+| `tools/dev-launcher/` | `1vs100 Launcher.exe` (Windows, development): Play / Display / Controls / Show / Online / Debug tabs. |
 | `tools/` | Launch, packaging, mods (XZP), export, log-collection scripts; `tools/test/` Lua unit tests. |
 | `docs/` | Developer notes, such as gameserver mode. |
 
@@ -91,7 +90,7 @@ Steps:
       -DREXSDK_DIR=<rexglue-sdk>
    cmake --build build/linux --target onevs100
    ```
-5. Launcher (Windows): `launcher\build_launcher.cmd` (set `LLVM_BIN` or put clang-cl on PATH).
+5. Development launcher (Windows): `tools\dev-launcher\build_launcher.cmd` (set `LLVM_BIN` or put clang-cl on PATH).
 6. For debug options, copy the files from `lua/` into the game's `lua` folder.
 
 ### Not published yet
