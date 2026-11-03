@@ -72,7 +72,7 @@ for f in MoltenVK_icd.json libvulkan*.dylib; do
     echo "warning: $build_dir/MoltenVK_icd.json absent, Vulkan may miss driver" >&2
   fi
 done
-sed "s/__VERSION__/$version/g" "$script_dir/Info.plist.template" > "$stage/1vs100.app/Contents/Info.plist"
+sed "s/__VERSION__/$version/g" "$script_dir/mac/Info.plist.template" > "$stage/1vs100.app/Contents/Info.plist"
 chmod +x "$app/onevs100" "$app/launcher"
 if ! codesign --force -s - "$app"/*.dylib 2>/dev/null; then
   echo "warning: dylib codesign failed" >&2
