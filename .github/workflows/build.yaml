@@ -438,6 +438,19 @@ jobs:
           key: ${{ needs.codegen-key.outputs.key }}
           fail-on-cache-miss: true
 
+      - name: Select latest Xcode (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          latest="$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -n 1)"
+          if [ -z "$latest" ]; then
+            echo "::error::no Xcode found under /Applications"
+            exit 1
+          fi
+          echo "Selecting $latest"
+          sudo xcode-select -s "$latest"
+          xcodebuild -version
+          clang --version
       - name: Configure
         run: |
           args=(
