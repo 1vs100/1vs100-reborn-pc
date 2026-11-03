@@ -74,10 +74,11 @@ std::string PathText(const fs::path& path) {
 }
 
 Paths MakePaths() {
+  // Do NOT SDL_free the result: this SDL version caches the base path and
+  // frees it in SDL_Quit, so freeing here double-frees on shutdown.
   const char* base_path = SDL_GetBasePath();
   const fs::path base =
       base_path ? PathFromUtf8(base_path) : fs::current_path();
-  if (base_path) SDL_free((void*)base_path);
   const fs::path profiles = base / "userdata" / "profiles";
   return {base, base / kGameExecutable, base / "onevs100.toml", profiles, profiles / "local-name.txt",
           profiles / "avatar.bin"};
