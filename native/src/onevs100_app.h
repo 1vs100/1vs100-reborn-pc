@@ -17,6 +17,9 @@
 #include "matchmaking_client.h"
 #include "online_service.h"
 #include <rex/system/kernel_state.h>
+#if REX_PLATFORM_WINRT
+#include "uwp_onboarding/gate.h"
+#endif
 #include <cstdlib>
 const rex::PPCImageInfo& NativeImageConfig();
 
@@ -52,6 +55,11 @@ class Onevs100App : public rex::ReXApp {
         config_seed_error_ = error;
       }
     }
+    // First run: get the game files onto the device (browser upload or USB)
+    // before anything tries to use them. Skipped silently when the manifest
+    // already verifies; if the user quits, the game reports the missing
+    // files through the usual path below.
+    uwp_onboarding::EnsureGameFiles(folder);
 #endif
     // All development saves/cache/config stay beside this isolated build.
     paths.user_data_root = folder / "userdata";

@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
          xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
-         IgnorableNamespaces="uap">
+         xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+         IgnorableNamespaces="uap rescap">
   <Identity Name="OneVs100.Native" Publisher="CN=OneVs100 Test" Version="0.1.0.0" ProcessorArchitecture="x64"/>
   <Properties>
     <DisplayName>1 vs 100</DisplayName>
@@ -29,5 +30,7 @@
     <Capability Name="internetClient"/>
     <Capability Name="internetClientServer"/>
     <Capability Name="privateNetworkClientServer"/>
+    <uap:Capability Name="removableStorage"/>
+    <rescap:Capability Name="broadFileSystemAccess"/>
   </Capabilities>
 </Package>

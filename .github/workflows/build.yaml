@@ -225,6 +225,7 @@ jobs:
               build/linux/content/.keep
               build/linux/onevs100.toml
               build/linux/RUN.md
+              build/linux/manifest.txt
               build/linux/launcher
           - platform: windows
             runner: ubuntu-24.04
@@ -239,6 +240,7 @@ jobs:
               build/win/content/.keep
               build/win/onevs100.toml
               build/win/RUN.md
+              build/win/manifest.txt
               build/win/launcher.exe
           - platform: uwp
             runner: ubuntu-24.04
@@ -256,6 +258,7 @@ jobs:
               build/uwp/content/.keep
               build/uwp/onevs100.toml
               build/uwp/RUN.md
+              build/uwp/manifest.txt
           - platform: linux-arm64
             runner: ubuntu-24.04-arm
             timeout: 180
@@ -268,6 +271,7 @@ jobs:
               build/linux-arm64/content/.keep
               build/linux-arm64/onevs100.toml
               build/linux-arm64/RUN.md
+              build/linux-arm64/manifest.txt
               build/linux-arm64/launcher
           - platform: mac-arm64
             runner: macos-14
@@ -280,6 +284,7 @@ jobs:
               build/mac-arm64/content/.keep
               build/mac-arm64/onevs100.toml
               build/mac-arm64/RUN.md
+              build/mac-arm64/manifest.txt
               build/mac-arm64/launcher
           - platform: mac-amd64
             runner: macos-15-intel
@@ -292,6 +297,7 @@ jobs:
               build/mac-amd64/content/.keep
               build/mac-amd64/onevs100.toml
               build/mac-amd64/RUN.md
+              build/mac-amd64/manifest.txt
               build/mac-amd64/launcher
     steps:
       - name: Check out the game
@@ -496,7 +502,7 @@ jobs:
         run: |
           mkdir -p "${{ matrix.build_dir }}/content"
           touch "${{ matrix.build_dir }}/content/.keep"
-          cp RUN.md package/onevs100.toml "${{ matrix.build_dir }}/"
+          cp RUN.md package/onevs100.toml package/manifest.txt "${{ matrix.build_dir }}/"
 
       - name: Upload binaries
         uses: actions/upload-artifact@v7

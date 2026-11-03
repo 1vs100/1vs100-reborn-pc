@@ -3,6 +3,15 @@
 This repository's own code is under the MIT License (see `LICENSE`). The parts below
 keep their original licenses.
 
+## UWP first-run onboarding (MIT)
+
+`native/src/uwp_onboarding/` is adapted from sdl-uwp-onboarding by tuxuser
+(UWP-only build): browser-upload / USB-picker file acquisition with a hash
+manifest. Full license: `native/src/uwp_onboarding/LICENSE.upstream`.
+Adaptations for this repository: four-field manifest (`<sha256> <size>
+<kind> <path>`), user-folder store root, embeddable gate that returns to the
+caller instead of running its own main loop.
+
 ## Nexia / Xenia Avatar format code (BSD 3-Clause)
 
 `native/src/avatar_native/` (`xna_avatar_format.*`, `native_assets.cc` and related

@@ -62,6 +62,49 @@ if(WINDOWS_STORE)
         src/native_controls_posix.cpp
         src/native_video_posix.cpp
     )
+    # First-run game-file onboarding (browser upload / USB pickers with a
+    # hash manifest), adapted from tools/uwp onboarding sources.
+    set(UWP_ONBOARDING_SOURCES
+        src/uwp_onboarding/gate.cpp
+        src/uwp_onboarding/app.cpp
+        src/uwp_onboarding/manifest/manifest.cpp
+        src/uwp_onboarding/net/http_server.cpp
+        src/uwp_onboarding/net/lan_address.cpp
+        src/uwp_onboarding/storage/catalog.cpp
+        src/uwp_onboarding/storage/file_io.cpp
+        src/uwp_onboarding/storage/file_store.cpp
+        src/uwp_onboarding/storage/importer.cpp
+        src/uwp_onboarding/storage/sha256.cpp
+        src/uwp_onboarding/ui/draw.cpp
+        src/uwp_onboarding/ui/focus.cpp
+        src/uwp_onboarding/thirdparty/qrcodegen/qrcodegen.cpp
+    )
+    list(APPEND ONEVS100_SOURCES ${UWP_ONBOARDING_SOURCES})
+    # C++/WinRT coroutines need unwind semantics, like the launcher.
+    set_source_files_properties(${UWP_ONBOARDING_SOURCES} PROPERTIES
+        COMPILE_OPTIONS "/EHsc"
+        COMPILE_DEFINITIONS "NOMINMAX;WIN32_LEAN_AND_MEAN;UNICODE;_UNICODE")
+    set(UWP_ONBOARDING_GENERATED "${CMAKE_CURRENT_BINARY_DIR}/generated-uwp")
+    file(MAKE_DIRECTORY "${UWP_ONBOARDING_GENERATED}")
+    add_custom_command(
+        OUTPUT "${UWP_ONBOARDING_GENERATED}/embedded_manifest.h"
+        COMMAND ${CMAKE_COMMAND} -DINPUT=${CMAKE_SOURCE_DIR}/../package/manifest.txt
+                -DOUTPUT=${UWP_ONBOARDING_GENERATED}/embedded_manifest.h -DNAME=kEmbeddedManifest -DTYPE=char
+                -DTERMINATE=ON -P ${CMAKE_SOURCE_DIR}/../tools/uwp/embed.cmake
+        DEPENDS "${CMAKE_SOURCE_DIR}/../package/manifest.txt" "${CMAKE_SOURCE_DIR}/../tools/uwp/embed.cmake"
+        COMMENT "Embedding UWP onboarding manifest")
+    add_custom_command(
+        OUTPUT "${UWP_ONBOARDING_GENERATED}/web_page.h"
+        COMMAND ${CMAKE_COMMAND} -DINPUT=${CMAKE_SOURCE_DIR}/src/uwp_onboarding/web/index.html
+                -DOUTPUT=${UWP_ONBOARDING_GENERATED}/web_page.h -DNAME=kWebPage -DTYPE=unsigned\ char
+                -P ${CMAKE_SOURCE_DIR}/../tools/uwp/embed.cmake
+        DEPENDS "${CMAKE_SOURCE_DIR}/src/uwp_onboarding/web/index.html"
+                "${CMAKE_SOURCE_DIR}/../tools/uwp/embed.cmake"
+        COMMENT "Embedding UWP onboarding web page")
+    # The generated headers are compiled in through a stub TU.
+    list(APPEND ONEVS100_SOURCES
+        "${UWP_ONBOARDING_GENERATED}/embedded_manifest.h"
+        "${UWP_ONBOARDING_GENERATED}/web_page.h")
 elseif(WIN32)
     list(APPEND ONEVS100_SOURCES
         src/crash_capture.cpp
@@ -82,7 +125,13 @@ endif()
 
 if(WINDOWS_STORE)
     add_executable(onevs100 WIN32 ${ONEVS100_SOURCES})
-    target_link_libraries(onevs100 PRIVATE ws2_32)
+    target_link_libraries(onevs100 PRIVATE ws2_32 bcrypt)
+    target_include_directories(onevs100 PRIVATE
+        src/uwp_onboarding src/uwp_onboarding/thirdparty/qrcodegen
+        "${CMAKE_CURRENT_BINARY_DIR}/generated-uwp")
+    if(DEFINED REXGLUE_SDL3_UWP_PREFIX)
+        target_include_directories(onevs100 PRIVATE "${REXGLUE_SDL3_UWP_PREFIX}/include")
+    endif()
 elseif(WIN32)
     add_executable(onevs100 WIN32 ${ONEVS100_SOURCES})
     target_link_libraries(onevs100 PRIVATE dbghelp comdlg32 winmm hid setupapi mfplay ole32 ws2_32)

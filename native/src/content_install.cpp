@@ -23,7 +23,12 @@ constexpr uint32_t kGameMediaId = 0x20FFDD23;
 std::vector<std::filesystem::path> ConfiguredPackages() {
   std::filesystem::path source = REXCVAR_GET(content);
   if (source.empty()) return {};
+#if REX_PLATFORM_WINRT
+  // The install folder is read-only; user content lives in LocalState.
+  if (source.is_relative()) source = rex::filesystem::GetUserFolder() / source;
+#else
   if (source.is_relative()) source = rex::filesystem::GetExecutableFolder() / source;
+#endif
   std::error_code error;
   std::vector<std::filesystem::path> packages;
   if (std::filesystem::is_directory(source, error)) {
@@ -40,7 +45,11 @@ std::vector<std::filesystem::path> ConfiguredPackages() {
 ContentScan ScanContentPackages() {
   std::filesystem::path source = REXCVAR_GET(content);
   if (source.empty()) return {source, false, 0};
+#if REX_PLATFORM_WINRT
+  if (source.is_relative()) source = rex::filesystem::GetUserFolder() / source;
+#else
   if (source.is_relative()) source = rex::filesystem::GetExecutableFolder() / source;
+#endif
   std::error_code error;
   if (!std::filesystem::is_directory(source, error)) return {source, false, 0};
   size_t files = 0;

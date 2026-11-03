@@ -11,13 +11,10 @@
 #                  ~/.local/share/onevs100-uwp-cert and reused.
 #   CERT_PASSWORD  password of CERT_PFX (default: none)
 #   CONFIG_TOML    onevs100.toml to ship; copied to LocalState on first run
-#   CONTENT_DIR    folder of original content packages (the game package and
-#                  any show and episode packages), shipped as content/
-#   ASSETS_DIR     unpacked game folder, shipped as assets/; only needed when
-#                  CONTENT_DIR does not hold the game package
-#   AVATAR_TOC     AvatarAssetPack.toc, shipped under avatar/ for native_avatar_content
 #
-# The package contains game data. Keep it private.
+# Game files are NOT shipped in the package. On first run the app asks for
+# them (browser upload or USB) and verifies them against package/manifest.txt.
+# The package contains no game files; they are fetched on first run.
 set -euo pipefail
 
 if [ $# -ne 2 ]; then
@@ -43,21 +40,8 @@ mkdir -p "$layout/Logos"
 cp "$build_dir"/onevs100.exe "$build_dir"/rexruntime.dll "$build_dir"/rexgpu-xenos.dll \
   "$build_dir"/SDL3.dll "$layout/"
 cp "$script_dir/uwp/AppxManifest.xml" "$layout/"
-if [ -n "${ASSETS_DIR:-}" ]; then
-  cp -r "$ASSETS_DIR" "$layout/assets"
-fi
 if [ -n "${CONFIG_TOML:-}" ]; then
   cp "$CONFIG_TOML" "$layout/onevs100.toml"
-fi
-if [ -n "${AVATAR_TOC:-}" ]; then
-  toc_dir="$layout/avatar/0000000000000000/FFFE07DF/00008000/FFFE07DF00000002"
-  mkdir -p "$toc_dir"
-  cp "$AVATAR_TOC" "$toc_dir/AvatarAssetPack.toc"
-fi
-if [ -n "${CONTENT_DIR:-}" ]; then
-  mkdir -p "$layout/content"
-  # Package files are named by content hash and have no extension.
-  find "$CONTENT_DIR" -maxdepth 1 -type f ! -name "*.*" -exec cp {} "$layout/content/" \;
 fi
 
 logo() {
