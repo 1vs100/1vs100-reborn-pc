@@ -317,18 +317,6 @@ jobs:
             echo "WINSDK_VERSION=$(ls "$MSVC_ROOT/Windows Kits/10/Include/" | grep -E '^[0-9]+\.' | sort -V | tail -n 1)"
           } >> "$GITHUB_ENV"
 
-      - name: Set up Rust (for xwin)
-        if: matrix.needs_xwin
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Restore cargo registry cache
-        if: matrix.needs_xwin
-        uses: actions/cache@v4
-        with:
-          path: ~/.cargo/registry
-          key: cargo-registry-${{ env.XWIN_VERSION }}-${{ runner.os }}
-          restore-keys: cargo-registry-
-
       - name: Install xwin and splat the Windows SDK
         if: matrix.needs_xwin
         env:
@@ -338,7 +326,14 @@ jobs:
           WINSDK_VERSION: ${{ env.WINSDK_VERSION }}
         run: |
           set -euo pipefail
-          cargo install xwin --locked --version "$XWIN_VERSION"
+          name="xwin-$XWIN_VERSION-x86_64-unknown-linux-musl"
+          url="https://github.com/Jake-Shadle/xwin/releases/download/$XWIN_VERSION/$name.tar.gz"
+          curl -fsSL -o "$RUNNER_TEMP/$name.tar.gz" "$url"
+          # The .sha256 file holds only the hash, without a file name or newline.
+          expected="$(curl -fsSL "$url.sha256" | awk '{ print $1 }')"
+          echo "$expected  $RUNNER_TEMP/$name.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/$name.tar.gz" -C "$RUNNER_TEMP"
+          sudo install -m 755 "$RUNNER_TEMP/$name/xwin" /usr/local/bin/xwin
           # xwin 0.10.0 takes --sdk-version before the subcommand, has no
           # --cache-dir flag, and moves (not copies) files out of its default
           # ./.xwin-cache: so it runs from the workspace, otherwise the splat
