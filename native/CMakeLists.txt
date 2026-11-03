@@ -89,6 +89,14 @@ elseif(WIN32)
 else()
     add_executable(onevs100 ${ONEVS100_SOURCES})
 endif()
+#
+# Workaround: the SDK's macOS Vulkan staging uses ${REXGLUE_ROOT} to locate
+# MoltenVK_icd.json, but REXGLUE_ROOT is a plain set() in the SDK's own
+# directory scope, so it is empty when rexglue_setup_target() runs here.
+# Define it in our scope until the SDK fork propagates it to consumers.
+if(APPLE AND DEFINED REXSDK_DIR AND NOT DEFINED REXGLUE_ROOT)
+  set(REXGLUE_ROOT "${REXSDK_DIR}")
+endif()
 
 rexglue_setup_target(onevs100 GPU_PLUGINS xenos)
 if(WIN32)

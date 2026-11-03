@@ -13,7 +13,7 @@
 4. On the Player tab, enter your gamertag and choose your avatar file.
 5. Press Launch.
 
-The game connects to the 1vs100.fans server by default. You can change the server and turn on windowed mode in the launcher's Settings tab.
+The game connects to the 1vs100.fans server by default. You can change the server, turn on windowed mode, and enable keyboard controls in the launcher's Settings tab.
 
 ## Your avatar
 

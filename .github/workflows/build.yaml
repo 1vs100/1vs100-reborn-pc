@@ -206,7 +206,7 @@ jobs:
   build:
     name: build (${{ matrix.platform }})
     needs: [codegen-key, codegen]
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: ${{ matrix.timeout }}
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     strategy:
@@ -214,6 +214,7 @@ jobs:
       matrix:
         include:
           - platform: linux
+            runner: ubuntu-24.04
             timeout: 180
             build_dir: build/linux
             artifact: onevs100-linux-amd64
@@ -226,6 +227,7 @@ jobs:
               build/linux/RUN.md
               build/linux/launcher
           - platform: windows
+            runner: ubuntu-24.04
             timeout: 240
             build_dir: build/win
             artifact: onevs100-win-amd64
@@ -239,6 +241,7 @@ jobs:
               build/win/RUN.md
               build/win/launcher.exe
           - platform: uwp
+            runner: ubuntu-24.04
             timeout: 300
             build_dir: build/uwp
             artifact: onevs100-uwp-amd64
@@ -253,6 +256,43 @@ jobs:
               build/uwp/content/.keep
               build/uwp/onevs100.toml
               build/uwp/RUN.md
+          - platform: linux-arm64
+            runner: ubuntu-24.04-arm
+            timeout: 180
+            build_dir: build/linux-arm64
+            artifact: onevs100-linux-arm64
+            files: |
+              build/linux-arm64/onevs100
+              build/linux-arm64/librexruntime.so
+              build/linux-arm64/librexgpu-xenos.so
+              build/linux-arm64/content/.keep
+              build/linux-arm64/onevs100.toml
+              build/linux-arm64/RUN.md
+              build/linux-arm64/launcher
+          - platform: mac-arm64
+            runner: macos-14
+            timeout: 240
+            build_dir: build/mac-arm64
+            artifact: onevs100-mac-arm64
+            files: |
+              build/mac-arm64/onevs100
+              build/mac-arm64/*.dylib
+              build/mac-arm64/content/.keep
+              build/mac-arm64/onevs100.toml
+              build/mac-arm64/RUN.md
+              build/mac-arm64/launcher
+          - platform: mac-amd64
+            runner: macos-15-intel
+            timeout: 240
+            build_dir: build/mac-amd64
+            artifact: onevs100-mac-amd64
+            files: |
+              build/mac-amd64/onevs100
+              build/mac-amd64/*.dylib
+              build/mac-amd64/content/.keep
+              build/mac-amd64/onevs100.toml
+              build/mac-amd64/RUN.md
+              build/mac-amd64/launcher
     steps:
       - name: Check out the game
         uses: actions/checkout@v7
@@ -267,21 +307,25 @@ jobs:
 
       - name: Install build tools
         run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake ninja-build nasm pkg-config python3 curl unzip git
-          if [ "${{ matrix.platform }}" = "linux" ]; then
-            sudo apt-get install -y libx11-dev libx11-xcb-dev libxext-dev \
-              libxcursor-dev \
-              libxrandr-dev libxfixes-dev libxi-dev libxinerama-dev \
-              libxss-dev libxkbcommon-dev libxtst-dev libxdamage-dev \
-              libxrender-dev libxxf86vm-dev libxcomposite-dev \
-              libibus-1.0-dev libwayland-dev \
-              wayland-protocols libegl1-mesa-dev libgl1-mesa-dev \
-              libasound2-dev libpulse-dev libpipewire-0.3-dev libdbus-1-dev \
-              libudev-dev
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            brew install cmake ninja nasm pkg-config molten-vk vulkan-loader || true
+          else
+            sudo apt-get update
+            sudo apt-get install -y cmake ninja-build nasm pkg-config python3 curl unzip git
+            if [ "${{ matrix.platform }}" = "linux" ] || [ "${{ matrix.platform }}" = "linux-arm64" ]; then
+              sudo apt-get install -y libx11-dev libx11-xcb-dev libxext-dev \
+                libxcursor-dev \
+                libxrandr-dev libxfixes-dev libxi-dev libxinerama-dev \
+                libxss-dev libxkbcommon-dev libxtst-dev libxdamage-dev \
+                libxrender-dev libxxf86vm-dev libxcomposite-dev \
+                libibus-1.0-dev libwayland-dev \
+                wayland-protocols libegl1-mesa-dev libgl1-mesa-dev \
+                libasound2-dev libpulse-dev libpipewire-0.3-dev libdbus-1-dev \
+                libudev-dev
+            fi
           fi
-
       - name: Set up Clang
+        if: runner.os == 'Linux'
         uses: ./.github/actions/setup-clang
         with:
           version: ${{ env.CLANG_VERSION }}
@@ -394,6 +438,19 @@ jobs:
           key: ${{ needs.codegen-key.outputs.key }}
           fail-on-cache-miss: true
 
+      - name: Select latest Xcode (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          latest="$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -n 1)"
+          if [ -z "$latest" ]; then
+            echo "::error::no Xcode found under /Applications"
+            exit 1
+          fi
+          echo "Selecting $latest"
+          sudo xcode-select -s "$latest"
+          xcodebuild -version
+          clang --version
       - name: Configure
         run: |
           args=(

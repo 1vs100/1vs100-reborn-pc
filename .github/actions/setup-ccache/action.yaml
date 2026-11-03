@@ -17,8 +17,12 @@ runs:
   steps:
     - name: Install ccache
       shell: bash
-      run: sudo apt-get install -y ccache
-
+      run: |
+        if [ "$RUNNER_OS" = "macOS" ]; then
+          brew install ccache || true
+        else
+          sudo apt-get install -y ccache
+        fi
     - name: Configure ccache
       shell: bash
       env:
