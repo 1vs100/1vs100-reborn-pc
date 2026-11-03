@@ -18,6 +18,7 @@ REXCVAR_DEFINE_STRING(content, "content", "Content",
 namespace {
 
 constexpr uint32_t kGameTitleId = 0x584A07D1;
+constexpr uint32_t kGameMediaId = 0x20FFDD23;
 
 std::vector<std::filesystem::path> ConfiguredPackages() {
   std::filesystem::path source = REXCVAR_GET(content);
@@ -36,18 +37,59 @@ std::vector<std::filesystem::path> ConfiguredPackages() {
 
 }  // namespace
 
+ContentScan ScanContentPackages() {
+  std::filesystem::path source = REXCVAR_GET(content);
+  if (source.empty()) return {source, false, 0};
+  if (source.is_relative()) source = rex::filesystem::GetExecutableFolder() / source;
+  std::error_code error;
+  if (!std::filesystem::is_directory(source, error)) return {source, false, 0};
+  size_t files = 0;
+  for (const auto& entry : std::filesystem::directory_iterator(source, error)) {
+    std::error_code entryError;
+    if (entry.is_regular_file(entryError)) ++files;
+  }
+  return {source, true, files};
+}
+
 std::optional<std::filesystem::path> FindGamePackage() {
-  std::vector<std::filesystem::path> games;
+  // Show/episode packs share the title id, so the retail media id picks the
+  // actual game. Other dumps/regions fall back to game containers, then to
+  // the first title match.
+  using rex::system::XContentType;
+  struct Candidate {
+    std::filesystem::path path;
+    XContentType type;
+    uint32_t mediaId;
+  };
+  std::vector<Candidate> games;
   for (const auto& package : ConfiguredPackages()) {
     auto header = rex::filesystem::StfsContainerDevice::ReadPackageHeader(package);
-    if (header && header->metadata.execution_info.title_id == kGameTitleId) games.push_back(package);
+    if (!header || header->metadata.execution_info.title_id != kGameTitleId) continue;
+    games.push_back({package, header->metadata.content_type,
+                     header->metadata.execution_info.media_id});
+    REXKRNL_INFO("content: candidate {} (type {:08X}, media {:08X})", package.filename().string(),
+                 static_cast<uint32_t>(games.back().type), games.back().mediaId);
   }
-  if (games.size() > 1) {
-    REXKRNL_WARN("content: {} game packages found, using {}", games.size(),
-                 games.front().filename().string());
+  if (games.empty()) return std::nullopt;
+  for (const auto& game : games) {
+    if (game.mediaId == kGameMediaId) {
+      if (games.size() > 1)
+        REXKRNL_INFO("content: {} title matches, using media match {}", games.size(),
+                     game.path.filename().string());
+      return game.path;
+    }
   }
-  if (!games.empty()) return games.front();
-  return std::nullopt;
+  for (const auto& game : games) {
+    if (game.type == XContentType::kXbox360Title || game.type == XContentType::kInstalledGame ||
+        game.type == XContentType::kGamesOnDemand) {
+      REXKRNL_WARN("content: no media {:08X} match, using game container {}", kGameMediaId,
+                   game.path.filename().string());
+      return game.path;
+    }
+  }
+  REXKRNL_WARN("content: {} title matches, none is a game container; using {}", games.size(),
+               games.front().path.filename().string());
+  return games.front().path;
 }
 
 void InstallConfiguredContent() {

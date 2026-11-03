@@ -66,7 +66,26 @@ class Onevs100App : public rex::ReXApp {
     const bool haveGame = std::filesystem::is_regular_file(paths.game_data_root, error) ||
                           std::filesystem::exists(paths.game_data_root / "default.xex", error);
     if (!haveGame) {
-      if (auto package = FindGamePackage()) paths.game_data_root = *package;
+      if (auto package = FindGamePackage()) {
+        paths.game_data_root = *package;
+      } else {
+        // The SDK only reports the missing assets/ fallback afterwards, so
+        // say here what was actually searched and what to do about it.
+        const auto scan = ScanContentPackages();
+        const auto folder = rex::filesystem::GetExecutableFolder();
+        if (!scan.dirExists) {
+          REXKRNL_ERROR("onevs100: no game files found: content folder '{}' does not exist",
+                        scan.source.string());
+        } else if (scan.files == 0) {
+          REXKRNL_ERROR("onevs100: no game files found: '{}' is empty", scan.source.string());
+        } else {
+          REXKRNL_ERROR("onevs100: no game files found: '{}' holds {} file(s), none is the game package",
+                        scan.source.string(), scan.files);
+        }
+        REXKRNL_ERROR("onevs100: copy the untouched game package plus show/episode packages into '{}' "
+                      "(files directly inside, no subfolders), or unpack default.xex and its media into '{}'",
+                      (folder / "content").string(), (folder / "assets").string());
+      }
     }
     return paths;
   }
