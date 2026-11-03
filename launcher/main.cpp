@@ -252,25 +252,86 @@ std::expected<void, Error> ImportAvatar(const Paths& paths, const fs::path& sour
   return {};
 }
 
-enum class FileRole { Game, Launch, ShowEpisode, Other, Invalid };
+enum class FileRole { Game, Launch, Show, Episode, ShowEpisode, Other, Invalid };
 
 struct ContentFile {
   std::string name;
   FileRole role = FileRole::Invalid;
+  bool present = false;
   bool valid = false;
+  std::string note;
 };
+
+struct ManifestEntry {
+  std::string kind;
+  std::string name;
+  uint64_t size = 0;
+};
+
+// Shared with the UWP onboarding (package/manifest.txt): "<sha256> <size>
+// <kind> <path>". The launcher matches content entries by file name and
+// size; the onboarding additionally verifies hashes.
+std::optional<std::vector<ManifestEntry>> LoadManifest(const fs::path& file) {
+  std::ifstream in(file);
+  if (!in) return std::nullopt;
+  std::vector<ManifestEntry> entries;
+  std::string line;
+  auto trim_cr = [](std::string& s) {
+    if (!s.empty() && s.back() == '\r') s.pop_back();
+  };
+  while (std::getline(in, line)) {
+    trim_cr(line);
+    if (line.empty() || line.front() == '#') continue;
+    const size_t a = line.find(' ');
+    const size_t b = a == std::string::npos ? a : line.find(' ', a + 1);
+    const size_t c = b == std::string::npos ? b : line.find(' ', b + 1);
+    if (c == std::string::npos) continue;
+    const std::string sha = line.substr(0, a);
+    const std::string sizeText = line.substr(a + 1, b - a - 1);
+    const std::string kind = line.substr(b + 1, c - b - 1);
+    const std::string path = line.substr(c + 1);
+    if (sha.size() != 64 || sizeText.empty() || path.empty() || path.front() == '/') continue;
+    bool hex = true, digits = true;
+    for (char ch : sha)
+      if (!((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F'))) hex = false;
+    for (char ch : sizeText)
+      if (!(ch >= '0' && ch <= '9')) digits = false;
+    if (!hex || !digits) continue;
+    if (kind != "game" && kind != "launch" && kind != "show" && kind != "episode" &&
+        kind != "avatar") {
+      continue;
+    }
+    uint64_t size = 0;
+    try {
+      size = std::stoull(sizeText);
+    } catch (...) {
+      continue;
+    }
+    const size_t slash = path.find_last_of('/');
+    entries.push_back({kind, slash == std::string::npos ? path : path.substr(slash + 1), size});
+  }
+  if (entries.empty()) return std::nullopt;
+  return entries;
+}
 
 struct FilesCheck {
   fs::path dir;
   bool dirOk = false;
+  bool manifestOk = false;
   std::vector<ContentFile> files;
   bool hasGame = false;
   bool hasLaunch = false;
+  size_t showCount = 0;
+  size_t episodeCount = 0;
   size_t showEpisodeCount = 0;
   std::string avatarAssetsSetting;
   fs::path avatarAssetsPath;
   bool avatarAssetsOk = false;
-  bool ok() const { return dirOk && hasGame && hasLaunch && showEpisodeCount > 0 && avatarAssetsOk; }
+  bool ok() const {
+    if (!dirOk || !hasGame || !hasLaunch || !avatarAssetsOk) return false;
+    if (manifestOk) return showCount > 0 && episodeCount > 0;
+    return showEpisodeCount > 0;
+  }
 };
 
 uint32_t ReadBigEndian32(const unsigned char* p) {
@@ -508,24 +569,88 @@ void RefreshFiles(App& app) {
   std::error_code ec;
   check.dirOk = fs::is_directory(check.dir, ec);
   if (check.dirOk) {
-    for (const auto& entry : fs::directory_iterator(check.dir, ec)) {
-      std::error_code entryEc;
-      if (!entry.is_regular_file(entryEc)) continue;
-      ContentFile file;
-      file.name = PathText(entry.path().filename());
-      if (auto header = PeekStfsHeader(entry.path())) {
-        file.valid = true;
-        file.role = ClassifyPackage((*header)[2], (*header)[1], (*header)[0]);
+    auto manifest = LoadManifest(app.paths.base / "manifest.txt");
+    check.manifestOk = manifest.has_value();
+    if (manifest) {
+      for (const auto& entry : *manifest) {
+        if (entry.kind == "avatar") continue;
+        ContentFile file;
+        file.name = entry.name;
+        file.role = entry.kind == "game"    ? FileRole::Game
+                    : entry.kind == "launch" ? FileRole::Launch
+                    : entry.kind == "show"   ? FileRole::Show
+                                             : FileRole::Episode;
+        const fs::path full = check.dir / PathFromUtf8(entry.name.c_str());
+        std::error_code entryEc;
+        file.present = fs::is_regular_file(full, entryEc);
+        if (!file.present) {
+          file.note = "not found";
+        } else if (fs::file_size(full, entryEc) != entry.size) {
+          file.note = "size mismatch (expected " + std::to_string(entry.size) + ")";
+        } else if (!PeekStfsHeader(full)) {
+          file.note = "not a package";
+        } else {
+          file.valid = true;
+        }
+        check.files.push_back(std::move(file));
       }
-      check.files.push_back(std::move(file));
+      // Files the manifest does not know about.
+      for (const auto& entry : fs::directory_iterator(check.dir, ec)) {
+        std::error_code entryEc;
+        if (!entry.is_regular_file(entryEc)) continue;
+        const std::string name = PathText(entry.path().filename());
+        bool known = false;
+        for (const auto& file : check.files)
+          if (file.name == name) {
+            known = true;
+            break;
+          }
+        if (known) continue;
+        ContentFile file;
+        file.name = name;
+        file.present = true;
+        if (auto header = PeekStfsHeader(entry.path())) {
+          file.valid = true;
+          file.role = ClassifyPackage((*header)[2], (*header)[1], (*header)[0]);
+        } else {
+          file.note = "not a package";
+        }
+        check.files.push_back(std::move(file));
+      }
+      std::sort(check.files.begin(), check.files.end(), [](const ContentFile& a, const ContentFile& b) {
+        if ((a.role == FileRole::Game) != (b.role == FileRole::Game))
+          return a.role == FileRole::Game;
+        if ((a.role == FileRole::Launch) != (b.role == FileRole::Launch))
+          return a.role == FileRole::Launch;
+        return a.name < b.name;
+      });
+    } else {
+      for (const auto& entry : fs::directory_iterator(check.dir, ec)) {
+        std::error_code entryEc;
+        if (!entry.is_regular_file(entryEc)) continue;
+        ContentFile file;
+        file.name = PathText(entry.path().filename());
+        file.present = true;
+        if (auto header = PeekStfsHeader(entry.path())) {
+          file.valid = true;
+          file.role = ClassifyPackage((*header)[2], (*header)[1], (*header)[0]);
+        } else {
+          file.note = "not a package";
+        }
+        check.files.push_back(std::move(file));
+      }
+      std::sort(check.files.begin(), check.files.end(),
+                [](const ContentFile& a, const ContentFile& b) { return a.name < b.name; });
     }
-    std::sort(check.files.begin(), check.files.end(),
-              [](const ContentFile& a, const ContentFile& b) { return a.name < b.name; });
     for (const auto& file : check.files) {
+      if (!file.valid) continue;
       if (file.role == FileRole::Game) check.hasGame = true;
       if (file.role == FileRole::Launch) check.hasLaunch = true;
+      if (file.role == FileRole::Show) ++check.showCount;
+      if (file.role == FileRole::Episode) ++check.episodeCount;
       if (file.role == FileRole::ShowEpisode) ++check.showEpisodeCount;
     }
+    check.showEpisodeCount += check.showCount + check.episodeCount;
   }
   // Avatar assets: the native_avatar_content setting, else the environment
   // the game itself also reads.
@@ -664,6 +789,8 @@ const char* RoleLabel(FileRole role) {
   switch (role) {
     case FileRole::Game: return "Game package";
     case FileRole::Launch: return "Launch content";
+    case FileRole::Show: return "Show pack";
+    case FileRole::Episode: return "Episode pack";
     case FileRole::ShowEpisode: return "Show / episode pack";
     case FileRole::Other: return "Other content";
     case FileRole::Invalid: return "Not a package";
@@ -683,6 +810,17 @@ void FileRow(bool ok, const char* label, const std::string& detail) {
   }
 }
 
+void ContentRow(const ContentFile& file) {
+  if (!file.present) {
+    FileRow(false, RoleLabel(file.role), file.name + " - missing");
+  } else if (!file.valid) {
+    FileRow(false, RoleLabel(file.role),
+            file.note.empty() ? file.name : file.name + " - " + file.note);
+  } else {
+    FileRow(true, RoleLabel(file.role), file.name);
+  }
+}
+
 void DrawFilesTab(App& app) {
   // Refresh while visible so newly copied files show up without a restart.
   if (app.frames - app.filesFrame >= 30) RefreshFiles(app);
@@ -694,43 +832,46 @@ void DrawFilesTab(App& app) {
   } else if (check.files.empty()) {
     FileRow(false, "No files", "copy the untouched game, show and episode packages here");
   }
-  for (const auto& file : check.files) {
-    if (file.role == FileRole::Game) {
-      FileRow(true, "Game package", file.name);
-
+  auto drawRole = [&](FileRole role) {
+    for (const auto& file : check.files) {
+      if (file.role == role) ContentRow(file);
     }
-  }
-  if (!check.hasGame) FileRow(false, "Game package", "not found");
-  for (const auto& file : check.files) {
-    if (file.role == FileRole::Launch) {
-      FileRow(true, "Launch content", file.name);
-
+  };
+  auto hasRole = [&](FileRole role) {
+    for (const auto& file : check.files) {
+      if (file.role == role) return true;
     }
-  }
-  if (!check.hasLaunch) FileRow(false, "Launch content", "not found");
-  char packCount[64] = {};
-  SDL_snprintf(packCount, sizeof(packCount), "%zu found", check.showEpisodeCount);
-  if (check.showEpisodeCount > 0) {
-    FileRow(true, "Show / episode packs", packCount);
+    return false;
+  };
+  drawRole(FileRole::Game);
+  if (check.dirOk && !hasRole(FileRole::Game)) FileRow(false, "Game package", "not found");
+  drawRole(FileRole::Launch);
+  if (check.dirOk && !hasRole(FileRole::Launch)) FileRow(false, "Launch content", "not found");
+  if (check.manifestOk) {
+    char count[64] = {};
+    SDL_snprintf(count, sizeof(count), "%zu found", check.showCount);
+    if (check.showCount > 0)
+      FileRow(true, "Show packs", count);
+    else
+      FileRow(false, "Show packs", "none found");
+    drawRole(FileRole::Show);
+    SDL_snprintf(count, sizeof(count), "%zu found", check.episodeCount);
+    if (check.episodeCount > 0)
+      FileRow(true, "Episode packs", count);
+    else
+      FileRow(false, "Episode packs", "none found");
+    drawRole(FileRole::Episode);
   } else {
-    FileRow(false, "Show / episode packs", "none found");
+    char packCount[64] = {};
+    SDL_snprintf(packCount, sizeof(packCount), "%zu found", check.showEpisodeCount);
+    if (check.showEpisodeCount > 0)
+      FileRow(true, "Show / episode packs", packCount);
+    else
+      FileRow(false, "Show / episode packs", "none found");
+    drawRole(FileRole::ShowEpisode);
   }
-  for (const auto& file : check.files) {
-    if (file.role == FileRole::ShowEpisode) {
-      StatusIcon(true);
-      ImGui::SameLine();
-      ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
-      ImGui::TextUnformatted(file.name.c_str());
-      ImGui::PopStyleColor();
-
-    }
-  }
-  for (const auto& file : check.files) {
-    if (file.role == FileRole::Other || file.role == FileRole::Invalid) {
-      FileRow(file.role == FileRole::Other, RoleLabel(file.role), file.name);
-
-    }
-  }
+  drawRole(FileRole::Other);
+  drawRole(FileRole::Invalid);
   ImGui::Dummy(ImVec2(0, 6));
   SectionLabel("AVATAR DATA");
   if (check.avatarAssetsOk) {

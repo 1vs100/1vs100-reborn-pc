@@ -1,0 +1,20 @@
+# Curated file list for the UWP first-run onboarding and the desktop
+# launcher Files tab. One line per file: "<kind> <store-relative path>".
+# Paths are relative to the user-data root (LocalState on UWP, next to the
+# executable on desktop): content packs live in content/, avatar assets in
+# avatar-content/.
+#
+# make_manifest.py joins this with the real files (hash + size) to produce
+# package/manifest.txt. Kinds: game, launch, show, episode, avatar.
+game content/2D23F392B51E38B1A93FA1E1B9FAE7B2C5DBBD6D58
+launch content/988237803712CB87513237A914D367C6AAEE2410
+show content/77205BC1241C708A8A10B7303AF90E5EDD0286B1
+show content/7BEC809CCC282E8C9D18EFAD8F4407AA6204DFC8
+show content/9AF84C64F8D3C775A4C4C35F97674500FCF507A6
+show content/79E60F7D68C480ABF11E8834A947B6D77E9AACD8
+episode content/83136FF343124795DC1806A2DB044476589BD5C0
+episode content/FA6873618900F1613CD72C0FCA3C4B57C8BB02E8
+episode content/B30A40EE667432FA68559FA37B929C29E7985E56
+episode content/C965577112F783E8E7F33E8C957263E03DEDB7F7
+avatar avatar-content/0000000000000000/FFFE07DF/00008000/FFFE07DF00000002/AvatarAssetPack.toc
+avatar avatar-content/0000000000000000/FFFE07DF/00008000/FFFE07DF00000002/AvatarAssetPackLegacyV1.toc
