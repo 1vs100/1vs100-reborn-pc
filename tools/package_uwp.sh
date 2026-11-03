@@ -10,7 +10,6 @@
 #                  Publisher. When unset, a test certificate is created once in
 #                  ~/.local/share/onevs100-uwp-cert and reused.
 #   CERT_PASSWORD  password of CERT_PFX (default: none)
-#   CONFIG_TOML    onevs100.toml to ship; copied to LocalState on first run
 #
 # Game files are NOT shipped in the package. On first run the app asks for
 # them (browser upload or USB) and verifies them against package/manifest.txt.
@@ -40,9 +39,8 @@ mkdir -p "$layout/Logos"
 cp "$build_dir"/onevs100.exe "$build_dir"/rexruntime.dll "$build_dir"/rexgpu-xenos.dll \
   "$build_dir"/SDL3.dll "$layout/"
 cp "$script_dir/uwp/AppxManifest.xml" "$layout/"
-if [ -n "${CONFIG_TOML:-}" ]; then
-  cp "$CONFIG_TOML" "$layout/onevs100.toml"
-fi
+# Same config as the desktop archives; copied to LocalState on first run.
+cp "$script_dir/../package/onevs100.toml" "$layout/"
 
 logo() {
   magick -size "$2" xc:'#1a237e' -fill white -gravity center \
