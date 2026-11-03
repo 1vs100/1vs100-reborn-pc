@@ -9,6 +9,9 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdint>
+#include <cstdlib>
+#include <vector>
 #include <cstring>
 #include <expected>
 #include <filesystem>
@@ -31,6 +34,20 @@ constexpr const char* kAvatarEditorUrl = "https://360sona.com";
 constexpr size_t kGamertagMax = 15;
 // Avatar description sizes the game accepts (xna_avatar_format.h).
 constexpr std::array<uintmax_t, 2> kAvatarSizes = {1020, 1000};
+// Content families the game looks for (native/src/content_install.cpp and the
+// observed 1vs100 packages: show/episode packs share 584A07DC, the launch
+// content uses 584A07E4).
+constexpr uint32_t kGameTitleId = 0x584A07D1;
+constexpr uint32_t kGameMediaId = 0x20FFDD23;
+constexpr uint32_t kLaunchTitleId = 0x584A07E4;
+constexpr uint32_t kShowEpisodeTitleId = 0x584A07DC;
+// STFS header fields (big-endian u32): magic "LIVE" at 0, content_type at
+// 0x344, media_id at 0x354, title_id at 0x360.
+constexpr uint32_t kStfsMagic = 0x4C495645;
+constexpr size_t kStfsHeaderPeek = 0x400;
+constexpr size_t kStfsContentTypeOff = 0x344;
+constexpr size_t kStfsMediaIdOff = 0x354;
+constexpr size_t kStfsTitleIdOff = 0x360;
 
 #ifdef _WIN32
 constexpr const char* kGameExecutable = "onevs100.exe";
@@ -158,13 +175,16 @@ std::string Describe(const Error& error) {
 
 struct Settings {
   std::string host;
-  bool windowed;
+  bool windowed = false;
+  std::string content = "content";
+  std::string avatarAssets;
 };
 
 // Missing keys take the game's own defaults, except the host, which the
 // release presets to the community server.
 std::expected<Settings, Error> LoadSettings(const fs::path& config) {
-  Settings settings{kDefaultHost, false};
+  Settings settings;
+  settings.host = kDefaultHost;
   std::error_code ec;
   if (!fs::exists(config, ec)) return settings;
   auto parsed = ParseTomlFile(config);
@@ -172,6 +192,8 @@ std::expected<Settings, Error> LoadSettings(const fs::path& config) {
   const toml::table& table = *parsed;
   if (auto host = table["gameserver_host"].value<std::string>()) settings.host = *host;
   if (auto fullscreen = table["fullscreen"].value<bool>()) settings.windowed = !*fullscreen;
+  if (auto content = table["content"].value<std::string>()) settings.content = *content;
+  if (auto assets = table["native_avatar_content"].value<std::string>()) settings.avatarAssets = *assets;
   return settings;
 }
 
@@ -229,6 +251,69 @@ std::expected<void, Error> ImportAvatar(const Paths& paths, const fs::path& sour
   if (ec) return std::unexpected(Error{ErrorKind::WriteFailed, paths.avatar, ec.message()});
   return {};
 }
+
+enum class FileRole { Game, Launch, ShowEpisode, Other, Invalid };
+
+struct ContentFile {
+  std::string name;
+  FileRole role = FileRole::Invalid;
+  bool valid = false;
+};
+
+struct FilesCheck {
+  fs::path dir;
+  bool dirOk = false;
+  std::vector<ContentFile> files;
+  bool hasGame = false;
+  bool hasLaunch = false;
+  size_t showEpisodeCount = 0;
+  std::string avatarAssetsSetting;
+  fs::path avatarAssetsPath;
+  bool avatarAssetsOk = false;
+  bool ok() const { return dirOk && hasGame && hasLaunch && showEpisodeCount > 0 && avatarAssetsOk; }
+};
+
+uint32_t ReadBigEndian32(const unsigned char* p) {
+  return (uint32_t(p[0]) << 24) | (uint32_t(p[1]) << 16) | (uint32_t(p[2]) << 8) | uint32_t(p[3]);
+}
+
+// Minimal STFS header peek: enough to classify a package the way the game
+// does (title id, media id, container type). Full parsing lives in the game.
+std::optional<std::array<uint32_t, 3>> PeekStfsHeader(const fs::path& file) {
+  std::ifstream in(file, std::ios::binary);
+  if (!in) return std::nullopt;
+  unsigned char head[kStfsHeaderPeek] = {};
+  in.read(reinterpret_cast<char*>(head), sizeof(head));
+  if (static_cast<size_t>(in.gcount()) < kStfsTitleIdOff + 4) return std::nullopt;
+  if (ReadBigEndian32(head) != kStfsMagic) return std::nullopt;
+  return std::array<uint32_t, 3>{ReadBigEndian32(head + kStfsContentTypeOff),
+                                 ReadBigEndian32(head + kStfsMediaIdOff),
+                                 ReadBigEndian32(head + kStfsTitleIdOff)};
+}
+
+bool IsGameContainer(uint32_t type) {
+  return type == 0x00001000 ||  // Xbox360Title
+         type == 0x00004000 ||  // InstalledGame
+         type == 0x00007000;    // GamesOnDemand
+}
+
+FileRole ClassifyPackage(uint32_t title, uint32_t media, uint32_t type) {
+  // Same precedence as FindGamePackage in native/src/content_install.cpp.
+  if (title == kGameTitleId && (media == kGameMediaId || IsGameContainer(type))) return FileRole::Game;
+  if (title == kLaunchTitleId) return FileRole::Launch;
+  if (title == kShowEpisodeTitleId) return FileRole::ShowEpisode;
+  return FileRole::Other;
+}
+
+fs::path ResolveContentDir(const Paths& paths, const std::string& setting) {
+  const std::string raw = setting.empty() ? "content" : setting;
+  fs::path dir = PathFromUtf8(raw.c_str());
+  if (dir.is_relative()) dir = paths.base / dir;
+  return dir;
+}
+
+struct App;
+void RefreshFiles(App& app);
 
 std::expected<void, Error> LaunchGame(const Paths& paths) {
   std::error_code ec;
@@ -381,7 +466,11 @@ struct App {
   Status status;
   SDL_Window* window = nullptr;
   Uint32 dialog_event = 0;
-
+  FilesCheck files;
+  int frames = 0;
+  int filesFrame = -1000000;
+  std::string contentSetting = "content";
+  std::string avatarAssetsSetting;
   void Report(const Error& error) { status = {Describe(error), true}; }
   void Report(std::string text) { status = {std::move(text), false}; }
 
@@ -391,10 +480,14 @@ struct App {
     if (!settings) {
       SDL_strlcpy(host.data(), kDefaultHost, host.size());
       Report(settings.error());
+      RefreshFiles(*this);
       return;
     }
     SDL_strlcpy(host.data(), settings->host.c_str(), host.size());
     windowed = settings->windowed;
+    contentSetting = settings->content;
+    avatarAssetsSetting = settings->avatarAssets;
+    RefreshFiles(*this);
   }
 
   std::expected<void, Error> Save() {
@@ -407,6 +500,48 @@ struct App {
     return fs::is_regular_file(paths.avatar, ec);
   }
 };
+
+void RefreshFiles(App& app) {
+  app.filesFrame = app.frames;
+  FilesCheck check;
+  check.dir = ResolveContentDir(app.paths, app.contentSetting);
+  std::error_code ec;
+  check.dirOk = fs::is_directory(check.dir, ec);
+  if (check.dirOk) {
+    for (const auto& entry : fs::directory_iterator(check.dir, ec)) {
+      std::error_code entryEc;
+      if (!entry.is_regular_file(entryEc)) continue;
+      ContentFile file;
+      file.name = PathText(entry.path().filename());
+      if (auto header = PeekStfsHeader(entry.path())) {
+        file.valid = true;
+        file.role = ClassifyPackage((*header)[2], (*header)[1], (*header)[0]);
+      }
+      check.files.push_back(std::move(file));
+    }
+    std::sort(check.files.begin(), check.files.end(),
+              [](const ContentFile& a, const ContentFile& b) { return a.name < b.name; });
+    for (const auto& file : check.files) {
+      if (file.role == FileRole::Game) check.hasGame = true;
+      if (file.role == FileRole::Launch) check.hasLaunch = true;
+      if (file.role == FileRole::ShowEpisode) ++check.showEpisodeCount;
+    }
+  }
+  // Avatar assets: the native_avatar_content setting, else the environment
+  // the game itself also reads.
+  check.avatarAssetsSetting = app.avatarAssetsSetting;
+  std::string raw = app.avatarAssetsSetting;
+  if (raw.empty()) {
+    if (const char* env = std::getenv("ONEVS100_NATIVE_AVATAR_CONTENT")) raw = env;
+  }
+  if (!raw.empty()) {
+    fs::path p = PathFromUtf8(raw.c_str());
+    if (p.is_relative()) p = app.paths.base / p;
+    check.avatarAssetsPath = p;
+    check.avatarAssetsOk = fs::is_regular_file(p, ec) || fs::is_directory(p, ec);
+  }
+  app.files = std::move(check);
+}
 
 void SDLCALL OnAvatarChosen(void* userdata, const char* const* files, int) {
   auto* app = static_cast<App*>(userdata);
@@ -501,9 +636,120 @@ void DrawSettingsTab(App& app) {
   ImGui::Checkbox("Windowed mode", &app.windowed);
 }
 
+void StatusIcon(bool ok) {
+  const float size = ImGui::GetTextLineHeight();
+  const ImVec2 at = ImGui::GetCursorScreenPos();
+  const ImVec2 center(at.x + size * 0.5f, at.y + size * 0.5f);
+  ImGui::Dummy(ImVec2(size, size));
+  ImDrawList* draw = ImGui::GetWindowDrawList();
+  const ImU32 ring = ImGui::GetColorU32(ok ? ImVec4(0.20f, 0.78f, 0.35f, 1.0f) : kError);
+  const ImU32 mark = ImGui::GetColorU32(Hex(0xffffff));
+  draw->AddCircle(center, size * 0.5f, ring, 20, size * 0.12f);
+  if (ok) {
+    const ImVec2 p1(center.x - size * 0.20f, center.y);
+    const ImVec2 p2(center.x - size * 0.02f, center.y + size * 0.18f);
+    const ImVec2 p3(center.x + size * 0.24f, center.y - size * 0.18f);
+    draw->AddLine(p1, p2, mark, size * 0.10f);
+    draw->AddLine(p2, p3, mark, size * 0.10f);
+  } else {
+    const float d = size * 0.18f;
+    draw->AddLine(ImVec2(center.x - d, center.y - d), ImVec2(center.x + d, center.y + d), mark,
+                  size * 0.10f);
+    draw->AddLine(ImVec2(center.x - d, center.y + d), ImVec2(center.x + d, center.y - d), mark,
+                  size * 0.10f);
+  }
+}
+
+const char* RoleLabel(FileRole role) {
+  switch (role) {
+    case FileRole::Game: return "Game package";
+    case FileRole::Launch: return "Launch content";
+    case FileRole::ShowEpisode: return "Show / episode pack";
+    case FileRole::Other: return "Other content";
+    case FileRole::Invalid: return "Not a package";
+  }
+  return "";
+}
+
+void FileRow(bool ok, const char* label, const std::string& detail) {
+  StatusIcon(ok);
+  ImGui::SameLine();
+  ImGui::TextUnformatted(label);
+  if (!detail.empty()) {
+    ImGui::SameLine();
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+    ImGui::TextUnformatted(detail.c_str());
+    ImGui::PopStyleColor();
+  }
+}
+
+void DrawFilesTab(App& app) {
+  // Refresh while visible so newly copied files show up without a restart.
+  if (app.frames - app.filesFrame >= 30) RefreshFiles(app);
+  const FilesCheck& check = app.files;
+  SectionLabel("CONTENT FOLDER");
+  ImGui::TextWrapped("%s", PathText(check.dir).c_str());
+  if (!check.dirOk) {
+    FileRow(false, "Folder missing", "create it next to the launcher and add the game packages");
+  } else if (check.files.empty()) {
+    FileRow(false, "No files", "copy the untouched game, show and episode packages here");
+  }
+  for (const auto& file : check.files) {
+    if (file.role == FileRole::Game) {
+      FileRow(true, "Game package", file.name);
+
+    }
+  }
+  if (!check.hasGame) FileRow(false, "Game package", "not found");
+  for (const auto& file : check.files) {
+    if (file.role == FileRole::Launch) {
+      FileRow(true, "Launch content", file.name);
+
+    }
+  }
+  if (!check.hasLaunch) FileRow(false, "Launch content", "not found");
+  char packCount[64] = {};
+  SDL_snprintf(packCount, sizeof(packCount), "%zu found", check.showEpisodeCount);
+  if (check.showEpisodeCount > 0) {
+    FileRow(true, "Show / episode packs", packCount);
+  } else {
+    FileRow(false, "Show / episode packs", "none found");
+  }
+  for (const auto& file : check.files) {
+    if (file.role == FileRole::ShowEpisode) {
+      StatusIcon(true);
+      ImGui::SameLine();
+      ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+      ImGui::TextUnformatted(file.name.c_str());
+      ImGui::PopStyleColor();
+
+    }
+  }
+  for (const auto& file : check.files) {
+    if (file.role == FileRole::Other || file.role == FileRole::Invalid) {
+      FileRow(file.role == FileRole::Other, RoleLabel(file.role), file.name);
+
+    }
+  }
+  ImGui::Dummy(ImVec2(0, 6));
+  SectionLabel("AVATAR DATA");
+  if (check.avatarAssetsOk) {
+    FileRow(true, "Avatar assets", PathText(check.avatarAssetsPath));
+  } else if (check.avatarAssetsSetting.empty()) {
+    FileRow(false, "Avatar assets", "set native_avatar_content in onevs100.toml");
+  } else {
+    FileRow(false, "Avatar assets", "not found: " + check.avatarAssetsSetting);
+  }
+  ImGui::Dummy(ImVec2(0, 6));
+  if (ImGui::Button("Rescan")) RefreshFiles(app);
+}
+
 // Returns true when the launcher should close.
 bool DrawFrame(App& app, const Fonts& fonts) {
   bool close = false;
+  ++app.frames;
+  // Keep the Files check fresh while the launcher sits open.
+  if (app.frames - app.filesFrame >= 120) RefreshFiles(app);
   const ImGuiViewport* viewport = ImGui::GetMainViewport();
   ImGui::SetNextWindowPos(viewport->WorkPos);
   ImGui::SetNextWindowSize(viewport->WorkSize);
@@ -526,8 +772,7 @@ bool DrawFrame(App& app, const Fonts& fonts) {
   const ImGuiStyle& style = ImGui::GetStyle();
   const float line = ImGui::GetTextLineHeightWithSpacing();
   const float launch_height = ImGui::GetFrameHeight() * 1.6f;
-  const float footer = launch_height + line * 3 + style.ItemSpacing.y * 3;
-
+  const float footer = launch_height + line * 4 + style.ItemSpacing.y * 4;
   if (ImGui::BeginTabBar("##tabs")) {
     if (ImGui::BeginTabItem("Player")) {
       ImGui::BeginChild("##player", ImVec2(0, -footer), ImGuiChildFlags_AlwaysUseWindowPadding);
@@ -538,6 +783,12 @@ bool DrawFrame(App& app, const Fonts& fonts) {
     if (ImGui::BeginTabItem("Settings")) {
       ImGui::BeginChild("##settings", ImVec2(0, -footer), ImGuiChildFlags_AlwaysUseWindowPadding);
       DrawSettingsTab(app);
+      ImGui::EndChild();
+      ImGui::EndTabItem();
+    }
+    if (ImGui::BeginTabItem("Files")) {
+      ImGui::BeginChild("##files", ImVec2(0, -footer), ImGuiChildFlags_AlwaysUseWindowPadding);
+      DrawFilesTab(app);
       ImGui::EndChild();
       ImGui::EndTabItem();
     }
@@ -552,6 +803,7 @@ bool DrawFrame(App& app, const Fonts& fonts) {
   ImGui::PopStyleColor();
   ImGui::SetCursorPosY(std::max(ImGui::GetCursorPosY(), status_top + line * 2));
 
+  ImGui::BeginDisabled(!app.files.ok());
   if (ShowButton("LAUNCH", ImVec2(ImGui::GetContentRegionAvail().x, launch_height))) {
     if (auto saved = app.Save(); !saved) {
       app.Report(saved.error());
@@ -561,11 +813,22 @@ bool DrawFrame(App& app, const Fonts& fonts) {
       close = true;
     }
   }
+  ImGui::EndDisabled();
+
+  if (app.files.ok()) {
+    SectionLabel("Gamertag and settings are saved automatically when you press Launch.");
+  } else {
+    ImGui::TextColored(kError, "Missing files - see the Files tab before launching.");
+  }
 
   LinkText("1vs100.fans", kWebsiteUrl);
   ImGui::SameLine(0, style.ItemSpacing.x * 3);
   LinkText("Discord", kDiscordUrl);
-
+  {
+    const float closeWidth = ImGui::CalcTextSize("Close").x + style.FramePadding.x * 2;
+    ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - closeWidth);
+    if (ImGui::Button("Close")) close = true;
+  }
   ImGui::End();
   return close;
 }
