@@ -4,10 +4,10 @@
          IgnorableNamespaces="uap">
   <!-- removableStorage enables the USB pickers; broadFileSystemAccess is
        omitted (restricted capability, Store blocker, not needed for
-       picker-granted access). NOTE: both caps together failed activation
-       once (HTTP 400 0x80070002 at 0.1.0.0, fresh install after uninstalling
-       0.1.82.0) — re-test pending, see docs/superpowers/uwp-onboarding-status.md. -->
-  <Identity Name="OneVs100.Native" Publisher="CN=OneVs100 Test" Version="0.1.87.0" ProcessorArchitecture="x64"/>
+       picker-granted access). Verified on console: both caps together
+       launch fine (0.1.88.0, HTTP 200) — the earlier 0.1.0.0 failure was
+       a stale post-uninstall state, not the capabilities. -->
+  <Identity Name="OneVs100.Native" Publisher="CN=OneVs100 Test" Version="0.1.89.0" ProcessorArchitecture="x64"/>
   <Properties>
     <DisplayName>1 vs 100</DisplayName>
     <PublisherDisplayName>1vs100</PublisherDisplayName>
