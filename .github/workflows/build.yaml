@@ -221,6 +221,10 @@ jobs:
               build/linux/onevs100
               build/linux/librexruntime.so
               build/linux/librexgpu-xenos.so
+              build/linux/content/.keep
+              build/linux/onevs100.toml
+              build/linux/RUN.md
+              build/linux/launcher
           - platform: windows
             timeout: 240
             build_dir: build/win
@@ -230,6 +234,10 @@ jobs:
               build/win/onevs100.exe
               build/win/rexruntime.dll
               build/win/rexgpu-xenos.dll
+              build/win/content/.keep
+              build/win/onevs100.toml
+              build/win/RUN.md
+              build/win/launcher.exe
           - platform: uwp
             timeout: 300
             build_dir: build/uwp
@@ -242,6 +250,9 @@ jobs:
               build/uwp/rexruntime.dll
               build/uwp/rexgpu-xenos.dll
               build/uwp/SDL3.dll
+              build/uwp/content/.keep
+              build/uwp/onevs100.toml
+              build/uwp/RUN.md
     steps:
       - name: Check out the game
         uses: actions/checkout@v7
@@ -405,9 +416,30 @@ jobs:
       - name: Build onevs100
         run: cmake --build "${{ matrix.build_dir }}" --target onevs100 --parallel
 
+      - name: Build launcher
+        if: matrix.platform != 'uwp'
+        run: |
+          args=(
+            -DCMAKE_BUILD_TYPE=Release
+            -DCMAKE_RUNTIME_OUTPUT_DIRECTORY="$GITHUB_WORKSPACE/${{ matrix.build_dir }}"
+          )
+          if [ "${{ matrix.platform }}" = "windows" ]; then
+            args+=(-DCMAKE_TOOLCHAIN_FILE="$GITHUB_WORKSPACE/tools/win/clang-cl-toolchain.cmake")
+          else
+            args+=(-DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++)
+          fi
+          cmake -S launcher -B "${{ matrix.build_dir }}-launcher" -G Ninja "${args[@]}"
+          cmake --build "${{ matrix.build_dir }}-launcher" --parallel
+
       - name: Show ccache statistics
         if: always()
         run: ccache --show-stats || true
+
+      - name: Stage release files
+        run: |
+          mkdir -p "${{ matrix.build_dir }}/content"
+          touch "${{ matrix.build_dir }}/content/.keep"
+          cp RUN.md package/onevs100.toml "${{ matrix.build_dir }}/"
 
       - name: Upload binaries
         uses: actions/upload-artifact@v7
@@ -416,3 +448,4 @@ jobs:
           path: ${{ matrix.files }}
           retention-days: 7
           if-no-files-found: error
+          include-hidden-files: true
