@@ -69,7 +69,7 @@ jobs:
       key: ${{ steps.key.outputs.key }}
     steps:
       - name: Check out the codegen config
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           sparse-checkout: native
 
@@ -113,7 +113,7 @@ jobs:
     steps:
       - name: Look up the generated sources
         id: lookup
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: native/generated/default-v5
           key: ${{ needs.codegen-key.outputs.key }}
@@ -121,7 +121,7 @@ jobs:
 
       - name: Check out the game
         if: steps.lookup.outputs.cache-hit != 'true'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           submodules: true
 
@@ -194,7 +194,7 @@ jobs:
 
       - name: Save the generated sources
         if: steps.lookup.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: native/generated/default-v5
           key: ${{ needs.codegen-key.outputs.key }}
@@ -244,7 +244,7 @@ jobs:
               build/uwp/SDL3.dll
     steps:
       - name: Check out the game
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           submodules: true
 
@@ -283,7 +283,7 @@ jobs:
       - name: Restore MSVC cache (msvc-wine)
         if: matrix.needs_msvc
         id: msvc-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ github.workspace }}/msvc
           key: msvc-major${{ env.MSVC_MAJOR }}-${{ env.MSVC_CACHE_VERSION }}
@@ -377,7 +377,7 @@ jobs:
           fi
 
       - name: Restore the generated sources
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: native/generated/default-v5
           key: ${{ needs.codegen-key.outputs.key }}
@@ -410,7 +410,7 @@ jobs:
         run: ccache --show-stats || true
 
       - name: Upload binaries
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.files }}

@@ -35,7 +35,7 @@ runs:
         } >> "$GITHUB_ENV"
 
     - name: Restore ccache
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: ${{ runner.temp }}/ccache
         # Each run saves a new entry; the newest one with the prefix is restored.
