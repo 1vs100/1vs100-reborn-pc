@@ -47,7 +47,7 @@ UWP-only path rules live next to the generic ones. `content/` and avatar content
 
 ## Packaging
 
-`tools/package_uwp.sh <build_dir> <out_dir>` builds the signed `.appx` from the CI `uwp` leg output plus `tools/uwp/AppxManifest.xml`. The manifest asks for `removableStorage` and `broadFileSystemAccess` for the pickers. The package intentionally contains no game files.
+`tools/package_uwp.sh <build_dir> <out_dir>` builds the signed `.appx` from the CI `uwp` leg output plus `tools/uwp/AppxManifest.xml`. The manifest deliberately omits `removableStorage` and `broadFileSystemAccess`: Xbox rejects activation with those capabilities (HTTP 400 0x80070002), so on-device pickers are unavailable and first-run files arrive by browser upload. The package intentionally contains no game files.
 
 `makemsix` comes from [microsoft/msix-packaging](https://github.com/microsoft/msix-packaging) built with `MSIX_PACK=on`. Its vendored xerces and SDK sources pin C++14 while current ICU headers need C++17, so raise `CMAKE_CXX_STANDARD` in the top-level and `lib/xerces` CMakeLists before building.
 
