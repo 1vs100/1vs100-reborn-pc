@@ -31,6 +31,14 @@ License: `native/src/avatar_native/third_party/mspack/COPYING.LIB`.
 
 `native/src/audio_xaudio2.{h,cpp}` is copied from [CrashCourse2Recomp](https://github.com/panedivitasei/CrashCourse2Recomp) with its author's permission. It was ported there from masterspike52/reDAHM and is based on Xenia's XAudio2 driver (BSD 3-Clause).
 
+## plume (RHI)
+
+`native/third_party/plume` is [plume](https://github.com/renderbag/plume) by renderbag and contributors, MIT. It is vendored with the D3D12 backend only: `plume_vulkan.cpp` is excluded from Windows builds, and the swap chain takes the CoreWindow path under `PLUME_UWP` (CreateSwapChainForCoreWindow, no window association). The UWP approach follows [plume-uwp](https://github.com/worleydl/plume-uwp) commit d40b98a.
+
+## GLM
+
+`native/third_party/glm` is [GLM](https://github.com/g-truc/glm), MIT.
+
 ## Not included, used at build or run time
 
 - **ReXGlue SDK** (the static recompiler and runtime): obtained separately under its own license.
