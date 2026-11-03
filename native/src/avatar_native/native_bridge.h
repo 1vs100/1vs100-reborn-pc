@@ -22,13 +22,15 @@ using X_RESULT=uint32_t;
 using X_HRESULT=int32_t;
 extern thread_local uint8_t* native_avatar_base;
 // Guest addresses at or above 0xE0000000 (the 4 KB physical heap) live 0x1000
-// bytes higher in host memory on Windows. Recompiled game code applies this via
-// REX_PHYS_HOST_OFFSET / rex::memory::GuestPtr; the Avatar provider must apply
-// exactly the same rule, or vertex/index/texture data written into the game's
-// GPU buffer land 4 KB away from where the game and GPU read them.
+// bytes higher in host memory on Windows and on macOS/ARM64. Recompiled game
+// code applies this via REX_PHYS_HOST_OFFSET / rex::memory::GuestPtr; the
+// Avatar provider must apply exactly the same rule, or vertex/index/texture
+// data written into the game's GPU buffer land 4 KB away from where the game
+// and GPU read them.
 // native_provider.cpp static_asserts agreement with rex::memory::detail.
+// Must mirror the REX_PHYS_HOST_OFFSET condition (WIN32, or macOS on ARM64).
 constexpr uint32_t NativeAvatarHostOffset(uint32_t address) {
-#if defined(_WIN32)
+#if defined(_WIN32) || (defined(__APPLE__) && defined(__aarch64__))
  return address>=0xE0000000u?0x1000u:0u;
 #else
  return 0u;
