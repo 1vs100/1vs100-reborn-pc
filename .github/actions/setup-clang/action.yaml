@@ -1,9 +1,8 @@
 name: Set up Clang
 description: >-
-  Install the pinned Clang/LLD/LLVM from the upstream LLVM GitHub release
-  tarball (apt.llvm.org has no retry and fails the whole job on a mirror
-  blip) and link the unversioned tool names (clang, clang++, clang-cl,
-  lld-link, llvm-rc, llvm-mt) the CMake toolchains expect.
+  Install the pinned Clang/LLD/LLVM tools from the upstream LLVM GitHub
+  release tarball. Only the needed tools are extracted; the full archive
+  unpacks to about 11.5 GB.
 
 inputs:
   version:
@@ -20,8 +19,8 @@ runs:
     - name: Install Clang from LLVM GitHub release
       shell: bash
       env:
-        CLANG_VERSION: ${{ inputs.version }}
-        LLVM_RELEASE: ${{ inputs.llvm_release }}
+        V: ${{ inputs.version }}
+        R: ${{ inputs.llvm_release }}
       run: |
         set -euo pipefail
         case "$(uname -m)" in
@@ -29,54 +28,15 @@ runs:
           aarch64|arm64) arch=ARM64 ;;
           *) echo "::error::unsupported arch $(uname -m)"; exit 1 ;;
         esac
-        asset="LLVM-$LLVM_RELEASE-Linux-$arch.tar.xz"
-        url="https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_RELEASE/$asset"
-        dest="$RUNNER_TEMP/llvm-$LLVM_RELEASE"
+        p="LLVM-$R-Linux-$arch"
+        dest="$RUNNER_TEMP/llvm-$R"
         mkdir -p "$dest"
-        if [ ! -f "$dest/$asset" ]; then
-          for i in 1 2 3 4 5; do
-            if curl -fsSL --retry 3 --retry-all-errors --retry-delay 10 \
-                -o "$dest/$asset" "$url"; then
-              break
-            fi
-            echo "download attempt $i for $asset failed, retrying..."
-            sleep $((i * 10))
-            if [ "$i" -eq 5 ]; then
-              echo "::error::could not download $url after 5 attempts"
-              exit 1
-            fi
-          done
-        fi
-        tar -xf "$dest/$asset" -C "$dest"
-        echo "$dest/LLVM-$LLVM_RELEASE-Linux-$arch/bin" >> "$GITHUB_PATH"
-        "$dest/LLVM-$LLVM_RELEASE-Linux-$arch/bin/clang" --version
-
-    - name: Link unversioned tool names
-      shell: bash
-      env:
-        CLANG_VERSION: ${{ inputs.version }}
-      run: |
-        set -euo pipefail
-        bind() {
-          local name="$1"; shift
-          for cand in "$@"; do
-            if command -v "$cand" >/dev/null 2>&1; then
-              sudo ln -sf "$(command -v "$cand")" "/usr/local/bin/$name"
-              return 0
-            fi
-          done
-          echo "::error::no candidate for tool '$name' (tried: $*)"
-          return 1
-        }
-        V="$CLANG_VERSION"
-        bind clang "clang-$V" clang
-        bind clang++ "clang++-$V" clang++
-        bind clang-cl "clang-cl-$V" clang-cl
-        bind lld-link "lld-link-$V" lld-link
-        bind llvm-rc "llvm-rc-$V" llvm-rc
-        bind llvm-mt "llvm-mt-$V" llvm-mt
-        bind llvm-lib "llvm-lib-$V" llvm-lib
-        hash -r
-        clang --version
-        clang-cl --version
-        lld-link --version
+        # clang, clang++, clang-cl link to clang-$V; lld-link links to lld.
+        curl -fsSL --retry 5 --retry-all-errors --retry-delay 10 \
+            "https://github.com/llvm/llvm-project/releases/download/llvmorg-$R/$p.tar.xz" \
+          | tar -xJ -C "$dest" --strip-components=1 --wildcards \
+            "$p/bin/clang" "$p/bin/clang++" "$p/bin/clang-cl" "$p/bin/clang-$V" \
+            "$p/bin/lld" "$p/bin/lld-link" "$p/bin/llvm-ar" "$p/bin/llvm-lib" \
+            "$p/bin/llvm-rc" "$p/bin/llvm-mt" "$p/lib/clang/*"
+        echo "$dest/bin" >> "$GITHUB_PATH"
+        "$dest/bin/clang" --version
