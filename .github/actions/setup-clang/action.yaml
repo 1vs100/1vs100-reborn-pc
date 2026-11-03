@@ -1,31 +1,55 @@
 name: Set up Clang
 description: >-
-  Install the pinned Clang/LLD/LLVM from apt.llvm.org and link the unversioned
-  tool names (clang, clang++, clang-cl, lld-link, llvm-rc, llvm-mt) the CMake
-  toolchains expect.
+  Install the pinned Clang/LLD/LLVM from the upstream LLVM GitHub release
+  tarball (apt.llvm.org has no retry and fails the whole job on a mirror
+  blip) and link the unversioned tool names (clang, clang++, clang-cl,
+  lld-link, llvm-rc, llvm-mt) the CMake toolchains expect.
 
 inputs:
   version:
     description: Clang major version
     required: true
+  llvm_release:
+    description: Upstream LLVM release tag version (asset LLVM-<this>-Linux-<arch>.tar.xz)
+    required: false
+    default: 22.1.8
 
 runs:
   using: composite
   steps:
-    - name: Install Clang from apt.llvm.org
+    - name: Install Clang from LLVM GitHub release
       shell: bash
       env:
         CLANG_VERSION: ${{ inputs.version }}
+        LLVM_RELEASE: ${{ inputs.llvm_release }}
       run: |
         set -euo pipefail
-        # Add APT source
-        wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
-        chmod +x /tmp/llvm.sh
-        sudo /tmp/llvm.sh "$CLANG_VERSION"
-        sudo apt-get install -y \
-          "clang-$CLANG_VERSION" \
-          "lld-$CLANG_VERSION" \
-          "llvm-$CLANG_VERSION"
+        case "$(uname -m)" in
+          x86_64) arch=X64 ;;
+          aarch64|arm64) arch=ARM64 ;;
+          *) echo "::error::unsupported arch $(uname -m)"; exit 1 ;;
+        esac
+        asset="LLVM-$LLVM_RELEASE-Linux-$arch.tar.xz"
+        url="https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_RELEASE/$asset"
+        dest="$RUNNER_TEMP/llvm-$LLVM_RELEASE"
+        mkdir -p "$dest"
+        if [ ! -f "$dest/$asset" ]; then
+          for i in 1 2 3 4 5; do
+            if curl -fsSL --retry 3 --retry-all-errors --retry-delay 10 \
+                -o "$dest/$asset" "$url"; then
+              break
+            fi
+            echo "download attempt $i for $asset failed, retrying..."
+            sleep $((i * 10))
+            if [ "$i" -eq 5 ]; then
+              echo "::error::could not download $url after 5 attempts"
+              exit 1
+            fi
+          done
+        fi
+        tar -xf "$dest/$asset" -C "$dest"
+        echo "$dest/LLVM-$LLVM_RELEASE-Linux-$arch/bin" >> "$GITHUB_PATH"
+        "$dest/LLVM-$LLVM_RELEASE-Linux-$arch/bin/clang" --version
 
     - name: Link unversioned tool names
       shell: bash
