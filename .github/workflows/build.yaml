@@ -3,8 +3,11 @@
 # Chain: `codegen-key` resolves the SDK ref to a commit and derives the cache
 # key for the generated sources from that commit, the XEX hash and the codegen
 # config files. `codegen` runs `rexglue codegen` only when no cache entry has
-# that key. `build` restores the generated sources from the cache in a
-# platform matrix (linux / windows / uwp). Every compile goes through ccache,
+# key. `build` restores the generated sources from the cache in a
+# platform matrix (linux / windows / uwp / linux-arm64 / mac-arm64 /
+# mac-amd64). `package-*` repacks the build artifacts into tar.xz (linux),
+# zip + Inno Setup installer (windows) and per-arch .app zips (mac).
+# Every compile goes through ccache,
 # one cache per toolchain, so an unchanged SDK is not recompiled.
 #
 # Repository secrets:
@@ -281,6 +284,7 @@ jobs:
             files: |
               build/mac-arm64/onevs100
               build/mac-arm64/*.dylib
+              build/mac-arm64/MoltenVK_icd.json
               build/mac-arm64/content/.keep
               build/mac-arm64/onevs100.toml
               build/mac-arm64/RUN.md
@@ -294,6 +298,7 @@ jobs:
             files: |
               build/mac-amd64/onevs100
               build/mac-amd64/*.dylib
+              build/mac-amd64/MoltenVK_icd.json
               build/mac-amd64/content/.keep
               build/mac-amd64/onevs100.toml
               build/mac-amd64/RUN.md
@@ -512,3 +517,163 @@ jobs:
           retention-days: 7
           if-no-files-found: error
           include-hidden-files: true
+
+  package-linux:
+    name: package linux (${{ matrix.artifact }})
+    needs: [build]
+    runs-on: ubuntu-24.04
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - artifact: onevs100-linux-amd64
+            out: onevs100-linux-amd64
+          - artifact: onevs100-linux-arm64
+            out: onevs100-linux-arm64
+    steps:
+      - name: Check out packaging scripts
+        uses: actions/checkout@v7
+      - name: Download build artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: ${{ matrix.artifact }}
+          path: staged
+      - name: Pack tar.xz
+        run: |
+          set -euo pipefail
+          short="${GITHUB_SHA::8}"
+          ./tools/packaging/make_tar_xz.sh staged "out/${{ matrix.out }}-$short.tar.xz"
+          ls -la out
+          listing=$(tar -tJf "out/${{ matrix.out }}-$short.tar.xz")
+          grep -qx '1vs100/manifest.txt' <<<"$listing"
+          if grep -q 'userdata' <<<"$listing"; then
+            echo "userdata leaked into tar" >&2
+            exit 1
+          fi
+      - name: Upload package
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.out }}-package
+          path: out/*.tar.xz
+          retention-days: 14
+          if-no-files-found: error
+
+  package-win-zip:
+    name: package windows zip
+    needs: [build]
+    runs-on: ubuntu-24.04
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - name: Check out packaging scripts
+        uses: actions/checkout@v7
+      - name: Check zip tools
+        run: command -v zip && command -v unzip
+      - name: Download build artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: onevs100-win-amd64
+          path: staged
+      - name: Pack zip
+        run: |
+          set -euo pipefail
+          short="${GITHUB_SHA::8}"
+          ./tools/packaging/make_win_zip.sh staged "out/1vs100-win-amd64-$short.zip"
+          ls -la out
+          listing=$(unzip -l "out/1vs100-win-amd64-$short.zip")
+          grep -q '1vs100/manifest.txt' <<<"$listing"
+          if grep -q 'userdata' <<<"$listing"; then
+            echo "userdata leaked into zip" >&2
+            exit 1
+          fi
+      - name: Upload package
+        uses: actions/upload-artifact@v7
+        with:
+          name: onevs100-win-amd64-package
+          path: out/*.zip
+          retention-days: 14
+          if-no-files-found: error
+
+  package-win-installer:
+    name: package windows installer
+    needs: [build]
+    runs-on: windows-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - name: Check out packaging scripts
+        uses: actions/checkout@v7
+      - name: Download build artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: onevs100-win-amd64
+          path: staged
+      - name: Install Inno Setup
+        run: choco install innosetup --yes --no-progress
+      - name: Build installer
+        shell: bash
+        run: |
+          set -euo pipefail
+          short="${GITHUB_SHA::8}"
+          for d in "/c/Program Files (x86)/Inno Setup 6" "/c/Program Files/Inno Setup 6"; do
+            if [ -x "$d/ISCC.exe" ]; then
+              export PATH="$d:$PATH"
+              break
+            fi
+          done
+          command -v iscc || { echo "::error::ISCC not found"; exit 1; }
+          ./tools/packaging/windows/make_setup.sh staged out 0.1.0
+          mv out/1vs100-0.1.0-setup.exe "out/1vs100-win-amd64-$short-setup.exe"
+          test -f "out/1vs100-win-amd64-$short-setup.exe"
+          ls -la out
+      - name: Upload package
+        uses: actions/upload-artifact@v7
+        with:
+          name: onevs100-win-installer-package
+          path: out/*.exe
+          retention-days: 14
+          if-no-files-found: error
+
+  package-mac:
+    name: package mac (${{ matrix.artifact }})
+    needs: [build]
+    runs-on: ${{ matrix.runner }}
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - artifact: onevs100-mac-arm64
+            runner: macos-14
+            out: onevs100-mac-arm64
+          - artifact: onevs100-mac-amd64
+            runner: macos-15-intel
+            out: onevs100-mac-amd64
+    steps:
+      - name: Check out packaging scripts
+        uses: actions/checkout@v7
+      - name: Download build artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: ${{ matrix.artifact }}
+          path: staged
+      - name: Pack app zip
+        run: |
+          set -euo pipefail
+          short="${GITHUB_SHA::8}"
+          ls -la staged || true
+          ./tools/packaging/make_mac_app.sh staged "out/${{ matrix.out }}-$short.zip" 0.1.0
+          ls -la out
+          listing=$(unzip -l "out/${{ matrix.out }}-$short.zip")
+          grep -q '1vs100.app/Contents/MacOS/manifest.txt' <<<"$listing"
+          grep -q '1vs100.app/Contents/MacOS/MoltenVK_icd.json' <<<"$listing"
+          if grep -q 'userdata' <<<"$listing"; then
+            echo "userdata leaked into mac zip" >&2
+            exit 1
+          fi
+      - name: Upload package
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.out }}-package
+          path: out/*.zip
+          retention-days: 14
+          if-no-files-found: error
