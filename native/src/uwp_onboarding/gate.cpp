@@ -8,7 +8,7 @@
 
 namespace uwp_onboarding {
 
-bool EnsureGameFiles(const std::filesystem::path& userRoot) {
+bool EnsureGameFiles(const std::filesystem::path& userRoot, onboarding::Header header) {
   // Fast path without any UI: everything already verified.
   {
     onboarding::App probe(userRoot);
@@ -36,7 +36,7 @@ bool EnsureGameFiles(const std::filesystem::path& userRoot) {
 
   // Matches the standalone flow: never destroyed (worker threads may still
   // reference it), the process keeps it until exit.
-  auto* app = new onboarding::App(userRoot);
+  auto* app = new onboarding::App(userRoot, std::move(header));
   app->Start();
 
   bool ready = false;

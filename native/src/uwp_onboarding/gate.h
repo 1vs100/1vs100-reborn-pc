@@ -6,8 +6,10 @@
 
 #include <filesystem>
 
+#include "app.h"
+
 namespace uwp_onboarding {
 
-bool EnsureGameFiles(const std::filesystem::path& userRoot);
+bool EnsureGameFiles(const std::filesystem::path& userRoot, onboarding::Header header);
 
 }  // namespace uwp_onboarding

@@ -18,6 +18,7 @@
 #include "online_service.h"
 #include <rex/system/kernel_state.h>
 #if REX_PLATFORM_WINRT
+#include <winrt/Windows.ApplicationModel.h>
 #include "uwp_onboarding/gate.h"
 #endif
 #include <cstdlib>
@@ -59,7 +60,11 @@ class Onevs100App : public rex::ReXApp {
     // before anything tries to use them. Skipped silently when the manifest
     // already verifies; if the user quits, the game reports the missing
     // files through the usual path below.
-    uwp_onboarding::EnsureGameFiles(folder);
+    auto version = winrt::Windows::ApplicationModel::Package::Current().Id().Version();
+    uwp_onboarding::EnsureGameFiles(
+        folder, {"1 vs 100", "v2.0.1149",
+                 std::to_string(version.Major) + "." + std::to_string(version.Minor) + "." +
+                     std::to_string(version.Build) + "." + std::to_string(version.Revision)});
 #endif
     // All development saves/cache/config stay beside this isolated build.
     paths.user_data_root = folder / "userdata";

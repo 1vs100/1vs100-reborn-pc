@@ -21,7 +21,9 @@ using winrt::Windows::Storage::Pickers::FileOpenPicker;
 using winrt::Windows::Storage::Pickers::FolderPicker;
 using winrt::Windows::Storage::Pickers::PickerLocationId;
 
-constexpr size_t kMissingLines = 5;
+constexpr size_t kMissingLines = 3;
+// Screen content starts below the header line.
+constexpr float kTop = 50;
 
 std::string FormatBytes(uint64_t bytes) {
   const char* units[] = {"B", "KB", "MB", "GB", "TB"};
@@ -53,8 +55,11 @@ void RunWorker(F work) {
 
 }  // namespace
 
-App::App(std::filesystem::path root)
-    : catalog_(Manifest::Embedded()), store_(std::move(root), catalog_), server_(store_, catalog_) {}
+App::App(std::filesystem::path root, Header header)
+    : catalog_(Manifest::Embedded()),
+      store_(std::move(root), catalog_),
+      server_(store_, catalog_),
+      header_(std::move(header)) {}
 
 void App::CheckNow() {
   store_.CheckAll();
@@ -138,10 +143,10 @@ void App::UpdateScreen(const Snapshot& snapshot) {
   buttons_for_ = screen_;
   std::vector<Button> buttons;
   if (screen_ == Screen::kGetFiles) {
-    buttons.push_back({"Pick a folder", {400, 300, 340, 60}, [this] { PickFolder(); }});
-    buttons.push_back({"Pick files", {760, 300, 280, 60}, [this] { PickFiles(); }});
+    buttons.push_back({"Pick a folder", {400, kTop + 300, 340, 60}, [this] { PickFolder(); }});
+    buttons.push_back({"Pick files", {760, kTop + 300, 280, 60}, [this] { PickFiles(); }});
   } else if (screen_ == Screen::kReady) {
-    buttons.push_back({"Continue", {kWidth / 2.0f - 150, 420, 300, 70}, [this] { screen_ = Screen::kDone; }});
+    buttons.push_back({"Continue", {kWidth / 2.0f - 150, kTop + 420, 300, 70}, [this] { screen_ = Screen::kDone; }});
   }
   buttons_.SetButtons(std::move(buttons));
   buttons_.Focus(0);
@@ -153,6 +158,8 @@ void App::Render(SDL_Renderer* renderer) {
 
   SDL_SetRenderDrawColor(renderer, colors::kBackground.r, colors::kBackground.g, colors::kBackground.b, 255);
   SDL_RenderClear(renderer);
+  Text(renderer, 60, 24, 5, colors::kText,
+       header_.title + "  " + header_.game_build + "  " + header_.package_version);
   switch (screen_) {
     case Screen::kChecking: RenderChecking(renderer, snapshot); break;
     case Screen::kGetFiles: RenderGetFiles(renderer, snapshot); break;
@@ -193,14 +200,14 @@ void App::RenderProgress(SDL_Renderer* renderer, const Snapshot& snapshot, float
 }
 
 void App::RenderChecking(SDL_Renderer* renderer, const Snapshot& snapshot) {
-  Text(renderer, 60, 60, 5, colors::kText, "Checking files");
-  Text(renderer, 60, 130, 2, colors::kMuted,
+  Text(renderer, 60, kTop + 60, 5, colors::kText, "Checking files");
+  Text(renderer, 60, kTop + 130, 2, colors::kMuted,
        "Making sure the game files on this device are complete.");
-  RenderProgress(renderer, snapshot, 300);
+  RenderProgress(renderer, snapshot, kTop + 300);
 }
 
 void App::RenderGetFiles(SDL_Renderer* renderer, const Snapshot& snapshot) {
-  Text(renderer, 60, 40, 5, colors::kText, "Get your files in");
+  Text(renderer, 60, kTop + 40, 5, colors::kText, "Get your files in");
 
   std::vector<std::string> urls;
   std::string server_error;
@@ -210,30 +217,30 @@ void App::RenderGetFiles(SDL_Renderer* renderer, const Snapshot& snapshot) {
     server_error = server_error_;
   }
   if (!urls.empty()) {
-    QrCode(renderer, 60, 100, 300, urls.front());
-    Text(renderer, 60, 408, 2, colors::kMuted, "Scan with a phone");
+    QrCode(renderer, 60, kTop + 100, 300, urls.front());
+    Text(renderer, 60, kTop + 408, 2, colors::kMuted, "Scan with a phone");
   }
-  Text(renderer, 400, 100, 2, colors::kMuted, "Open in a browser on the same network:");
+  Text(renderer, 400, kTop + 100, 2, colors::kMuted, "Open in a browser on the same network:");
   if (urls.empty()) {
-    Text(renderer, 400, 130, 3, colors::kBad, server_error.empty() ? "No network connection" : "");
+    Text(renderer, 400, kTop + 130, 3, colors::kBad, server_error.empty() ? "No network connection" : "");
   }
   for (size_t i = 0; i < urls.size() && i < 3; ++i) {
-    Text(renderer, 400, 130 + i * 34.0f, 3, colors::kText, urls[i]);
+    Text(renderer, 400, kTop + 130 + i * 34.0f, 3, colors::kText, urls[i]);
   }
-  Text(renderer, 400, 270, 2, colors::kMuted,
+  Text(renderer, 400, kTop + 270, 2, colors::kMuted,
        PickersAvailable() ? "Or copy from a folder or USB drive:"
                           : "Or insert a USB drive to copy the files from it.");
 
-  Text(renderer, 400, 390, 3, colors::kText,
+  Text(renderer, 400, kTop + 390, 3, colors::kText,
        std::to_string(snapshot.ready_count) + " of " + std::to_string(snapshot.files.size()) + " files ready");
-  Text(renderer, 400, 422, 2, colors::kMuted,
+  Text(renderer, 400, kTop + 422, 2, colors::kMuted,
        FormatBytes(snapshot.ready_bytes) + " of " + FormatBytes(snapshot.total_bytes));
 
   std::vector<const FileView*> missing;
   for (const auto& file : snapshot.files) {
     if (file.status != FileStatus::kOk) missing.push_back(&file);
   }
-  float y = 452;
+  float y = kTop + 452;
   if (!missing.empty()) {
     Text(renderer, 400, y, 2, colors::kMuted, "Missing or invalid:");
     for (size_t i = 0; i < missing.size() && i < kMissingLines; ++i) {
@@ -248,15 +255,15 @@ void App::RenderGetFiles(SDL_Renderer* renderer, const Snapshot& snapshot) {
     }
   }
 
-  if (snapshot.busy() || import_running_) RenderProgress(renderer, snapshot, 588);
+  if (snapshot.busy() || import_running_) RenderProgress(renderer, snapshot, kTop + 550);
 
   std::string error = !snapshot.error.empty() ? snapshot.error : server_error;
-  if (!error.empty()) Text(renderer, 60, 690, 2, colors::kBad, Shorten(error, 95));
+  if (!error.empty()) Text(renderer, 60, 696, 2, colors::kBad, Shorten(error, 95));
 }
 
 void App::RenderReady(SDL_Renderer* renderer) {
-  TextCentered(renderer, kWidth / 2.0f, 220, 5, colors::kText, "All files are ready");
-  TextCentered(renderer, kWidth / 2.0f, 300, 2, colors::kMuted, "Every game file is on this device and verified.");
+  TextCentered(renderer, kWidth / 2.0f, kTop + 220, 5, colors::kText, "All files are ready");
+  TextCentered(renderer, kWidth / 2.0f, kTop + 300, 2, colors::kMuted, "Every game file is on this device and verified.");
 }
 
 void App::RenderDone(SDL_Renderer* renderer) {

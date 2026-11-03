@@ -21,11 +21,18 @@ namespace onboarding {
 
 constexpr uint16_t kHttpPort = 8080;
 
+// Shown at the top of every screen so the user can tell which game and build it belongs to.
+struct Header {
+  std::string title;
+  std::string game_build;
+  std::string package_version;
+};
+
 class App {
  public:
   // The user-data root the manifest paths resolve against. Pass the
   // platform user folder; content lands in <root>/content/.
-  explicit App(std::filesystem::path root);
+  explicit App(std::filesystem::path root, Header header = {});
 
   // Runs the file check synchronously on the calling thread. Lets an
   // embedder skip the UI entirely when everything is already in place.
@@ -80,6 +87,7 @@ class App {
   std::mutex server_mutex_;
   std::vector<std::string> urls_;
   std::string server_error_;
+  Header header_;
 };
 
 }  // namespace onboarding
