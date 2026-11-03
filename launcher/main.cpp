@@ -159,12 +159,14 @@ std::string Describe(const Error& error) {
 struct Settings {
   std::string host;
   bool windowed;
+  bool keyboard;
+  bool mouse_look;
 };
 
 // Missing keys take the game's own defaults, except the host, which the
 // release presets to the community server.
 std::expected<Settings, Error> LoadSettings(const fs::path& config) {
-  Settings settings{kDefaultHost, false};
+  Settings settings{kDefaultHost, false, false, false};
   std::error_code ec;
   if (!fs::exists(config, ec)) return settings;
   auto parsed = ParseTomlFile(config);
@@ -172,6 +174,8 @@ std::expected<Settings, Error> LoadSettings(const fs::path& config) {
   const toml::table& table = *parsed;
   if (auto host = table["gameserver_host"].value<std::string>()) settings.host = *host;
   if (auto fullscreen = table["fullscreen"].value<bool>()) settings.windowed = !*fullscreen;
+  if (auto keyboard = table["mnk_mode"].value<bool>()) settings.keyboard = *keyboard;
+  if (auto mouse_look = table["mnk_mouse"].value<bool>()) settings.mouse_look = *mouse_look;
   return settings;
 }
 
@@ -188,6 +192,8 @@ std::expected<void, Error> SaveSettings(const fs::path& config, const Settings& 
   }
   table.insert_or_assign("gameserver_host", settings.host);
   table.insert_or_assign("fullscreen", !settings.windowed);
+  table.insert_or_assign("mnk_mode", settings.keyboard);
+  table.insert_or_assign("mnk_mouse", settings.mouse_look);
   std::ofstream out(config, std::ios::trunc);
   out << table << '\n';
   out.flush();
@@ -378,6 +384,8 @@ struct App {
   std::array<char, 64> gamertag{};
   std::array<char, 512> host{};
   bool windowed = false;
+  bool keyboard = false;
+  bool mouse_look = false;
   Status status;
   SDL_Window* window = nullptr;
   Uint32 dialog_event = 0;
@@ -395,11 +403,13 @@ struct App {
     }
     SDL_strlcpy(host.data(), settings->host.c_str(), host.size());
     windowed = settings->windowed;
+    keyboard = settings->keyboard;
+    mouse_look = settings->mouse_look;
   }
 
   std::expected<void, Error> Save() {
     if (auto saved = SaveGamertag(paths, gamertag.data()); !saved) return saved;
-    return SaveSettings(paths.config, Settings{host.data(), windowed});
+    return SaveSettings(paths.config, Settings{host.data(), windowed, keyboard, mouse_look});
   }
 
   bool AvatarPresent() const {
@@ -499,6 +509,13 @@ void DrawSettingsTab(App& app) {
   ImGui::Dummy(ImVec2(0, 6));
   SectionLabel("DISPLAY");
   ImGui::Checkbox("Windowed mode", &app.windowed);
+
+  ImGui::Dummy(ImVec2(0, 6));
+  SectionLabel("CONTROLS");
+  ImGui::Checkbox("Keyboard controls (WASD + arrows, Space = A)", &app.keyboard);
+  ImGui::BeginDisabled(!app.keyboard);
+  ImGui::Checkbox("Mouse aims the right stick", &app.mouse_look);
+  ImGui::EndDisabled();
 }
 
 // Returns true when the launcher should close.

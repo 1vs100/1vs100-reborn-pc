@@ -1,15 +1,31 @@
-# Builds the native game and the launcher, then packages a dated Private Alpha Test build:
+# Builds the native game and the dev launcher, then packages a dated Private Alpha Test build:
 #   dist\1vs100-private-alpha-<yyyyMMdd-HHmmss>\  and  dist\1vs100-private-alpha-<yyyyMMdd-HHmmss>.zip
 # Run from anywhere:
 #   powershell -ExecutionPolicy Bypass -File tools\Build-TestPackage.ps1
+# Layout (all relative to the repository root, overridable with parameters):
+#   build\                 local native build (cmake -S native -B build ...)
+#   native\assets\          your unpacked game files (manifest game_root, never committed)
+#   content\               your untouched game/show/episode packages (optional)
+#   reference-mods\        shipped mods applied on top of the original packages (optional)
+#   tools\                launch, packaging, mods, export and log scripts (this folder)
+#   outputs\diagnostics\   local build/test logs (gitignored)
 # The package leaves out your profile, Avatar, saved stats, logs and crash
 # dumps. Only share it with someone entitled to the game files.
-param([switch]$SkipBuild)
+param([switch]$SkipBuild,
+      [string]$BuildDir='build',
+      [string]$RexSdkDir=$env:REXSDK_DIR,
+      [string]$AssetsDir='native\assets',
+      [string]$ContentDir='content',
+      [string]$ReferenceModsDir='reference-mods',
+      [string]$DiagDir='outputs\diagnostics')
 $ErrorActionPreference='Stop'
 $root=Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 $stamp=Get-Date -Format yyyyMMdd-HHmmss
-$diag=Join-Path $root 'outputs\diagnostics'
+$diag=Join-Path $root $DiagDir
 New-Item -ItemType Directory -Force $diag | Out-Null
+foreach ($d in @($BuildDir, $AssetsDir)) {
+    if (-not (Test-Path (Join-Path $root $d))) { Write-Warning "$d not found under $root." }
+}
 
 function RunBuild([string]$script, [string]$log) {
     $process=Start-Process -FilePath $script -RedirectStandardOutput $log -RedirectStandardError "$log.err" -Wait -PassThru -NoNewWindow
@@ -19,27 +35,34 @@ function RunBuild([string]$script, [string]$log) {
 
 if(-not $SkipBuild) {
     # Keep the previous native build before replacing it.
-    $exe=Join-Path $root 'work\native-avatar-build\onevs100.exe'
+    $exe=Join-Path $root (Join-Path $BuildDir 'onevs100.exe')
     if(Test-Path $exe) {
-        $backup=Join-Path $root "claude\backup\native-exe-$stamp"
+        $backup=Join-Path $diag "backup\native-exe-$stamp"
         New-Item -ItemType Directory -Force $backup | Out-Null
         Copy-Item $exe $backup
-        Write-Output "Previous native build saved to $backup"
+        Write-Output "Previous native build was saved to $backup"
     }
+    if(-not (Get-Command cmake -ErrorAction SilentlyContinue)) { throw "cmake not found on PATH." }
+    if(-not $RexSdkDir) { throw "RexSdkDir is not set: pass -RexSdkDir <rexglue-sdk> or set the REXSDK_DIR environment variable." }
     $nativeLog=Join-Path $diag "build-native-$stamp.log"
     Write-Output "Building the native game (log: $nativeLog) ..."
-    $code=RunBuild (Join-Path $root 'work\build_native_avatar.cmd') $nativeLog
-    if($code -ne 0) { Get-Content $nativeLog -Tail 40; throw "Native build failed (exit $code). See $nativeLog" }
+    $nativeBuild=Join-Path $root $BuildDir
+    cmake -S (Join-Path $root 'native') -B $nativeBuild -G Ninja -DCMAKE_BUILD_TYPE=Release `
+        -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl `
+        -DREXSDK_DIR=$RexSdkDir *> $nativeLog
+    if($LASTEXITCODE -ne 0) { Get-Content $nativeLog -Tail 40; throw "Native configure failed (exit $LASTEXITCODE). See $nativeLog" }
+    cmake --build $nativeBuild --target onevs100 *>> $nativeLog
+    if($LASTEXITCODE -ne 0) { Get-Content $nativeLog -Tail 40; throw "Native build failed (exit $LASTEXITCODE). See $nativeLog" }
     Write-Output 'Native build OK.'
     $launcherLog=Join-Path $diag "build-launcher-$stamp.log"
     Write-Output "Building the launcher (log: $launcherLog) ..."
-    $code=RunBuild (Join-Path $root 'work\tools\dev-launcher\build_launcher.cmd') $launcherLog
+    $code=RunBuild (Join-Path $root 'tools\dev-launcher\build_launcher.cmd') $launcherLog
     if($code -ne 0) { Get-Content $launcherLog -Tail 40; throw "Launcher build failed (exit $code). See $launcherLog" }
     Write-Output 'Launcher build OK.'
 }
 
 # Every Lua file must keep CRLF line endings.
-$stagedLua=Join-Path $root 'work\native-parity\assets\lua'
+$stagedLua=Join-Path $root (Join-Path $AssetsDir 'lua')
 if (Test-Path $stagedLua) {
     $bad=@(Get-ChildItem $stagedLua -Filter *.lua | Where-Object {
         $text=[IO.File]::ReadAllText($_.FullName); ($text -replace "`r`n",'') -match "`n" })
@@ -56,21 +79,20 @@ function Put([string]$relative) {
     Copy-Item $source $target -Recurse -Force
 }
 Put '1vs100 Launcher.exe'
-Put 'outputs\online-tools\Launch-NativeRoomTest.ps1'
-Put 'outputs\online-tools\XzpMods.ps1'
-Put 'outputs\online-tools\Export-GameContent.ps1'
-Put 'outputs\online-tools\Collect-Logs.ps1'
-Put 'outputs\online-tools\mods-README.txt'
-Put 'work\native-parity\mods'
-Put 'work\native-avatar-build\onevs100.exe'
-Put 'work\native-parity\assets'
-Put 'work\native-parity\content'
-Put 'work\native-parity\rexruntime.dll'
-Put 'work\native-parity\rexgpu-xenos.dll'
-New-Item -ItemType Directory -Force (Join-Path $out 'outputs\diagnostics') | Out-Null
+foreach ($script in @('Launch-NativeRoomTest.ps1','XzpMods.ps1','Export-GameContent.ps1','Collect-Logs.ps1','mods-README.txt')) {
+    Put (Join-Path 'tools' $script)
+}
+Put (Join-Path $BuildDir 'onevs100.exe')
+Put (Join-Path $BuildDir 'rexruntime.dll')
+Put (Join-Path $BuildDir 'rexgpu-xenos.dll')
+foreach ($optional in @($AssetsDir, $ContentDir, $ReferenceModsDir)) {
+    if ($optional -and (Test-Path (Join-Path $root $optional))) { Put $optional }
+    else { Write-Output "Skipping missing $optional." }
+}
+New-Item -ItemType Directory -Force (Join-Path $out $DiagDir) | Out-Null
 # The player's own mods folder (empty apart from its README).
 New-Item -ItemType Directory -Force (Join-Path $out 'mods') | Out-Null
-Copy-Item (Join-Path $root 'outputs\online-tools\mods-README.txt') (Join-Path $out 'mods\README.txt')
+Copy-Item (Join-Path $root 'tools\mods-README.txt') (Join-Path $out 'mods\README.txt')
 Set-Content (Join-Path $out 'launcher-settings.ini') @"
 [launcher]
 keyboard=1

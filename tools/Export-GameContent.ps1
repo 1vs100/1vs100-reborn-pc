@@ -1,14 +1,15 @@
 # Export-GameContent.ps1 -- writes every file inside the game's UI packages
 # (launch.xzp, episode.xzp) to mods\_export so logos, images and text can be
 # looked at, with an index of every image and its size. Read-only for the game:
-# it reads the original packages in work\native-parity and changes nothing.
+# it reads the original packages in native\assets and changes nothing.
 # Launcher: Debug tab > "Export game images & text". Windows PowerShell 5.1.
 #
 # mods\_export\launch\...      files of launch.xzp (string tables also as .xus.txt)
 # mods\_export\episode\...     files of episode.xzp
 # mods\_export\INDEX.html      gallery of every image (open in a browser)
 # mods\_export\INDEX.txt       the same as text: package, path, kind, size
-param([string]$OutDir='')
+param([string]$OutDir='',
+      [string]$AssetsDir='native\assets')
 $ErrorActionPreference='Stop'
 $root=Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 if(-not $OutDir) { $OutDir=Join-Path $root 'mods\_export' }
@@ -43,7 +44,7 @@ function ImageInfo([byte[]]$b) {
 }
 
 try {
-    $reference=Join-Path $root 'work\native-parity\assets'
+    $reference=Join-Path $root $AssetsDir
     $packages=@(@('launch', (Join-Path $reference 'media\launch.xzp')), @('episode', (Join-Path $reference 'media\episode.xzp')))
     $rows=New-Object System.Collections.Generic.List[object]
     foreach($pkg in $packages) {

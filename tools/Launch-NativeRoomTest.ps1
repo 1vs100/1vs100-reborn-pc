@@ -1,6 +1,13 @@
 # Modes: Offline (solo test staging), LocalHost + LocalJoin (two staged
 # copies on this PC), Gameserver (staged copy for community-server play with
 # stock game files; no Lua is patched).
+# Layout (all relative to the repository root, overridable with parameters):
+#   build\              local native build (onevs100.exe + DLLs)
+#   native\assets\       your unpacked game files (staged read-write per mode)
+#   content\            your untouched game/show/episode packages (optional)
+#   reference-mods\     shipped mods applied on top of the original packages (optional)
+#   player-data\        your profile, Avatar and saved stats (gitignored)
+#   outputs\room\       staged per-mode copies; outputs\diagnostics\ holds the logs
 param([ValidateSet('Offline','LocalHost','LocalJoin','Gameserver')][string]$Mode='Offline',
       [string]$ShowTitle='',[string]$LiveTitle='',[switch]$NoBots,[string]$GameArgs='',
       [ValidateRange(0,37)][int]$Questions=2,[ValidateRange(10,240)][int]$PreShowSeconds=30,
@@ -12,23 +19,37 @@ param([ValidateSet('Offline','LocalHost','LocalJoin','Gameserver')][string]$Mode
       [ValidateSet('Standard','Holiday','TheBigGame','XboxLIVE','ColinCorp','Sprint')][string]$Skin='Standard',
       [ValidateSet('Off','Host','Producer')][string]$HostTool='Off',
       [switch]$DebugInput,[switch]$FakeLiveHost,[switch]$Subtitles,[switch]$SponsorDance,[switch]$FakeReals,
-      [switch]$NoMods)
+      [switch]$NoMods,
+      [string]$GameBuildDir='build',
+      [string]$AssetsDir='native\assets',
+      [string]$ContentDir='content',
+      [string]$ReferenceModsDir='reference-mods',
+      [string]$StageRoot='outputs\room',
+      [string]$SeedProfilesDir='player-data\profiles')
 $ErrorActionPreference='Stop'
 $root=Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
-$stage=Join-Path $root ('work/native-room-'+$Mode.ToLower())
-$reference=Join-Path $root 'work/native-parity'
+$gameBuild=Join-Path $root $GameBuildDir
+$gameExe=Join-Path $gameBuild 'onevs100.exe'
+if(-not (Test-Path $gameExe)) { throw "No game build at $gameExe`: build it first (cmake -S native -B $GameBuildDir ...)." }
+$stage=Join-Path $root (Join-Path $StageRoot $Mode.ToLower())
 New-Item -ItemType Directory -Force $stage | Out-Null
 $exe=Join-Path $stage 'onevs100-room.exe'
 foreach($process in Get-Process | Where-Object { $_.Path -eq $exe }) { Stop-Process -Id $process.Id }
-Copy-Item (Join-Path $root 'work/native-avatar-build/onevs100.exe') $exe
-foreach($dll in @('rexruntime.dll','rexgpu-xenos.dll')) { Copy-Item (Join-Path $reference $dll) $stage }
-Copy-Item (Join-Path $reference 'assets') $stage -Recurse -Force
-# Mods: text and image replacements inside the staged UI packages (the reference
+Copy-Item $gameExe $exe
+foreach($dll in @('rexruntime.dll','rexgpu-xenos.dll')) { Copy-Item (Join-Path $gameBuild $dll) $stage }
+$assets=Join-Path $root $AssetsDir
+if(-not (Test-Path $assets)) { throw "No game files at $assets." }
+Copy-Item $assets $stage -Recurse -Force
+# Settings next to the staged exe: the local build's copy, else the packaged default.
+$toml=Join-Path $gameBuild 'onevs100.toml'
+if(-not (Test-Path $toml)) { $toml=Join-Path $root 'package\onevs100.toml' }
+if(Test-Path $toml) { Copy-Item $toml $stage }
+# Mods: text and image replacements inside the staged UI packages (the game files
 # copies stay original). Shipped mods (prize-free text, points glyph) first, then
 # the player's own mods folder. -NoMods plays the original packages.
 if(-not $NoMods) {
     . (Join-Path $PSScriptRoot 'XzpMods.ps1')
-    $modRoots=@((Join-Path $reference 'mods'),(Join-Path $root 'mods'))
+    $modRoots=@((Join-Path $root $ReferenceModsDir),(Join-Path $root 'mods'))
     foreach($package in @(@('launch','assets/media/launch.xzp'),@('episode','assets/media/episode.xzp'),@('episode','assets/Episode/media/episode.xzp'))) {
         $packagePath=Join-Path $stage $package[1]
         if(-not(Test-Path $packagePath)) { continue }
@@ -40,12 +61,12 @@ if(-not $NoMods) {
             # A broken mod must not stop the game: start again from the original
             # package with only the shipped mods, or leave it original.
             Write-Output "Mods: $($package[1]): your mods were skipped: $($_.Exception.Message)"
-            Copy-Item (Join-Path $reference $package[1]) $packagePath -Force
+            Copy-Item (Join-Path $assets $package[1]) $packagePath -Force
             try {
                 $result=Invoke-XzpMods $packagePath $package[0] @($modRoots[0])
                 Write-Output "Mods: $($package[1]): shipped mods only: $($result.FilesReplaced) files, $($result.StringsChanged) strings"
             } catch {
-                Copy-Item (Join-Path $reference $package[1]) $packagePath -Force
+                Copy-Item (Join-Path $assets $package[1]) $packagePath -Force
                 Write-Output "Mods: $($package[1]) left original: $($_.Exception.Message)"
             }
         }
@@ -53,16 +74,16 @@ if(-not $NoMods) {
 }
 $profiles=Join-Path $stage 'userdata/profiles'
 New-Item -ItemType Directory -Force $profiles | Out-Null
-$referenceProfiles=Join-Path $reference 'userdata/profiles'
-if(-not(Test-Path (Join-Path $profiles 'local-name.txt')) -and (Test-Path $referenceProfiles)) {
-    Copy-Item (Join-Path $referenceProfiles '*') $profiles
+$seedProfiles=Join-Path $root $SeedProfilesDir
+if(-not(Test-Path (Join-Path $profiles 'local-name.txt')) -and (Test-Path $seedProfiles)) {
+    Copy-Item (Join-Path $seedProfiles '*') $profiles
 }
 # The second copy on this PC gets its own name (its XUID is derived per folder).
 if($Mode -eq 'LocalJoin') {
     $nameFile=Join-Path $profiles 'local-name.txt'
-    $referenceName=Get-Content (Join-Path $reference 'userdata/profiles/local-name.txt') -ErrorAction SilentlyContinue | Select-Object -First 1
+    $seedName=Get-Content (Join-Path $seedProfiles 'local-name.txt') -ErrorAction SilentlyContinue | Select-Object -First 1
     $currentName=Get-Content $nameFile -ErrorAction SilentlyContinue | Select-Object -First 1
-    if(-not $currentName -or $currentName -eq $referenceName) { Set-Content $nameFile 'Player2' }
+    if(-not $currentName -or $currentName -eq $seedName) { Set-Content $nameFile 'Player2' }
 }
 # One profile, Avatar and saved stats (season score, streaks) for every mode on
 # this PC: player-data\ in the workspace. The second test copy (LocalJoin) keeps
@@ -71,8 +92,8 @@ $playerData=if($Mode -eq 'LocalJoin'){ Join-Path $stage 'userdata' }else{ Join-P
 $profileSlot=if($Mode -eq 'LocalJoin'){ '2' }else{ '' }
 # A fresh PC without a profile gets the game's profile editor on first start.
 New-Item -ItemType Directory -Force (Join-Path $playerData 'profiles') | Out-Null
-if(-not(Test-Path (Join-Path $playerData 'profiles/local-name.txt')) -and (Test-Path $referenceProfiles)) {
-    Copy-Item (Join-Path $referenceProfiles '*') (Join-Path $playerData 'profiles')
+if(-not(Test-Path (Join-Path $playerData 'profiles/local-name.txt')) -and (Test-Path $seedProfiles)) {
+    Copy-Item (Join-Path $seedProfiles '*') (Join-Path $playerData 'profiles')
 }
 # Live (Primetime): players must be in the lobby before The One and the Mob are
 # picked, or they wait as join-in-progress for a next round that never comes when
@@ -160,7 +181,8 @@ foreach($key in $sdlHints.Keys) { $oldSdlHints[$key]=[Environment]::GetEnvironme
 try {
     [Environment]::SetEnvironmentVariable('ONEVS100_PLAYER_DATA',$playerData,'Process')
     [Environment]::SetEnvironmentVariable('ONEVS100_PROFILE_SLOT',$(if($profileSlot){$profileSlot}else{$null}),'Process')
-    [Environment]::SetEnvironmentVariable('ONEVS100_NATIVE_AVATAR_CONTENT',(Join-Path $reference 'content'),'Process')
+    $avatarContent=Join-Path $root $ContentDir
+    if(Test-Path $avatarContent) { [Environment]::SetEnvironmentVariable('ONEVS100_NATIVE_AVATAR_CONTENT',$avatarContent,'Process') }
     # Launcher Display/Controls options arrive as runtime flags (--fullscreen, --vsync, ...).
     $gameFlags=@($GameArgs -split '\s+' | Where-Object { $_ -match '^--[a-z_]+(=[A-Za-z0-9._-]+)?$' })
     if(-not ($gameFlags -match '^--mnk_mode')) { $gameFlags+='--mnk_mode=true' }
@@ -173,9 +195,9 @@ try {
     if($DualSenseDirect) { Write-Output 'Controller: USB DualSense direct backup on (player 1).' }
     if($MousePanel) { Write-Output 'Controller: mouse button panel on.' }
     $process=Start-Process -FilePath $exe -WorkingDirectory $stage -WindowStyle Normal -ArgumentList (@("--log_file=$log",'--log_max_file_size_mb=64')+$gameFlags) -PassThru
-    $process.Id | Set-Content (Join-Path $root 'work/native-room-visible-pid.txt')
-    $log | Set-Content (Join-Path $root 'work/native-room-visible-log.txt')
-    $log | Set-Content (Join-Path $root ('work/native-room-'+$Mode.ToLower()+'-log.txt'))
+    $process.Id | Set-Content (Join-Path $root 'outputs/native-room-visible-pid.txt')
+    $log | Set-Content (Join-Path $root 'outputs/native-room-visible-log.txt')
+    $log | Set-Content (Join-Path $root ('outputs/room-'+$Mode.ToLower()+'-log.txt'))
     Write-Output "pid=$($process.Id) mode=$Mode show=$ShowMode questions=$Questions showStart=$start log=$log"
 } finally {
     foreach($key in $sdlHints.Keys) { [Environment]::SetEnvironmentVariable($key,$oldSdlHints[$key],'Process') }

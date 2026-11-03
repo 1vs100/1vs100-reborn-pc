@@ -97,7 +97,7 @@ Environment overrides: `ONEVS100_NATIVE_AVATAR_CONTENT`, `ONEVS100_PLAYER_DATA`,
 |---|---|
 | `native/` | The PC side of the game: CMake project for the recompiled executable and our C++ (gameserver mode, Avatar provider, controls, video). |
 | `lua/` | Lua we added to the game: `NativeDebug.lua` (debug switches, skins). |
-| `launcher/` | The player launcher for Windows and Linux: gamertag, avatar, gameserver host, windowed mode. |
+| `launcher/` | The player launcher for Windows and Linux: gamertag, avatar, gameserver host, windowed mode, keyboard controls. |
 | `tools/dev-launcher/` | `1vs100 Launcher.exe` (Windows, development): Play / Display / Controls / Show / Online / Debug tabs. |
 | `tools/` | Launch, packaging, mods (XZP), export, log-collection scripts; `tools/test/` Lua unit tests. |
 | `docs/` | Developer notes, such as gameserver mode. |
