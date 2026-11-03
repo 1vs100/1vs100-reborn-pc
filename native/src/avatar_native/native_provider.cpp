@@ -27,6 +27,13 @@ std::filesystem::path NativeAvatarContentPath() {
   if (const char* p = std::getenv("ONEVS100_NATIVE_AVATAR_CONTENT"); p && *p) return p;
   std::filesystem::path path = REXCVAR_GET(native_avatar_content);
 #if REX_PLATFORM_WINRT
+  // The install folder is read-only; avatar assets live in LocalState,
+  // where the first-run onboarding puts them.
+  if (path.empty()) path = "avatar-content";
+  if (path.is_relative()) path = rex::filesystem::GetUserFolder() / path;
+  std::error_code error;
+  if (!std::filesystem::exists(path, error)) return {};
+#else
   if (!path.empty() && path.is_relative()) path = rex::filesystem::GetExecutableFolder() / path;
 #endif
   return path;

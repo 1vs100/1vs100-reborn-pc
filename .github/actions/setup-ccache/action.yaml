@@ -1,0 +1,47 @@
+name: Set up ccache
+description: >-
+  Install ccache, restore its cache, and make CMake use it as the compiler
+  launcher. The cache is saved again when the job ends.
+
+inputs:
+  key:
+    description: Cache key prefix, one per toolchain
+    required: true
+  max-size:
+    description: Upper limit for the ccache directory
+    required: false
+    default: 1G
+
+runs:
+  using: composite
+  steps:
+    - name: Install ccache
+      shell: bash
+      run: |
+        if [ "$RUNNER_OS" = "macOS" ]; then
+          brew install ccache || true
+        else
+          sudo apt-get install -y ccache
+        fi
+    - name: Configure ccache
+      shell: bash
+      env:
+        MAX_SIZE: ${{ inputs.max-size }}
+      run: |
+        set -euo pipefail
+        {
+          echo "CCACHE_DIR=$RUNNER_TEMP/ccache"
+          # The compiler is reinstalled on every run, so its mtime changes.
+          echo "CCACHE_COMPILERCHECK=content"
+          echo "CCACHE_MAXSIZE=$MAX_SIZE"
+          echo "CMAKE_C_COMPILER_LAUNCHER=ccache"
+          echo "CMAKE_CXX_COMPILER_LAUNCHER=ccache"
+        } >> "$GITHUB_ENV"
+
+    - name: Restore ccache
+      uses: actions/cache@v6
+      with:
+        path: ${{ runner.temp }}/ccache
+        # Each run saves a new entry; the newest one with the prefix is restored.
+        key: ${{ inputs.key }}-${{ github.run_id }}-${{ github.run_attempt }}
+        restore-keys: ${{ inputs.key }}-

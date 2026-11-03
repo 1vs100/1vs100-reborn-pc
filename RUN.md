@@ -1,42 +1,40 @@
-# Run guide
+# 1 vs 100 PC
 
-Get the game running: copy your files into place, set three settings, start it.
+- Play 1 vs 100 on Windows, Linux, or macOS, online together with Xbox 360 players.
+- Bring your own game files. Nothing playable ships here.
+- Website: [1vs100.fans](https://1vs100.fans)
+- Help and chat: [Discord](https://discord.gg/tV3ajhwFTf)
 
-- You need your own Xbox 360 files. Nothing playable ships here.
-- All paths below are next to the built executable, unless noted.
+## Start playing
 
-## Files
+1. Copy your untouched Xbox 360 packages into the `content` folder: the game package, plus the show and episode packages. They are used as they are, never unpacked.
+2. Extract the archive into a writable folder: `onevs100-linux-*.tar.xz` on Linux, `1vs100-win-*.zip` or the installer on Windows, `onevs100-mac-*.zip` on macOS. First run creates `userdata/` next to the executables, so a read-only location fails. Requires macOS 14 or newer.
+3. On macOS move `1vs100.app` out of Downloads (for example `~/Applications`), then clear quarantine once: `xattr -dr com.apple.quarantine 1vs100.app`. On Linux the tar preserves exec bits, so no `chmod` is needed.
+4. Open launcher (launcher.exe on Windows, launcher inside 1vs100.app on macOS).
+5. On the Player tab, enter your gamertag and choose your avatar file.
+6. Press Launch.
 
-| Copy this | To here |
-|---|---|
-| The untouched game package | Anywhere, then list it in `content_install` (or unpack `default.xex` and its media to `assets/` instead) |
-| Avatar content: the content folder with `0000000000000000/FFFE07DF/...`, the `AvatarAssetPack.toc` file itself, or the `FFFE07DF00000002` package from a dashboard system update | Anywhere, then set `ONEVS100_NATIVE_AVATAR_CONTENT` (or the `native_avatar_content` setting) to it |
-| Show and episode packages (gameserver mode needs the shows) | Anywhere, then list them in `content_install`. They are used in place, never extracted |
-| Your gamertag (Linux only, plain text, 15 characters max) | `profiles/local-name.txt` inside the player data folder |
-| Your avatar: the `.bin` exported from 360sona, or from an old profile backup | `profiles/avatar.bin` inside the player data folder. Without it the game builds one from your profile id |
+The game connects to the 1vs100.fans server by default. You can change the server and turn on windowed mode in the launcher's Settings tab. The Files tab shows whether your content/ and avatar files check out; Launch stays disabled until they do.
 
-Host voice lines need no copying: with the show package listed in `content_install`, the game reads `vo.xwb`/`vo.xsb` from the package itself.
+## Your avatar
 
-Make your avatar at [360sona.com](https://360sona.com), the Xbox 360 avatar editor rebuilt for the browser: **My Sonas → Import / Export → Save the description (.bin)**. The avatar asset files it and the game are built from come from Xbox 360 System Update 17559 ([CD + USB download](https://archive.org/details/xbox-360-system-update-17559-cd-usb)).
+Make your avatar at [360sona.com](https://360sona.com). Open **My Sonas**, then **Import / Export**, and click **Save the description (.bin)**. Pick that `.bin` file in the launcher.
 
-## Settings
-
-Put this in `onevs100.toml` next to the executable, with your values:
-
-```
-[Online]
-online_service = "gameserver"
-gameserver_host = "1vs100.example.org"
-
-[Content]
-content_install = "/path/to/packages"
-```
-
-## Start
+To show avatars at all, the game needs the avatar asset files from Xbox 360 System Update 17559 ([download](https://archive.org/details/xbox-360-system-update-17559-cd-usb)). Add this line to `onevs100.toml`, with the path to the `FFFE07DF00000002` package or to the folder holding `0000000000000000/FFFE07DF/...`:
 
 ```
-cd build/linux
-ONEVS100_NATIVE_AVATAR_CONTENT=/path/to/avatar/content ./onevs100
+native_avatar_content = "/path/to/avatar/content"
 ```
 
-On Windows, open `1vs100 Launcher.exe` and use the Play tab. Every `onevs100.toml` setting also works as a command line flag, for example `--gameserver_host=1vs100.example.org`.
+## Without the launcher
+
+You can start `onevs100` directly. It reads its settings from `onevs100.toml`. Your gamertag and avatar live in `userdata/profiles/` next to it.
+
+`onevs100.toml` uses flat keys, one per line (`gameserver_host = "..."`). The launcher rewrites the file when you press Launch, so hand-kept comments and blank lines are not preserved.
+
+## If something goes wrong
+
+- `--game_data_root does not exist: .../assets` means the game found no game files. Copy the untouched game package (plus the show and episode packages) directly into the `content` folder next to the executable — files inside, no subfolders — or unpack `default.xex` and its media into an `assets` folder instead. The log above the error says what it saw in `content` (missing, empty, or files but no game package).
+- If pressing Launch seems to do nothing, run `onevs100` (`onevs100.exe`) in a terminal next to the launcher and read the log: a missing package or DLL shows up there.
+- If you upgraded from an older build, rename `content_install` to `content` in `onevs100.toml` (and on the command line). The old name is ignored.
+- Something else not working? Ask on [Discord](https://discord.gg/tV3ajhwFTf).
