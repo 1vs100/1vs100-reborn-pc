@@ -53,6 +53,12 @@ class GuestGpu {
   bool RingWaitRegMem(uint32_t index, uint32_t count);
   void WalkRing();
 
+  // Draw and shader-load packets, decoded far enough to size the pipeline the
+  // native renderer has to execute.
+  void ObserveDraw(uint32_t index, uint32_t count, uint32_t initiator);
+  void ObserveShaderLoad(uint32_t opcode, uint32_t index, uint32_t count);
+  void LogDrawWindow();
+
   rex::runtime::FunctionDispatcher* function_dispatcher_ = nullptr;
   rex::system::KernelState* kernel_state_ = nullptr;
 
@@ -76,6 +82,18 @@ class GuestGpu {
   std::atomic<uint32_t> ring_writes_{0};
   std::atomic<uint32_t> skipped_packets_{0};
   std::atomic<uint32_t> wait_stalls_{0};
+
+  struct DrawCounters {
+    uint32_t draws;
+    uint32_t indices;
+    uint32_t indexed_draws;
+    uint32_t bin_draws;
+    uint32_t shader_loads;
+    uint32_t primitives[64];
+  };
+  DrawCounters draw_counters_{};
+  uint64_t draw_window_start_ticks_ = 0;
+  uint32_t draw_windows_logged_ = 0;
 
   // A host thread bound to the kernel state: the interrupt dispatch needs a
   // guest thread state, which a plain std::thread does not have.

@@ -50,7 +50,6 @@ set(ONEVS100_SOURCES
     src/platform_compat.cpp
     src/round_even.cpp
     src/jpeg_probe.cpp
-    src/gpu_probe.cpp
     src/xma_kick.cpp
     src/jump_hooks.cpp
 )
@@ -169,6 +168,7 @@ if(WIN32)
         src/native_gpu/gpu_native.cpp
         src/render/display_settings.cpp
         src/render/edge.cpp
+        src/render/edge_watch.cpp
         src/render/gpu_capture.cpp
         src/render/gpu_cmdbuf.cpp
         src/render/gpu_draw.cpp

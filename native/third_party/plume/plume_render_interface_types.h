@@ -17,6 +17,7 @@
 
 #if defined(_WIN64)
 #include <Windows.h>
+#include <unknwn.h>
 #elif defined(__ANDROID__)
 #include "android/native_window.h"
 #elif defined(__linux__) && !defined(PLUME_SDL_VULKAN_ENABLED)
