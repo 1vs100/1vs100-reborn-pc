@@ -253,5 +253,8 @@ REX_HOOK_RAW(sub_822F50C0) {
   WaitForWarmup();
   Submit(std::move(record));
   EndFrame();
+  // BeginTiling registers its bands again every frame; a surface address freed and reused since must not keep the old
+  // extent.
+  onevs100::render::tracker::ClearTiledTargets();
   __imp__sub_822F50C0(ctx, base);
 }

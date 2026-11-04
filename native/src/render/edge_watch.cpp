@@ -7,6 +7,7 @@
 
 #include "onevs100_init.h"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -115,19 +116,8 @@ void Report() {
   }
 }
 
-// Tile state D3DDevice_BeginTiling 0x822F5CF0 leaves in the device: the band
-// count at 0x327C (0x822F5D0C `stw r5,0x327C(r3)`), the max tile extents at
-// 0x342C/0x3430 (0x822F5DC8/0x822F5DBC), and the bound surfaces at
-// 0x3264..0x3278 (0x822F5F2C..0x822F5F40: canonical RT0-or-depth, RT0..RT3,
-// depth). EndTiling 0x822F6380 resolves band by band against that state and
-// zeroes 0x3264 on the way out (0x822F66DC), but leaves the count behind, so
-// the tracker map is what marks the tiled pass.
-constexpr uint32_t kTileCount = 0x327C;      // band count (r5 of BeginTiling)
-constexpr uint32_t kTileMaxX = 0x342C;       // max tile x2 = target width
-constexpr uint32_t kTileMaxY = 0x3430;       // max tile y2 = target height
-constexpr uint32_t kTileCanonical = 0x3264;  // RT0, or depth when RT0 is null
-constexpr uint32_t kTileColors[4] = {0x3268, 0x326C, 0x3270, 0x3274};  // RT0..RT3
-constexpr uint32_t kTileDepth = 0x3278;
+constexpr uint32_t kRenderTargets = 0x3148;  // D3DDevice::render_targets, RT0..RT3
+constexpr uint32_t kDepthStencil = 0x3158;   // D3DDevice::depth_stencil
 
 uint32_t DeviceWord(uint32_t device, uint32_t offset) {
   if (!onevs100::render::ValidGuest(device + offset)) {
@@ -138,33 +128,32 @@ uint32_t DeviceWord(uint32_t device, uint32_t offset) {
   return slot ? uint32_t(*slot) : 0;
 }
 
-// Registers the bands BeginTiling just saved with the frame's real size, so
-// draws until EndTiling share one host target. Every read is null-checked;
-// anything missing skips the registration and leaves counting untouched.
-void RegisterTiling(uint32_t device) {
-  const uint32_t count = DeviceWord(device, kTileCount);
-  const uint32_t width = DeviceWord(device, kTileMaxX);
-  const uint32_t height = DeviceWord(device, kTileMaxY);
-  if (!count || !width || !height || width > 8192 || height > 8192) {
+// Registers the bound targets of a BeginTiling call as bands of the frame the tile rects cover. It runs before the
+// runtime, whose own clear of the bands must already reach the full-size host surfaces.
+void RegisterTiling(uint32_t device, uint32_t count, uint32_t rects) {
+  if (!count || count > 64 || !onevs100::render::ValidGuest(rects) ||
+      !onevs100::render::ValidGuest(rects + count * 16 - 1)) {
+    return;
+  }
+  const auto* r = REX_KERNEL_MEMORY()->TranslateVirtual<const rex::be<int32_t>*>(rects);
+  int32_t width = 0, height = 0;
+  for (uint32_t i = 0; i < count; ++i) {
+    width = std::max(width, int32_t(r[i * 4 + 2]));
+    height = std::max(height, int32_t(r[i * 4 + 3]));
+  }
+  if (width <= 0 || height <= 0 || width > 8192 || height > 8192) {
     return;
   }
   uint32_t colors[4];
   uint32_t color_count = 0;
-  for (uint32_t slot : kTileColors) {
-    if (const uint32_t surface = DeviceWord(device, slot)) {
+  for (uint32_t i = 0; i < 4; ++i) {
+    if (const uint32_t surface = DeviceWord(device, kRenderTargets + i * 4)) {
       colors[color_count++] = surface;
     }
   }
-  uint32_t depth = DeviceWord(device, kTileDepth);
-  if (!depth && !DeviceWord(device, kTileColors[0])) {
-    depth = DeviceWord(device, kTileCanonical);
-  }
-  if (!color_count && !depth) {
-    return;
-  }
-  namespace tracker = onevs100::render::tracker;
-  tracker::RegisterTiledTarget(width, height, depth ? &depth : nullptr, depth ? 1 : 0, colors,
-                               color_count);
+  uint32_t depth = DeviceWord(device, kDepthStencil);
+  onevs100::render::tracker::RegisterTiledTarget(uint32_t(width), uint32_t(height), depth ? &depth : nullptr,
+                                                 depth ? 1 : 0, colors, color_count);
 }
 
 }  // namespace
@@ -310,11 +299,16 @@ ONEVS100_WATCH(sub_822EAD60, kBeginShaderConstantF4)
 ONEVS100_WATCH(sub_822F6D18, kGpuBeginShaderConstantF4)
 ONEVS100_WATCH(sub_822E3530, kSetTextureFetchConstant)
 ONEVS100_WATCH(sub_822F7030, kGpuSetTextureFetchConstant)
-// The 0x822F5CF0/0x822F6380 hooks used to register the tiled bands here,
-// but the addresses never verified as Begin/EndTiling on this build and the
-// register pass read garbage surfaces and faulted. Back to counting until the
-// entry points are recovered properly.
-ONEVS100_WATCH(sub_822F5CF0, kBeginTiling)
+// D3DDevice_BeginTiling 0x822F5CF0 (pDevice, Flags, Count, pTileRects, pClearColor, ClearZ, ClearStencil).
+REX_HOOK_RAW(sub_822F5CF0) {
+  if (!onevs100::render::Enabled()) {
+    __imp__sub_822F5CF0(ctx, base);
+    return;
+  }
+  Observe(onevs100::render::edge::kBeginTiling, ctx);
+  onevs100::render::edge::RegisterTiling(ctx.r3.u32, ctx.r5.u32, ctx.r6.u32);
+  __imp__sub_822F5CF0(ctx, base);
+}
 ONEVS100_WATCH(sub_822F6380, kEndTiling)
 ONEVS100_WATCH(sub_822F6060, kBeginZPass)
 ONEVS100_WATCH(sub_822F6838, kEndZPass)
