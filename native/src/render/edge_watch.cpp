@@ -43,6 +43,15 @@ enum Slot : int {
   kIsBusy,
   kIsFencePending,
   kBlockUntilIdle,
+  kBeginShaderConstantF4,
+  kGpuBeginShaderConstantF4,
+  kSetTextureFetchConstant,
+  kGpuSetTextureFetchConstant,
+  kBeginTiling,
+  kEndTiling,
+  kBeginZPass,
+  kEndZPass,
+  kDrawIndexedTessellatedVertices,
   kSlotCount,
 };
 
@@ -51,6 +60,9 @@ const char* const kSlotNames[kSlotCount] = {
     "SetTexture",    "SetVertexShader", "SetPixelShader", "SetViewport",     "SetScissorRect",
     "Clear",         "Resolve",    "Swap",
     "IsBusy",        "IsFencePending", "BlockUntilIdle",
+    "BeginShaderConstantF4", "GpuBeginShaderConstantF4", "SetTextureFetchConstant",
+    "GpuSetTextureFetchConstant", "BeginTiling", "EndTiling", "BeginZPass", "EndZPass",
+    "DrawIndexedTessellatedVertices",
 };
 
 std::atomic<uint32_t> g_counts[kSlotCount];
@@ -225,3 +237,26 @@ REX_HOOK_RAW(sub_822D9AB0) {
   Observe(onevs100::render::edge::kBlockUntilIdle, ctx);
   __imp__sub_822D9AB0(ctx, base);
 }
+
+// Entry points that write state the draw path does not read: the Gpu variants send through the
+// ring, and tiling and z-pass calls change the pass layout. Counted so a run says whether the
+// title uses them at all.
+#define ONEVS100_WATCH(addr, slot)                       \
+  REX_HOOK_RAW(addr) {                                   \
+    if (!onevs100::render::Enabled()) {                  \
+      __imp__##addr(ctx, base);                          \
+      return;                                            \
+    }                                                    \
+    Observe(onevs100::render::edge::slot, ctx);          \
+    __imp__##addr(ctx, base);                            \
+  }
+
+ONEVS100_WATCH(sub_822EAD60, kBeginShaderConstantF4)
+ONEVS100_WATCH(sub_822F6D18, kGpuBeginShaderConstantF4)
+ONEVS100_WATCH(sub_822E3530, kSetTextureFetchConstant)
+ONEVS100_WATCH(sub_822F7030, kGpuSetTextureFetchConstant)
+ONEVS100_WATCH(sub_822F5CF0, kBeginTiling)
+ONEVS100_WATCH(sub_822F6380, kEndTiling)
+ONEVS100_WATCH(sub_822F6060, kBeginZPass)
+ONEVS100_WATCH(sub_822F6838, kEndZPass)
+ONEVS100_WATCH(sub_822F40F8, kDrawIndexedTessellatedVertices)

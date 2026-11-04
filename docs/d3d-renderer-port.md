@@ -56,6 +56,21 @@ Two defects remain, both measured on 0.1.183 and 0.1.184:
   key churn; check before touching anything else, because a slow frame also hides
   intermediate state from screenshots.
 
+Measured on 0.1.185, with the previously unhooked entry points counted once per
+second:
+
+- `BeginTiling` and `EndTiling` run about a hundred times a second, so the title
+  tiles every frame and `tracker::RegisterTiledTarget` has no caller. That is why
+  the captures report 880x720 render targets inside a 1280x720 frame, and it is
+  the first thing to implement: read the tiling arguments from the device (the
+  runtime stores one of them at `0x327C`) and register the band surfaces with the
+  frame's real width and height.
+- The `Gpu` variants (`GpuBeginShaderConstantF4`, `GpuSetTextureFetchConstant`)
+  never appear, so the ring-based state path is unused and the device-struct
+  snapshot covers shader constants and texture fetch words.
+- `BeginZPass`, `EndZPass` and `DrawIndexedTessellatedVertices` never appear
+  either, so depth-only passes and tessellated draws are not involved.
+
 The present itself is correct: the guest submits 880 of the front buffer's 1280
 columns in two resolve passes (0..864, 864..880) and leaves the video scale to the
 XDK scaler, so the present maps that region over the swap chain by widening the
