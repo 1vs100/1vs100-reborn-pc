@@ -268,6 +268,8 @@ struct BuiltinShader {
 };
 std::span<const BuiltinShader> Builtins();
 uint64_t BuiltinKey(std::string_view name);
+// DXIL of a built-in, compiled at runtime when no pack carries it; empty on failure.
+std::vector<uint8_t> CompileBuiltin(const BuiltinShader& builtin, std::string* error);
 
 // ---- Disk cache (pack_contract.md 5.3) ----
 

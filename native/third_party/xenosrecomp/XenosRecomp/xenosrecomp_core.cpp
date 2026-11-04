@@ -512,6 +512,21 @@ uint64_t BuiltinKey(std::string_view name)
     return XXH3_64bits(name.data(), name.size());
 }
 
+std::vector<uint8_t> CompileBuiltin(const BuiltinShader& builtin, std::string* error)
+{
+    try
+    {
+        return compileOrThrow(builtin.source, builtin.stage == kPackBlitPS, false, builtin.name,
+            builtin.stage == kPackGS ? L"-T gs_6_0" : nullptr);
+    }
+    catch (const std::exception& e)
+    {
+        if (error != nullptr)
+            *error = e.what();
+        return {};
+    }
+}
+
 uint64_t AbiHash()
 {
     static const uint64_t hash = []

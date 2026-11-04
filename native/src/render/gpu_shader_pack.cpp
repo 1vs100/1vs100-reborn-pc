@@ -125,7 +125,34 @@ class RuntimeSource : public Source {
   }
 
   const ShaderEntry* Find(ShaderStage, uint64_t) override { return nullptr; }
-  const ShaderEntry* Builtin(const std::string&) override { return nullptr; }
+
+  // No pack carries the geometry shader built-ins here, so they compile on first use.
+  const ShaderEntry* Builtin(const std::string& name) override {
+    std::lock_guard lock(mutex_);
+    auto [it, inserted] = builtins_.try_emplace(name);
+    if (!inserted) return it->second.get();
+    for (const auto& builtin : xenosrecomp::Builtins()) {
+      if (builtin.stage != xenosrecomp::kPackGS || name != builtin.name) continue;
+      std::string error;
+      auto e = std::make_unique<ShaderEntry>();
+      e->dxil = xenosrecomp::CompileBuiltin(builtin, &error);
+      if (e->dxil.empty()) {
+        REXGPU_ERROR("[gpu] built-in {} failed to compile: {}", name, error);
+        return nullptr;
+      }
+      e->id = next_builtin_id_++;
+      e->stage = ShaderStage::kGeometry;
+      e->runtime_hash = xenosrecomp::BuiltinKey(name);
+      it->second = std::move(e);
+      return it->second.get();
+    }
+    return nullptr;
+  }
+
+ private:
+  std::mutex mutex_;
+  std::unordered_map<std::string, std::unique_ptr<ShaderEntry>> builtins_;  // null = unknown or failed
+  uint32_t next_builtin_id_ = 0x7F000000;
 };
 
 // shaderpack/manifest.csv plus <hash>.<vs|ps|vst>.dxil; files load on first use.
