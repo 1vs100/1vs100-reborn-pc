@@ -159,7 +159,7 @@ REX_HOOK_RAW(sub_822E5C58) {
 
 // D3DDevice_Resolve 0x822E74D0 (pDevice, Flags, pSourceRect, pDestTexture,
 // pDestPoint, DestLevel, DestSliceOrFace, pClearColor, ClearZ, ClearStencil,
-// pParameters); ClearStencil follows ClearZ's GPR slot.
+// pParameters).
 REX_HOOK_RAW(sub_822E74D0) {
   draw::FinishPending();
   static std::atomic<bool> s_depth_once{false};
@@ -203,7 +203,10 @@ REX_HOOK_RAW(sub_822E74D0) {
     if (flags & kResolveClearDepthStencil) {
       record.clear_depth_target = onevs100::render::tracker::Surface(device->depth_stencil, ResourceKind::kDepthTarget);
       record.clear_z = float(ctx.f1.f64);
-      record.clear_stencil = ctx.r9.u32 & 0xFF;
+      // ClearStencil is the stack argument after ClearZ; r9 holds DestSliceOrFace.
+      if (onevs100::render::ValidGuest(ctx.r1.u32 + 0x5C)) {
+        record.clear_stencil = *Guest<rex::be<uint32_t>>(ctx.r1.u32 + 0x5C) & 0xFF;
+      }
     }
     NoteCoverage(record);
     Submit(std::move(record));
