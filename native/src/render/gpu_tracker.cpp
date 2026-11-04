@@ -35,6 +35,9 @@ struct SurfaceKey {
   uint32_t format;      // colour or depth format field
   uint32_t dimensions;
   uint32_t msaa;
+  // A tiled band and the same surface bound untiled differ only in host extent.
+  uint32_t width;
+  uint32_t height;
   auto operator<=>(const SurfaceKey&) const = default;
 };
 
@@ -83,14 +86,19 @@ ResourceDesc Surface(uint32_t surface_address, ResourceKind kind) {
   const uint32_t info = surface->ColorOrDepthInfo;
   const bool depth = kind == ResourceKind::kDepthTarget;
   // Base is the 12-bit tile index; the format sits at bit 16 (one bit for depth, four for colour).
-  const SurfaceKey key{kind, info & 0xFFF, depth ? (info >> 16) & 1 : (info >> 16) & 0xF, uint32_t(surface->Dimensions),
-                       uint32_t(surface->SurfaceInfo.get().msaa_samples)};
+  const SurfaceKey key{kind,
+                       info & 0xFFF,
+                       depth ? (info >> 16) & 1 : (info >> 16) & 0xF,
+                       uint32_t(surface->Dimensions),
+                       uint32_t(surface->SurfaceInfo.get().msaa_samples),
+                       tiled ? tiled->width : surface->width(),
+                       tiled ? tiled->height : surface->height()};
   if (auto it = g_surfaces.find(key); it != g_surfaces.end()) return it->second;
   ResourceDesc desc;
   desc.id = g_next_id++;
   desc.kind = kind;
-  desc.width = tiled ? tiled->width : surface->width();
-  desc.height = tiled ? tiled->height : surface->height();
+  desc.width = key.width;
+  desc.height = key.height;
   desc.samples = uint8_t(1u << std::min<uint32_t>(key.msaa, 2));
   desc.format = depth ? HostFormatForDepthTarget(key.format) : HostFormatForColorTarget(key.format);
   g_surfaces.emplace(key, desc);
