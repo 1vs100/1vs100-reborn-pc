@@ -1352,6 +1352,11 @@ void Backend::Execute(const SwapRecord& r) {
         fit = plume::RenderRect(0, 0, int32_t(bw), int32_t(bh));
         const plume::RenderRect source(r.source_rect.left, r.source_rect.top, r.source_rect.right,
                                        r.source_rect.bottom);
+        static std::atomic<uint32_t> traced{0};
+        if (traced.fetch_add(1, std::memory_order_relaxed) < 3) {
+          REXGPU_INFO("[gpu] present scaled: source {},{},{},{} of {}x{} into {}x{}", source.left,
+                      source.top, source.right, source.bottom, front->width, front->height, bw, bh);
+        }
         Blit(*front, source, back, back_framebuffer, kSwapChainFormat, fit, 1.0f, true);
       } else {
         FitRect(bw, bh, uint32_t(onevs100::render::display::AspectRatio() * 9000.0f + 0.5f), 9000, fit);
