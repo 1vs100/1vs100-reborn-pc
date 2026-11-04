@@ -1353,22 +1353,15 @@ void Backend::Execute(const SwapRecord& r) {
       const int32_t sbottom = std::clamp(Scaled(*front, r.source_rect.bottom), stop, int32_t(front->height));
       static std::atomic<uint32_t> traced{0};
       if (sright > sleft && sbottom > stop) {
-        // The XDK video scaler fills the screen from the region the guest rendered,
-        // which is narrower than the front buffer it resolves into. The blit maps the
-        // whole texture over the destination rect and the scissor clips the rest, so
-        // the destination is widened and shifted instead of the sample rect narrowed.
-        const float sx = float(bw) / float(sright - sleft);
-        const float sy = float(bh) / float(sbottom - stop);
-        const int32_t left = int32_t(-float(sleft) * sx);
-        const int32_t top = int32_t(-float(stop) * sy);
-        fit = plume::RenderRect(left, top, left + int32_t(float(front->width) * sx),
-                                top + int32_t(float(front->height) * sy));
+        // The scaler reads the resolved region and fills the screen with it. The blit
+        // selects the region in uv and draws the full back buffer.
+        fit = plume::RenderRect(0, 0, int32_t(bw), int32_t(bh));
         if (traced.fetch_add(1, std::memory_order_relaxed) < 3) {
           REXGPU_INFO("[gpu] present scaled: source {},{},{},{} of {}x{} into {}x{}, dest {},{},{},{}",
                       sleft, stop, sright, sbottom, front->width, front->height, bw, bh, fit.left, fit.top,
                       fit.right, fit.bottom);
         }
-        Blit(*front, plume::RenderRect(0, 0, int32_t(front->width), int32_t(front->height)), back,
+        Blit(*front, plume::RenderRect(sleft, stop, sright, sbottom), back,
              back_framebuffer, kSwapChainFormat, fit, 1.0f, true);
       } else {
         FitRect(bw, bh, uint32_t(onevs100::render::display::AspectRatio() * 9000.0f + 0.5f), 9000, fit);
