@@ -67,6 +67,10 @@ struct ResolveRecord {
 struct SwapRecord {
   ResourceDesc front{};
   uint64_t frame = 0;
+  // Source region the XDK video scaler would read. Empty means the whole front
+  // buffer. The guest renders a narrower target than the video mode and lets the
+  // scaler fill the rest, so the present scales this region to the screen.
+  Rect source_rect{};
 };
 
 // ---------------------------------------------------------------------------------------------------------------

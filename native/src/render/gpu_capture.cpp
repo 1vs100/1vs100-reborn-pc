@@ -115,6 +115,22 @@ void Once(std::atomic<bool>& flag, const char* what, uint32_t value) {
   if (!flag.exchange(true)) REXGPU_ERROR("[gpu] {} ({:#x})", what, value);
 }
 
+// Union of the destinations resolved into front buffers since the last swap.
+Rect g_resolved_coverage{};
+
+void NoteCoverage(const ResolveRecord& record) {
+  const int32_t right = record.dest_x + (record.source_rect.right - record.source_rect.left);
+  const int32_t bottom = record.dest_y + (record.source_rect.bottom - record.source_rect.top);
+  if (g_resolved_coverage.right <= g_resolved_coverage.left) {
+    g_resolved_coverage = Rect{record.dest_x, record.dest_y, right, bottom};
+    return;
+  }
+  g_resolved_coverage.left = std::min(g_resolved_coverage.left, record.dest_x);
+  g_resolved_coverage.top = std::min(g_resolved_coverage.top, record.dest_y);
+  g_resolved_coverage.right = std::max(g_resolved_coverage.right, right);
+  g_resolved_coverage.bottom = std::max(g_resolved_coverage.bottom, bottom);
+}
+
 }  // namespace
 
 // D3DDevice_ClearF 0x822E5C58 (pDevice, Flags, pRect, pColor, Z, Stencil). The
@@ -189,6 +205,7 @@ REX_HOOK_RAW(sub_822E74D0) {
       record.clear_z = float(ctx.f1.f64);
       record.clear_stencil = ctx.r9.u32 & 0xFF;
     }
+    NoteCoverage(record);
     Submit(std::move(record));
   }
   __imp__sub_822E74D0(ctx, base);
@@ -215,6 +232,24 @@ REX_HOOK_RAW(sub_822F50C0) {
   SwapRecord record;
   record.front = onevs100::render::tracker::Texture(ctx.r4.u32);
   record.frame = FrameIndex();
+  // D3DVIDEO_SCALER_PARAMETERS: ScalerSourceRect, ScaledOutputWidth,
+  // ScaledOutputHeight, FilterProfile.
+  if (g_resolved_coverage.right > g_resolved_coverage.left) {
+    record.source_rect = g_resolved_coverage;
+  }
+  g_resolved_coverage = Rect{};
+  if (ctx.r5.u32) {
+    const auto* scaler = Guest<rex::be<uint32_t>>(ctx.r5.u32);
+    if (scaler != nullptr) {
+      const int32_t left = int32_t(scaler[0]);
+      const int32_t top = int32_t(scaler[1]);
+      const int32_t right = int32_t(scaler[2]);
+      const int32_t bottom = int32_t(scaler[3]);
+      if (right > left && bottom > top) {
+        record.source_rect = Rect{left, top, right, bottom};
+      }
+    }
+  }
   WaitForWarmup();
   Submit(std::move(record));
   EndFrame();

@@ -1127,13 +1127,22 @@ void Backend::Execute(Record& record) {
         [](auto& r) {
           using T = std::decay_t<decltype(r)>;
           if constexpr (std::is_same_v<T, ClearRecord>) {
-            REXGPU_INFO("[gpu] record clear targets={} depth={}", r.color[0].id != 0, r.clear_depth);
+            REXGPU_INFO("[gpu] record clear targets={} depth={} size={}x{}", r.color[0].id != 0, r.clear_depth,
+                r.color[0].width, r.color[0].height);
           } else if constexpr (std::is_same_v<T, ResolveRecord>) {
-            REXGPU_INFO("[gpu] record resolve src={} dst={}", r.source.id, r.dest.id);
+            REXGPU_INFO("[gpu] record resolve src={} {}x{} dst={} {}x{} at {},{} rect={},{},{},{} scale={}",
+                r.source.id, r.source.width, r.source.height, r.dest.id, r.dest.width,
+                r.dest.height, r.dest_x, r.dest_y, r.source_rect.left, r.source_rect.top,
+                r.source_rect.right, r.source_rect.bottom, r.scale);
           } else if constexpr (std::is_same_v<T, SwapRecord>) {
-            REXGPU_INFO("[gpu] record swap front={} frame={}", r.front.id, r.frame);
+            REXGPU_INFO("[gpu] record swap front={} {}x{} fmt={} kind={} frame={} scaler={},{},{},{}",
+                r.front.id, r.front.width, r.front.height, uint32_t(r.front.format),
+                uint32_t(r.front.kind), r.frame, r.source_rect.left, r.source_rect.top,
+                r.source_rect.right, r.source_rect.bottom);
           } else if constexpr (std::is_same_v<T, DrawRecord>) {
-            REXGPU_INFO("[gpu] record draw indexed={} count={}", r.indexed, r.count);
+            REXGPU_INFO("[gpu] record draw indexed={} count={} target={}x{} viewport={}x{} scissor={},{},{},{}",
+                r.indexed, r.count, r.color[0].width, r.color[0].height, int(r.viewport[2]),
+                int(r.viewport[3]), r.scissor.left, r.scissor.top, r.scissor.right, r.scissor.bottom);
           }
         },
         record);
@@ -1337,9 +1346,18 @@ void Backend::Execute(const SwapRecord& r) {
     }
     if (front) {
       plume::RenderRect fit;
-      FitRect(bw, bh, uint32_t(onevs100::render::display::AspectRatio() * 9000.0f + 0.5f), 9000, fit);
-      Blit(*front, plume::RenderRect(0, 0, int32_t(front->width), int32_t(front->height)), back, back_framebuffer,
-           kSwapChainFormat, fit, 1.0f, true);
+      if (r.source_rect.right > r.source_rect.left && r.source_rect.bottom > r.source_rect.top) {
+        // The video scaler fills the screen from the region the guest rendered,
+        // which is narrower than the front buffer it resolves into.
+        fit = plume::RenderRect(0, 0, int32_t(bw), int32_t(bh));
+        const plume::RenderRect source(r.source_rect.left, r.source_rect.top, r.source_rect.right,
+                                       r.source_rect.bottom);
+        Blit(*front, source, back, back_framebuffer, kSwapChainFormat, fit, 1.0f, true);
+      } else {
+        FitRect(bw, bh, uint32_t(onevs100::render::display::AspectRatio() * 9000.0f + 0.5f), 9000, fit);
+        Blit(*front, plume::RenderRect(0, 0, int32_t(front->width), int32_t(front->height)), back,
+             back_framebuffer, kSwapChainFormat, fit, 1.0f, true);
+      }
     }
     if (onevs100::render::display::FpsCounter()) DrawFps(back, back_framebuffer, bw, bh);
     if (pointer && !(front && front->framebuffer)) DrawPointer(back, back_framebuffer, bw, bh, nullptr);
