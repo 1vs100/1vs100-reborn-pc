@@ -60,22 +60,50 @@ cp "$build_dir/onevs100.toml" "$build_dir/RUN.md" "$build_dir/manifest.txt" "$ap
 if [ -f "$build_dir/content/.keep" ]; then
   cp "$build_dir/content/.keep" "$app/content/"
 fi
-for f in MoltenVK_icd.json libvulkan*.dylib; do
-  found=0
-  for src in "$build_dir"/$f; do
-    if [ -f "$src" ]; then
-      cp "$src" "$app/"
-      found=1
+# SDK stages the Vulkan runtime under vulkan/ next to the executable.
+# Preserve that subtree so DetectMacOSVulkanRuntimePaths finds it
+# via executable_dir/vulkan. The ICD library_path is relative
+# (../../../lib/libMoltenVK.dylib), so the share/ to lib/ layout must stay intact.
+if [ -d "$build_dir/vulkan" ]; then
+  for req in "vulkan/lib/libvulkan.1.dylib" "vulkan/lib/libMoltenVK.dylib" "vulkan/share/vulkan/icd.d/MoltenVK_icd.json"; do
+    if [ ! -f "$build_dir/$req" ]; then
+      echo "missing $build_dir/$req" >&2
+      exit 1
     fi
   done
-  if [ "$found" -ne 1 ] && [ "$f" = "MoltenVK_icd.json" ]; then
-    echo "warning: $build_dir/MoltenVK_icd.json absent, Vulkan may miss driver" >&2
-  fi
-done
+  mkdir -p "$app/vulkan"
+  cp -pR "$build_dir/vulkan/." "$app/vulkan/"
+else
+  # Flat layout predating the SDK vulkan/ staging change.
+  for f in MoltenVK_icd.json 'libvulkan*.dylib'; do
+    found=0
+    for src in "$build_dir"/$f; do
+      if [ -f "$src" ]; then
+        cp "$src" "$app/"
+        found=1
+      fi
+    done
+    if [ "$found" -ne 1 ] && [ "$f" = "MoltenVK_icd.json" ]; then
+      echo "warning: $build_dir/MoltenVK_icd.json absent, Vulkan may miss driver" >&2
+    fi
+  done
+fi
 sed "s/__VERSION__/$version/g" "$script_dir/mac/Info.plist.template" > "$stage/1vs100.app/Contents/Info.plist"
 chmod +x "$app/onevs100" "$app/launcher"
 if ! codesign --force -s - "$app"/*.dylib 2>/dev/null; then
   echo "warning: dylib codesign failed" >&2
+fi
+vulkan_signed=0
+for vdylib in "$app"/vulkan/lib/*.dylib; do
+  if [ -f "$vdylib" ]; then
+    vulkan_signed=1
+    break
+  fi
+done
+if [ "$vulkan_signed" -eq 1 ]; then
+  if ! codesign --force -s - "$app"/vulkan/lib/*.dylib 2>/dev/null; then
+    echo "warning: vulkan dylib codesign failed" >&2
+  fi
 fi
 if ! codesign --force -s - "$app/onevs100" "$app/launcher" 2>/dev/null; then
   echo "warning: exe codesign failed" >&2

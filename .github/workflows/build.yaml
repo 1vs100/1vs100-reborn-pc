@@ -284,7 +284,9 @@ jobs:
             files: |
               build/mac-arm64/onevs100
               build/mac-arm64/*.dylib
-              build/mac-arm64/MoltenVK_icd.json
+              build/mac-arm64/vulkan/lib/libvulkan.1.dylib
+              build/mac-arm64/vulkan/lib/libMoltenVK.dylib
+              build/mac-arm64/vulkan/share/vulkan/icd.d/MoltenVK_icd.json
               build/mac-arm64/content/.keep
               build/mac-arm64/onevs100.toml
               build/mac-arm64/RUN.md
@@ -298,7 +300,9 @@ jobs:
             files: |
               build/mac-amd64/onevs100
               build/mac-amd64/*.dylib
-              build/mac-amd64/MoltenVK_icd.json
+              build/mac-amd64/vulkan/lib/libvulkan.1.dylib
+              build/mac-amd64/vulkan/lib/libMoltenVK.dylib
+              build/mac-amd64/vulkan/share/vulkan/icd.d/MoltenVK_icd.json
               build/mac-amd64/content/.keep
               build/mac-amd64/onevs100.toml
               build/mac-amd64/RUN.md
@@ -665,7 +669,9 @@ jobs:
           ls -la out
           listing=$(unzip -l "out/${{ matrix.out }}-$short.zip")
           grep -q '1vs100.app/Contents/MacOS/manifest.txt' <<<"$listing"
-          grep -q '1vs100.app/Contents/MacOS/MoltenVK_icd.json' <<<"$listing"
+          grep -q '1vs100.app/Contents/MacOS/vulkan/share/vulkan/icd.d/MoltenVK_icd.json' <<<"$listing"
+          grep -q '1vs100.app/Contents/MacOS/vulkan/lib/libvulkan.1.dylib' <<<"$listing"
+          grep -q '1vs100.app/Contents/MacOS/vulkan/lib/libMoltenVK.dylib' <<<"$listing"
           if grep -q 'userdata' <<<"$listing"; then
             echo "userdata leaked into mac zip" >&2
             exit 1
