@@ -49,7 +49,6 @@ set(ONEVS100_SOURCES
     src/shared_body.cpp
     src/platform_compat.cpp
     src/round_even.cpp
-    src/jpeg_probe.cpp
     src/xma_kick.cpp
 )
 
