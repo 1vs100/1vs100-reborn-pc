@@ -22,10 +22,12 @@
 #include "audio_xaudio2.h"
 #endif
 #if ONEVS100_NATIVE_GPU
-#include "native_gpu/gpu_native.h"
+#include "render/gpu.h"
 #endif
 #if REX_PLATFORM_WINRT
 #include <winrt/windows.applicationmodel.h>
+#include <winrt/windows.graphics.display.h>
+#include <winrt/windows.ui.core.h>
 #include "uwp_onboarding/gate.h"
 #endif
 #include <cstdlib>
@@ -49,8 +51,10 @@ class Onevs100App : public rex::ReXApp {
 #ifdef _WIN32
     config.audio_factory = REX_AUDIO_BACKEND(xaudio2::XAudio2AudioSystem);
 #if ONEVS100_NATIVE_GPU
+    // The edge layer stands in for the GPU: no graphics system, no plugin, and
+    // nothing reads the ring. The renderer starts on the UI thread below.
     if (rex::cvar::Query<bool>("native_renderer")) {
-      config.graphics = onevs100::gpu::CreateNativeGraphicsSystem();
+      config.graphics = nullptr;
       config.gpu_plugin.clear();
     }
 #endif
@@ -145,9 +149,59 @@ class Onevs100App : public rex::ReXApp {
   // std::unique_ptr<rex::ui::ImGuiDialog> CreateAchievementsOverlay() override;
   // std::unique_ptr<rex::ui::AchievementNotificationDialog>
   // CreateAchievementNotificationDialog() override;
+  bool SetupPresentation() override {
+    if (!rex::ReXApp::SetupPresentation()) {
+      return false;
+    }
+#if ONEVS100_NATIVE_GPU
+    if (rex::cvar::Query<bool>("native_renderer")) {
+      StartNativeRenderer();
+    }
+#endif
+    return true;
+  }
+
   void OnPreLaunchModule() override { rex::audio::StartXmaKicker(); }
   void OnShutdown() override { rex::audio::StopXmaKicker(); }
   // void OnConfigurePaths(rex::PathConfig& paths) override {}
  private:
+#if ONEVS100_NATIVE_GPU
+  // The swap chain needs the window handle on the thread that owns the window:
+  // a packaged app cannot query its CoreWindow from the render thread.
+  void StartNativeRenderer() {
+    plume::RenderWindow handle = nullptr;
+    uint32_t width = 0;
+    uint32_t height = 0;
+#if REX_PLATFORM_WINRT
+    auto core_window = winrt::Windows::UI::Core::CoreWindow::GetForCurrentThread();
+    if (!core_window) {
+      REXLOG_ERROR("native renderer: no CoreWindow on the UI thread");
+      return;
+    }
+    const auto bounds = core_window.Bounds();
+    if (bounds.Width <= 0.0f || bounds.Height <= 0.0f) {
+      REXLOG_ERROR("native renderer: the CoreWindow has no size");
+      return;
+    }
+    float scale = 1.0f;
+    if (auto display = winrt::Windows::Graphics::Display::DisplayInformation::GetForCurrentView()) {
+      scale = display.LogicalDpi() / 96.0f;
+    }
+    handle = static_cast<plume::RenderWindow>(winrt::get_abi(core_window));
+    width = static_cast<uint32_t>(bounds.Width * scale);
+    height = static_cast<uint32_t>(bounds.Height * scale);
+#else
+    if (!window()) {
+      REXLOG_ERROR("native renderer: no window");
+      return;
+    }
+    handle = static_cast<plume::RenderWindow>(window()->GetNativeWindowHandle());
+#endif
+    if (!onevs100::render::Initialize(handle, width, height)) {
+      REXLOG_ERROR("native renderer: the renderer did not start");
+    }
+  }
+#endif
+
   std::error_code config_seed_error_;
 };

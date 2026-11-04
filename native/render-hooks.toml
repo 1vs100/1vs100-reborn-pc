@@ -1,0 +1,34 @@
+# Renderer edge hooks. The tool reads the [entrypoint] includes rather than the
+# top level of the manifest, so the hooks live here.
+#
+# The renderer executes the guest's work itself, so nothing reads the ring and the
+# runtime's own waits have to be satisfied here. See docs/d3d-renderer-port.md.
+
+# D3D::CDevice::SetFence, after the store of the advanced fence counter: publish
+# the fence value and its ring position where the GPU would have written them.
+[[midasm_hook]]
+address = 0x822D9084
+name = "OneVs100FenceIssued"
+registers = ["r7", "r8", "r11"]
+after_instruction = true
+
+# After the store of the primary write index: the ring reads as consumed.
+[[midasm_hook]]
+address = 0x822D8D88
+name = "OneVs100PrimaryKick"
+registers = ["r11", "r29"]
+after_instruction = true
+
+# After each add to the outstanding chunk count: the GPU would retire the buffers,
+# so the count returns to zero and BlockUntilIdle does not spin.
+[[midasm_hook]]
+address = 0x822D9120
+name = "OneVs100ChunkQueued"
+registers = ["r31"]
+after_instruction = true
+
+[[midasm_hook]]
+address = 0x822D915C
+name = "OneVs100ChunkQueued"
+registers = ["r31"]
+after_instruction = true

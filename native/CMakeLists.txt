@@ -164,9 +164,8 @@ if(WIN32)
 endif()
 if(WIN32)
     target_sources(onevs100 PRIVATE
-        src/native_gpu/guest_gpu.cpp
-        src/native_gpu/gpu_native.cpp
         src/render/display_settings.cpp
+        src/render/settings.cpp
         src/render/edge.cpp
         src/render/edge_watch.cpp
         src/render/gpu_capture.cpp

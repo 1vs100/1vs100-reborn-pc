@@ -15,4 +15,7 @@ bool FpsCounter();
 // Width over height of the presented image.
 float AspectRatio();
 
+// Frames per second the swap paces the title to; 0 leaves it unpaced.
+int FrameLimit();
+
 }  // namespace onevs100::render::display

@@ -2,6 +2,7 @@
 // Public offsets follow XDK d3d9.h / d3d9gpu.h / d3d9types.h.
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 
@@ -242,57 +243,54 @@ struct D3DDevice {
   TessellatorPacket m_TessellatorPacket;
   MiscPacket m_MiscPacket;
   PointPacket m_PointPacket;
-  uint8_t m_MaxAnisotropy[kTextureFetchCount];
-  uint8_t m_ZFilter[kTextureFetchCount];
-  uint8_t _pad_2AA4[0x64];
-  rex::be<uint32_t> thread_owner;           // private: Acquire/Release/QueryThreadOwnership 0x82542FA0/FE0/FF0
-  uint8_t _pad_2B0C[0x4];
-  GuestPtr writeback_page;                  // private: Swap writes +8 and the slot ring at +0x40, QueueShaderWriteback targets it
-  uint8_t _pad_2B14[0x8];
-  rex::be<uint32_t> fence_next;             // private: SetFence 0x82548570 issues this value and advances it by 2; BlockOnFence 0x82547C20 compares against it
-  uint8_t _pad_2B20[0x1E];
-  uint8_t suspend_flags;                    // private: bit 1 set by Suspend 0x82542FF8, cleared by Resume 0x82543090
-  uint8_t _pad_2B3F[0x11];
-  rex::be<uint32_t> primary_write_index;    // private: AddCallsToPrimaryBuffer 0x82548090 stores it, then writes it to CP_RB_WPTR 0x7FC80714
-  uint8_t _pad_2B54[0x3C];
-  rex::be<uint32_t> queued_chunks;          // private: outstanding indirect buffers, added by QueueCommands 0x82548E48 and QueueIndirectBuffer 0x82548AC0; the GPU retires them
-  uint8_t _pad_2B94[0x43C];
-  GuestPtr vertex_declaration;              // private: SetVertexDeclaration 0x82533108
-  uint8_t _pad_2FD4[0x2C];
-  rex::be<uint32_t> scissor_test_enable;    // private: GetRenderState_ScissorTestEnable 0x8252E030
-  rex::be<uint32_t> color_write_enable[4];  // private: GetRenderState_ColorWriteEnable0-3 0x8252E230..0x8252E2F0
-  rex::be<uint32_t> z_enable;               // private: GetRenderState_ZEnable 0x8252DC90
-  rex::be<uint32_t> stencil_enable;         // private: GetRenderState_StencilEnable 0x8252DD38
-  rex::be<uint32_t> point_sprite_enable;    // private: GetRenderState_PointSpriteEnable 0x8252E300
-  uint8_t _pad_3020[0x4];
-  rex::be<float> point_size;                // private: GetRenderState_PointSize 0x8252E350
-  rex::be<float> point_size_min;            // private: GetRenderState_PointSizeMin 0x8252E3A0
-  rex::be<float> point_size_max;            // private: GetRenderState_PointSizeMax 0x8252E3F0
-  uint8_t _pad_3030[0x14];
-  uint8_t max_mip_level[kTextureFetchCount];  // private: GetSamplerState_MaxMipLevel 0x8252F448
-  uint8_t min_mip_level[kTextureFetchCount];  // private: GetSamplerState_MinMipLevel 0x8252F4C8
-  rex::be<uint32_t> high_precision_blend_enable[4];  // private: GetRenderState_HighPrecisionBlendEnable0-3 0x8252E840..0x8252EA08
-  uint8_t _pad_3088[0x184];
-  GuestPtr index_buffer;                    // private: SetIndices 0x8252FA98
-  GuestPtr render_targets[kRenderTargets];  // private: GetRenderTarget 0x8252FB28
-  GuestPtr depth_stencil;                   // private: GetDepthStencilSurface 0x8252FB70
-  GuestPtr stream_sources[kStreams];        // private: SetStreamSource/GetStreamSource 0x8252F8F0/0x8252FA10
-  uint8_t _pad_3264[0x4];
-  uint8_t stream_stride_dwords[kStreams];   // private: stride >> 2, GetStreamSource shifts it back
-  GuestPtr textures[kTextureFetchCount];    // private: SetTexture 0x8253B460, sampler-state getters read it
-  GuestViewport viewport;                   // private: SetViewport 0x8252FFA8, read back by SetScissorRect
-  uint8_t _pad_32F8[0x4];
-  GuestRect scissor_rect;                   // private: SetScissorRect 0x8252F7F8
-  GuestPtr pixel_shader;                    // private: SetPixelShader/GetPixelShader 0x82532CE8/0x82532EA8
-  GuestPtr vertex_shader;                   // private: SetVertexShader/GetVertexShader 0x82532EF0/0x825330C0
-  uint8_t _pad_3314[0x8E0];
-  GuestCriticalSection suspend_lock;        // private: Suspend/Resume enter and leave it
-  uint8_t _pad_3C10[0x1A04];
-  rex::be<uint32_t> swap_writeback_index;   // private: Swap picks writeback slot (index & 7) and advances it
+  // Tail of the struct as this title's XDK lays it out (docs/d3d-device-layout.md 3.4 to 3.6).
+  // Every _unmapped_* member is padding: it exists only to put the next verified member at its
+  // measured offset, and its comment says what the doc records inside the span.
+  std::array<uint8_t, 0x18> _unmapped_2A70;  // 0x2A70..0x2A88: CC2's per-sampler max-anisotropy shadow is absent here
+  rex::be<uint32_t> thread_owner;            // private: AcquireThreadOwnership 0x822DC740 stores it, ThreadOwnsDevice 0x822D7D58 reads it
+  std::array<uint8_t, 0x4> _unmapped_2A8C;   // 0x2A8C..0x2A90
+  GuestPtr writeback_page;                   // private: SetFence 0x822D8FC0 and Swap 0x822F51E0 use it as the writeback page
+  std::array<uint8_t, 0x8> _unmapped_2A94;   // 0x2A94..0x2A9C
+  rex::be<uint32_t> fence_next;              // private: SetFence 0x822D8FD0 issues it and advances it by 2
+  std::array<uint8_t, 0x1E> _fence_companion_and_flags;  // 0x2AA0..0x2ABE: companion fence word, then device flag bytes
+  uint8_t suspend_flags;                     // private: bit 0x02 set by Suspend 0x822DC7F4, cleared by Resume 0x822DC890
+  std::array<uint8_t, 0xD> _unmapped_2ABF;   // 0x2ABF..0x2ACC
+  rex::be<uint32_t> primary_write_index;     // private: stored at 0x822D8D88 just before the CP_RB_WPTR 0x7FC80714 write
+  std::array<uint8_t, 0x34> _unmapped_2AD0;  // 0x2AD0..0x2B04
+  rex::be<uint32_t> chunk_count;             // private: D3DDevice_BlockUntilIdle 0x822D9B08 spins on it, QueueCommands and QueueIndirectBuffers add to it
+  std::array<uint8_t, 0x3D0> _unmapped_2B08;  // 0x2B08..0x2ED8, holds the ring alloc list spin lock at 0x2B08
+  GuestPtr vertex_declaration;               // private: SetFVF 0x822EE708 stores it, GetVertexDeclaration 0x822EB808 reads it
+  std::array<uint8_t, 0x24> _unmapped_2EDC;  // 0x2EDC..0x2F00, holds the vertex fetch stride shadow at 0x2EE8
+  rex::be<uint32_t> scissor_test_enable;     // private: SetScissorRect 0x822E2CF0 reads it
+  rex::be<uint32_t> color_write_enable[kRenderTargets];  // private: SetRenderState_ColorWriteEnable3 0x822E1538, one dword per render target
+  std::array<uint8_t, 0x4A> _unmapped_2F14;  // 0x2F14..0x2F5E: CC2's z, stencil and point render-state bytes are not present here
+  uint8_t min_mip_level[kTextureFetchCount];  // private: SetSamplerState_MinMipLevel 0x822E28CC, one byte per sampler
+  uint8_t max_mip_level[kTextureFetchCount];  // private: SetTexture 0x822DFF68 clamps against it, one byte per sampler
+  uint8_t m_ZFilter[kTextureFetchCount];      // private: SetSamplerState_MinFilterZ 0x822E23D8, packed filter and separate-z-enable bits
+  rex::be<uint32_t> high_precision_blend_enable[kRenderTargets];  // private: SetRenderState_HighPrecisionBlendEnable 0x822E1C44, read as dwords 0x2FAC..0x2FB8
+  std::array<uint8_t, 0x184> _unmapped_2FBC;  // 0x2FBC..0x3140
+  rex::be<uint32_t> fvf;                      // private: SetFVF 0x822EE6F0 stores it; no CC2 counterpart
+  GuestPtr index_buffer;                     // private: SetIndices 0x822E2FC4
+  GuestPtr render_targets[kRenderTargets];   // private: GetRenderTarget 0x822E3098
+  GuestPtr depth_stencil;                    // private: GetDepthStencilSurface 0x822E30E0
+  GuestPtr stream_sources[kStreams];         // private: SetStreamSource 0x822E2E80
+  std::array<uint8_t, 0x4> _unmapped_319C;   // 0x319C..0x31A0
+  uint8_t stream_stride_dwords[kStreams];    // private: stride >> 2, GetStreamSource 0x822E2FA0 shifts it back
+  GuestPtr textures[kTextureFetchCount];     // private: SetTexture 0x822DFE9C
+  GuestViewport viewport;                    // private: SetViewport 0x822E3860, read back by GetViewport 0x822E2DA8
+  std::array<uint8_t, 0x4> _unmapped_3230;   // 0x3230..0x3234: SetViewport 0x822E3898 stores zero here, role unknown
+  GuestRect scissor_rect;                    // private: SetScissorRect 0x822E2CF4
+  GuestPtr pixel_shader;                     // private: SetPixelShader 0x822EB43C
+  GuestPtr vertex_shader;                    // private: SetVertexShader 0x822EB660
+  std::array<uint8_t, 0x8E4> _unmapped_324C;  // 0x324C..0x3B30, holds the ring alloc list at 0x3500 and the inline draw state at 0x3554
+  GuestCriticalSection suspend_lock;         // private: InitializeHardwareDevice 0x822FE0C8 and Suspend 0x822DC7E4
+  std::array<uint8_t, 0x1A00> _unmapped_3B4C;  // 0x3B4C..0x554C, holds the second critical section at 0x3B4C
+  rex::be<uint32_t> swap_writeback_index;    // private: Swap 0x822F51CC picks writeback slot (index & 7) and advances it
+  std::array<uint8_t, 0x9B0> _unmapped_5550;  // 0x5550..0x5F00, holds the device flags word at 0x5E80
 };
 
-// The runtime device is larger; the struct stops at the last documented field.
-static_assert(sizeof(D3DDevice) == 0x5618, "D3DDevice documented span");
+// Direct3D_CreateDevice 0x822DCE34 allocates 0x5F00 bytes for the device.
+static_assert(sizeof(D3DDevice) == 0x5F00, "D3DDevice allocation size");
 
 static_assert(sizeof(TagCollection) == 0x28, "D3DTAGCOLLECTION");
 static_assert(sizeof(FetchConstant) == 0x18, "GPUFETCH_CONSTANT");
@@ -573,49 +571,44 @@ static_assert(offsetof(D3DDevice, m_PointPacket.PointXRad) == 0x2A60, "m_PointPa
 static_assert(offsetof(D3DDevice, m_PointPacket.PointYRad) == 0x2A64, "m_PointPacket.PointYRad");
 static_assert(offsetof(D3DDevice, m_PointPacket.PointConstantSize) == 0x2A68, "m_PointPacket.PointConstantSize");
 static_assert(offsetof(D3DDevice, m_PointPacket.PointCullRad) == 0x2A6C, "m_PointPacket.PointCullRad");
-static_assert(offsetof(D3DDevice, m_MaxAnisotropy) == 0x2A70, "m_MaxAnisotropy");
-static_assert(offsetof(D3DDevice, m_ZFilter) == 0x2A8A, "m_ZFilter");
-static_assert(offsetof(D3DDevice, thread_owner) == 0x2B08, "thread_owner");
-static_assert(offsetof(D3DDevice, writeback_page) == 0x2B10, "writeback_page");
-static_assert(offsetof(D3DDevice, fence_next) == 0x2B1C, "fence_next");
-static_assert(offsetof(D3DDevice, suspend_flags) == 0x2B3E, "suspend_flags");
-static_assert(offsetof(D3DDevice, primary_write_index) == 0x2B50, "primary_write_index");
-static_assert(offsetof(D3DDevice, queued_chunks) == 0x2B90, "queued_chunks");
-static_assert(offsetof(D3DDevice, vertex_declaration) == 0x2FD0, "vertex_declaration");
-static_assert(offsetof(D3DDevice, scissor_test_enable) == 0x3000, "scissor_test_enable");
-static_assert(offsetof(D3DDevice, color_write_enable) == 0x3004, "color_write_enable");
-static_assert(offsetof(D3DDevice, z_enable) == 0x3014, "z_enable");
-static_assert(offsetof(D3DDevice, stencil_enable) == 0x3018, "stencil_enable");
-static_assert(offsetof(D3DDevice, point_sprite_enable) == 0x301C, "point_sprite_enable");
-static_assert(offsetof(D3DDevice, point_size) == 0x3024, "point_size");
-static_assert(offsetof(D3DDevice, point_size_min) == 0x3028, "point_size_min");
-static_assert(offsetof(D3DDevice, point_size_max) == 0x302C, "point_size_max");
-static_assert(offsetof(D3DDevice, max_mip_level) == 0x3044, "max_mip_level");
-static_assert(offsetof(D3DDevice, min_mip_level) == 0x305E, "min_mip_level");
-static_assert(offsetof(D3DDevice, high_precision_blend_enable) == 0x3078, "high_precision_blend_enable");
-static_assert(offsetof(D3DDevice, index_buffer) == 0x320C, "index_buffer");
-static_assert(offsetof(D3DDevice, render_targets) == 0x3210, "render_targets");
-static_assert(offsetof(D3DDevice, depth_stencil) == 0x3220, "depth_stencil");
-static_assert(offsetof(D3DDevice, stream_sources) == 0x3224, "stream_sources");
-static_assert(offsetof(D3DDevice, stream_stride_dwords) == 0x3268, "stream_stride_dwords");
-static_assert(offsetof(D3DDevice, textures) == 0x3278, "textures");
-static_assert(offsetof(D3DDevice, viewport) == 0x32E0, "viewport");
-static_assert(offsetof(D3DDevice, viewport.X) == 0x32E0, "viewport.X");
-static_assert(offsetof(D3DDevice, viewport.Y) == 0x32E4, "viewport.Y");
-static_assert(offsetof(D3DDevice, viewport.Width) == 0x32E8, "viewport.Width");
-static_assert(offsetof(D3DDevice, viewport.Height) == 0x32EC, "viewport.Height");
-static_assert(offsetof(D3DDevice, viewport.MinZ) == 0x32F0, "viewport.MinZ");
-static_assert(offsetof(D3DDevice, viewport.MaxZ) == 0x32F4, "viewport.MaxZ");
-static_assert(offsetof(D3DDevice, scissor_rect) == 0x32FC, "scissor_rect");
-static_assert(offsetof(D3DDevice, scissor_rect.left) == 0x32FC, "scissor_rect.left");
-static_assert(offsetof(D3DDevice, scissor_rect.top) == 0x3300, "scissor_rect.top");
-static_assert(offsetof(D3DDevice, scissor_rect.right) == 0x3304, "scissor_rect.right");
-static_assert(offsetof(D3DDevice, scissor_rect.bottom) == 0x3308, "scissor_rect.bottom");
-static_assert(offsetof(D3DDevice, pixel_shader) == 0x330C, "pixel_shader");
-static_assert(offsetof(D3DDevice, vertex_shader) == 0x3310, "vertex_shader");
-static_assert(offsetof(D3DDevice, suspend_lock) == 0x3BF4, "suspend_lock");
-static_assert(offsetof(D3DDevice, suspend_lock.dword) == 0x3BF4, "suspend_lock.dword");
-static_assert(offsetof(D3DDevice, swap_writeback_index) == 0x5614, "swap_writeback_index");
+static_assert(offsetof(D3DDevice, thread_owner) == 0x2A88, "thread_owner");
+static_assert(offsetof(D3DDevice, writeback_page) == 0x2A90, "writeback_page");
+static_assert(offsetof(D3DDevice, fence_next) == 0x2A9C, "fence_next");
+static_assert(offsetof(D3DDevice, suspend_flags) == 0x2ABE, "suspend_flags");
+static_assert(offsetof(D3DDevice, primary_write_index) == 0x2ACC, "primary_write_index");
+static_assert(offsetof(D3DDevice, chunk_count) == 0x2B04, "chunk_count");
+static_assert(offsetof(D3DDevice, vertex_declaration) == 0x2ED8, "vertex_declaration");
+static_assert(offsetof(D3DDevice, scissor_test_enable) == 0x2F00, "scissor_test_enable");
+static_assert(offsetof(D3DDevice, color_write_enable) == 0x2F04, "color_write_enable");
+static_assert(offsetof(D3DDevice, min_mip_level) == 0x2F5E, "min_mip_level");
+static_assert(offsetof(D3DDevice, max_mip_level) == 0x2F78, "max_mip_level");
+static_assert(offsetof(D3DDevice, m_ZFilter) == 0x2F92, "m_ZFilter");
+static_assert(offsetof(D3DDevice, high_precision_blend_enable) == 0x2FAC, "high_precision_blend_enable");
+static_assert(offsetof(D3DDevice, fvf) == 0x3140, "fvf");
+static_assert(offsetof(D3DDevice, index_buffer) == 0x3144, "index_buffer");
+static_assert(offsetof(D3DDevice, render_targets) == 0x3148, "render_targets");
+static_assert(offsetof(D3DDevice, depth_stencil) == 0x3158, "depth_stencil");
+static_assert(offsetof(D3DDevice, stream_sources) == 0x315C, "stream_sources");
+static_assert(offsetof(D3DDevice, stream_stride_dwords) == 0x31A0, "stream_stride_dwords");
+static_assert(offsetof(D3DDevice, textures) == 0x31B0, "textures");
+static_assert(offsetof(D3DDevice, viewport) == 0x3218, "viewport");
+static_assert(offsetof(D3DDevice, viewport.X) == 0x3218, "viewport.X");
+static_assert(offsetof(D3DDevice, viewport.Y) == 0x321C, "viewport.Y");
+static_assert(offsetof(D3DDevice, viewport.Width) == 0x3220, "viewport.Width");
+static_assert(offsetof(D3DDevice, viewport.Height) == 0x3224, "viewport.Height");
+static_assert(offsetof(D3DDevice, viewport.MinZ) == 0x3228, "viewport.MinZ");
+static_assert(offsetof(D3DDevice, viewport.MaxZ) == 0x322C, "viewport.MaxZ");
+static_assert(offsetof(D3DDevice, _unmapped_3230) == 0x3230, "viewport trailing dword");
+static_assert(offsetof(D3DDevice, scissor_rect) == 0x3234, "scissor_rect");
+static_assert(offsetof(D3DDevice, scissor_rect.left) == 0x3234, "scissor_rect.left");
+static_assert(offsetof(D3DDevice, scissor_rect.top) == 0x3238, "scissor_rect.top");
+static_assert(offsetof(D3DDevice, scissor_rect.right) == 0x323C, "scissor_rect.right");
+static_assert(offsetof(D3DDevice, scissor_rect.bottom) == 0x3240, "scissor_rect.bottom");
+static_assert(offsetof(D3DDevice, pixel_shader) == 0x3244, "pixel_shader");
+static_assert(offsetof(D3DDevice, vertex_shader) == 0x3248, "vertex_shader");
+static_assert(offsetof(D3DDevice, suspend_lock) == 0x3B30, "suspend_lock");
+static_assert(offsetof(D3DDevice, suspend_lock.dword) == 0x3B30, "suspend_lock.dword");
+static_assert(offsetof(D3DDevice, swap_writeback_index) == 0x554C, "swap_writeback_index");
 
 // Resource headers. Common flag bits and the per-type tails come from d3d9.h.
 inline constexpr uint32_t kIndexBufferIndex32 = 0x80000000;         // D3DINDEXBUFFER_INDEX32

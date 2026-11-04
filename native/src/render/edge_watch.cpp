@@ -140,25 +140,7 @@ REX_HOOK_RAW(sub_822E2C88) {
   __imp__sub_822E2C88(ctx, base);
 }
 
-// D3DDevice_ClearF(pDevice, Flags, pRect, pColor, Z, Stencil).
-REX_HOOK_RAW(sub_822E5C58) {
-  Observe(onevs100::render::edge::kClear, ctx);
-  __imp__sub_822E5C58(ctx, base);
-}
-
 // D3DDevice_Resolve(pDevice, Flags, pSourceRect, pDestTexture, pDestPoint, DestLevel, DestSliceOrFace,
-// pClearColor, ClearZ, ClearStencil, pParameters).
-REX_HOOK_RAW(sub_822E74D0) {
-  Observe(onevs100::render::edge::kResolve, ctx);
-  __imp__sub_822E74D0(ctx, base);
-}
-
-// D3DDevice_Swap(pDevice, pFrontBuffer, pParameters).
-REX_HOOK_RAW(sub_822F50C0) {
-  Observe(onevs100::render::edge::kSwap, ctx);
-  __imp__sub_822F50C0(ctx, base);
-}
-
 // D3DDevice_DrawIndexedVertices(pDevice, PrimitiveType, BaseVertexIndex, StartIndex, IndexCount).
 REX_HOOK_RAW(sub_822F3830) {
   Observe(onevs100::render::edge::kDrawIndexedVertices, ctx);

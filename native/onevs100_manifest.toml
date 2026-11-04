@@ -8,4 +8,4 @@ game_root = "../native/assets"
 [entrypoint]
 file_path = "../native/assets/default.xex"
 out_directory_path = "generated/default-v5"
-includes = ["branch-targets.toml", "boundaries-v3.toml", "switch-fix.toml"]
+includes = ["branch-targets.toml", "boundaries-v3.toml", "switch-fix.toml", "render-hooks.toml"]
