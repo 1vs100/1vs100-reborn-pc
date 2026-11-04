@@ -8,4 +8,7 @@ game_root = "../native/assets"
 [entrypoint]
 file_path = "../native/assets/default.xex"
 out_directory_path = "generated/default-v5"
+# CRT setjmp/longjmp
+setjmp_address = 0x824B2FA0
+longjmp_address = 0x824B3610
 includes = ["branch-targets.toml", "boundaries-v3.toml", "switch-fix.toml", "render-hooks.toml"]
