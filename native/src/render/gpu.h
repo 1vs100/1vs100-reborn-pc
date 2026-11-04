@@ -36,8 +36,17 @@ inline bool ValidGuest(uint32_t address) {
   if (address < 0x10000) {
     return false;
   }
-  const auto* memory = REX_KERNEL_MEMORY();
-  return memory && memory->LookupHeap(address) != nullptr;
+  auto* memory = REX_KERNEL_MEMORY();
+  if (!memory) {
+    return false;
+  }
+  auto* heap = memory->LookupHeap(address);
+  if (!heap) {
+    return false;
+  }
+  // Heap membership is not enough: freed pages stay in range but lose commit.
+  uint32_t protect = 0;
+  return heap->QueryProtect(address, &protect) && (protect & uint32_t(rex::memory::kMemoryProtectRead)) != 0;
 }
 
 // Rate-limited report for a rejected guest address: silent skips would hide
