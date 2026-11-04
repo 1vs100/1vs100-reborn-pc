@@ -21,6 +21,7 @@
 
 #include "render/gpu.h"
 #include "render/gpu_tracker.h"
+#include "render/guest/d3d_device.h"
 
 REXCVAR_DEFINE_BOOL(render_edge_log, false, "GPU", "Log the guest registers of the D3D edge calls");
 
@@ -129,6 +130,9 @@ constexpr uint32_t kTileColors[4] = {0x3268, 0x326C, 0x3270, 0x3274};  // RT0..R
 constexpr uint32_t kTileDepth = 0x3278;
 
 uint32_t DeviceWord(uint32_t device, uint32_t offset) {
+  if (!onevs100::render::ValidGuest(device + offset)) {
+    return 0;
+  }
   const auto* slot =
       REX_KERNEL_MEMORY()->TranslateVirtual<const rex::be<uint32_t>*>(device + offset);
   return slot ? uint32_t(*slot) : 0;
@@ -306,32 +310,46 @@ ONEVS100_WATCH(sub_822EAD60, kBeginShaderConstantF4)
 ONEVS100_WATCH(sub_822F6D18, kGpuBeginShaderConstantF4)
 ONEVS100_WATCH(sub_822E3530, kSetTextureFetchConstant)
 ONEVS100_WATCH(sub_822F7030, kGpuSetTextureFetchConstant)
-// D3DDevice_BeginTiling(pDevice, Flags, Count, pTileRects, pClearColor,
-// ClearZ, ClearStencil). Runs the runtime first so the tile state above is
-// fresh, then registers the bands; draws between Begin and End resolve their
-// surfaces through that map.
-REX_HOOK_RAW(sub_822F5CF0) {
-  if (!onevs100::render::Enabled()) {
-    __imp__sub_822F5CF0(ctx, base);
-    return;
-  }
-  Observe(onevs100::render::edge::kBeginTiling, ctx);
-  __imp__sub_822F5CF0(ctx, base);
-  onevs100::render::edge::RegisterTiling(ctx.r3.u32);
-}
-
-// D3DDevice_EndTiling(pDevice, ResolveFlags, pResolveRects, pDestTexture,
-// pClearColor, ClearZ, ClearStencil, pParameters). The band resolves inside
-// still need the map, so it is cleared after the call.
-REX_HOOK_RAW(sub_822F6380) {
-  if (!onevs100::render::Enabled()) {
-    __imp__sub_822F6380(ctx, base);
-    return;
-  }
-  Observe(onevs100::render::edge::kEndTiling, ctx);
-  __imp__sub_822F6380(ctx, base);
-  onevs100::render::tracker::ClearTiledTargets();
-}
+// The 0x822F5CF0/0x822F6380 hooks used to register the tiled bands here,
+// but the addresses never verified as Begin/EndTiling on this build and the
+// register pass read garbage surfaces and faulted. Back to counting until the
+// entry points are recovered properly.
+ONEVS100_WATCH(sub_822F5CF0, kBeginTiling)
+ONEVS100_WATCH(sub_822F6380, kEndTiling)
 ONEVS100_WATCH(sub_822F6060, kBeginZPass)
 ONEVS100_WATCH(sub_822F6838, kEndZPass)
 ONEVS100_WATCH(sub_822F40F8, kDrawIndexedTessellatedVertices)
+
+// Temporary hang hunt: trace BlockOnFence entry/exit with the waited fence and
+// the published/completed counters. Boot stalls with no draws and no edge
+// traffic, so an entry without a matching exit names the stuck wait. The
+// sub_822D8578 = BlockOnFence(dev=r3, waited=r4) reading is inferred from its
+// caller, not verified, and "done" means the call returned, not that the
+// fence was satisfied (a timeout exit looks identical). Remove once found.
+namespace {
+std::atomic<uint32_t> g_wait_traced{0};
+}
+
+REX_HOOK_RAW(sub_822D8578) {
+  const uint32_t waited = ctx.r4.u32;
+  const uint32_t dev = ctx.r3.u32;
+  const uint32_t n = g_wait_traced.fetch_add(1, std::memory_order_relaxed);
+  if (n < 32) {
+    uint32_t published = 0;
+    uint32_t completion = 0;
+    if (const auto* device =
+            REX_KERNEL_MEMORY()->TranslateVirtual<const onevs100::render::guest::D3DDevice*>(dev)) {
+      published = uint32_t(device->fence_next);
+      if (const auto* buf = REX_KERNEL_MEMORY()->TranslateVirtual<const rex::be<uint32_t>*>(
+              uint32_t(device->writeback_page))) {
+        completion = uint32_t(buf[0]);
+      }
+    }
+    REXKRNL_WARN("[gpu] wait BlockOnFence#{} dev={:x} waited={} published={} completion={}", n, dev,
+                 waited, published, completion);
+  }
+  __imp__sub_822D8578(ctx, base);
+  if (n < 32) {
+    REXKRNL_WARN("[gpu] wait BlockOnFence#{} done", n);
+  }
+}

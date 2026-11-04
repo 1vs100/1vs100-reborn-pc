@@ -3,8 +3,10 @@
 
 #include <cstdint>
 #include <vector>
+#include <atomic>
+#include <rex/logging.h>
+#include <rex/system/kernel_state.h>
 #include <filesystem>
-
 #include <plume_render_interface_types.h>
 
 #include <rex/ppc/context.h>
@@ -26,6 +28,26 @@ bool Initialized();
 // the title has already begun submitting work, so the stand-in for the GPU has to
 // act from the first call, while the plugin path must never be touched.
 bool Enabled();
+
+// TranslateVirtual never fails: unmapped addresses become wild host pointers
+// that fault on first touch, so every edge read or write of guest memory must
+// pass its address through here first. Low addresses are never valid.
+inline bool ValidGuest(uint32_t address) {
+  if (address < 0x10000) {
+    return false;
+  }
+  const auto* memory = REX_KERNEL_MEMORY();
+  return memory && memory->LookupHeap(address) != nullptr;
+}
+
+// Rate-limited report for a rejected guest address: silent skips would hide
+// the next bad-address bug, but the edge runs hot so only the first few log.
+inline void NoteBadGuest(uint32_t address, const char* site) {
+  static std::atomic<uint32_t> noted{0};
+  if (noted.fetch_add(1, std::memory_order_relaxed) < 8) {
+    REXGPU_WARN("[gpu] ignoring unmapped guest address {:#x} at {}", address, site);
+  }
+}
 
 // Stops the render thread, idles the device and destroys everything in reverse order; safe to call twice.
 void Shutdown();

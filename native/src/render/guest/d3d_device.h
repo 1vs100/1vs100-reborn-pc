@@ -257,8 +257,9 @@ struct D3DDevice {
   std::array<uint8_t, 0xD> _unmapped_2ABF;   // 0x2ABF..0x2ACC
   rex::be<uint32_t> primary_write_index;     // private: stored at 0x822D8D88 just before the CP_RB_WPTR 0x7FC80714 write
   std::array<uint8_t, 0x34> _unmapped_2AD0;  // 0x2AD0..0x2B04
-  rex::be<uint32_t> chunk_count;             // private: D3DDevice_BlockUntilIdle 0x822D9B08 spins on it, QueueCommands and QueueIndirectBuffers add to it
-  std::array<uint8_t, 0x3D0> _unmapped_2B08;  // 0x2B08..0x2ED8, holds the ring alloc list spin lock at 0x2B08
+  // No single chunk counter at 0x2B04 in this build (doc 7.2); the ring alloc
+  // list spin lock sits at 0x2B08.
+  std::array<uint8_t, 0x3D4> _unmapped_2B04;  // 0x2B04..0x2ED8
   GuestPtr vertex_declaration;               // private: SetFVF 0x822EE708 stores it, GetVertexDeclaration 0x822EB808 reads it
   std::array<uint8_t, 0x24> _unmapped_2EDC;  // 0x2EDC..0x2F00, holds the vertex fetch stride shadow at 0x2EE8
   rex::be<uint32_t> scissor_test_enable;     // private: SetScissorRect 0x822E2CF0 reads it
@@ -576,7 +577,6 @@ static_assert(offsetof(D3DDevice, writeback_page) == 0x2A90, "writeback_page");
 static_assert(offsetof(D3DDevice, fence_next) == 0x2A9C, "fence_next");
 static_assert(offsetof(D3DDevice, suspend_flags) == 0x2ABE, "suspend_flags");
 static_assert(offsetof(D3DDevice, primary_write_index) == 0x2ACC, "primary_write_index");
-static_assert(offsetof(D3DDevice, chunk_count) == 0x2B04, "chunk_count");
 static_assert(offsetof(D3DDevice, vertex_declaration) == 0x2ED8, "vertex_declaration");
 static_assert(offsetof(D3DDevice, scissor_test_enable) == 0x2F00, "scissor_test_enable");
 static_assert(offsetof(D3DDevice, color_write_enable) == 0x2F04, "color_write_enable");

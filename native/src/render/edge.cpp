@@ -47,7 +47,8 @@ T* Guest(uint32_t address) {
 }  // namespace
 
 // D3D::CDevice::SetFence, after the advanced fence counter is stored, 0x822D9084.
-// r8 is the fence being issued and r7 the tagged ring position; the runtime's own
+// Publish the submitted fence plus the runtime's +2 advance, matching the
+// published baseline the waits compare against, with its ring position.
 // CPU-completion branch publishes the same two words at 0x822D9070.
 void OneVs100FenceIssued(PPCRegister& r7, PPCRegister& r8, PPCRegister& r11) {
   // The writeback page belongs to the graphics system in use. The plugin owns it when the
@@ -56,19 +57,18 @@ void OneVs100FenceIssued(PPCRegister& r7, PPCRegister& r8, PPCRegister& r11) {
   if (!onevs100::render::Enabled()) {
     return;
   }
-  const auto* device = Guest<const D3DDevice>(r11.u32);
-  if (device == nullptr) {
+  if (!onevs100::render::ValidGuest(r11.u32)) {
+    onevs100::render::NoteBadGuest(r11.u32, "SetFence device");
     return;
   }
+  const auto* device = Guest<const D3DDevice>(r11.u32);
   const uint32_t writeback = device->writeback_page;
-  if (writeback == 0) {
+  if (!onevs100::render::ValidGuest(writeback)) {
+    onevs100::render::NoteBadGuest(writeback, "SetFence writeback");
     return;
   }
   auto* words = Guest<rex::be<uint32_t>>(writeback);
-  if (words == nullptr) {
-    return;
-  }
-  words[0] = r8.u32;
+  words[0] = r8.u32 + 2;
   words[1] = r7.u32;
 }
 
@@ -81,33 +81,25 @@ void OneVs100PrimaryKick(PPCRegister& r11, PPCRegister& r29) {
   if (!onevs100::render::Enabled()) {
     return;
   }
-  const auto* device = Guest<const D3DDevice>(r29.u32);
-  if (device == nullptr) {
+  if (!onevs100::render::ValidGuest(r29.u32)) {
+    onevs100::render::NoteBadGuest(r29.u32, "PrimaryKick device");
     return;
   }
+  const auto* device = Guest<const D3DDevice>(r29.u32);
   const uint32_t writeback = device->writeback_page;
-  if (writeback == 0) {
+  if (!onevs100::render::ValidGuest(writeback)) {
+    onevs100::render::NoteBadGuest(writeback, "PrimaryKick writeback");
     return;
   }
   auto* words = Guest<rex::be<uint32_t>>(writeback);
-  if (words == nullptr) {
-    return;
-  }
   words[0x3C / 4] = r11.u32;
 }
 
 // After each add to the outstanding chunk count, 0x822D9120 and 0x822D915C: the
 // GPU would retire the buffers, so the count drops straight back to zero.
 void OneVs100ChunkQueued(PPCRegister& r31) {
-  // The writeback page belongs to the graphics system in use. The plugin owns it when the
-  // renderer is off; when the renderer is on this stand-in has to answer from the first
-  // call, which is before the renderer itself has started.
-  if (!onevs100::render::Enabled()) {
-    return;
-  }
-  auto* device = Guest<D3DDevice>(r31.u32);
-  if (device == nullptr) {
-    return;
-  }
-  device->chunk_count = 0;
+  (void)r31;
+  // 0x2B04 has no verified counter in this build (layout doc 7.2: the title
+  // keeps a ring alloc list at 0x3500). Disabled until a trace finds the wait.
+  return;
 }

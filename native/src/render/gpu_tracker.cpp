@@ -13,6 +13,7 @@
 #include <rex/logging.h>
 #include <rex/system/kernel_state.h>
 
+#include "render/gpu.h"
 #include "render/guest/d3d_device.h"
 
 namespace onevs100::render::tracker {
@@ -55,7 +56,10 @@ uint32_t g_next_id = 1;
 }  // namespace
 
 ResourceDesc Surface(uint32_t surface_address, ResourceKind kind) {
-  if (!surface_address) return {};
+  if (!surface_address || !ValidGuest(surface_address)) {
+    NoteBadGuest(surface_address, "Surface");
+    return {};
+  }
   const auto* surface = Guest<guest::D3DSurface>(surface_address);
   // A texture-level surface keeps its parent texture where the EDRAM fields would be; it cannot be bound as a target.
   if (uint32_t(surface->resource.Common) & guest::kSurfaceFromTexture) {
@@ -97,7 +101,10 @@ void RegisterTiledTarget(uint32_t width, uint32_t height, const uint32_t* depth_
                          const uint32_t* color_surfaces, uint32_t color_count) {
   std::lock_guard lock(g_mutex);
   auto add = [&](uint32_t address, uint32_t canonical) {
-    if (!address || !canonical) return;
+    if (!address || !canonical || !ValidGuest(address) || !ValidGuest(canonical)) {
+    NoteBadGuest(address, "RegisterTiledTarget");
+    return;
+  }
     const auto* s = Guest<guest::D3DSurface>(address);
     if (!s) return;
     if (canonical != address && !Guest<guest::D3DSurface>(canonical)) return;
@@ -113,7 +120,10 @@ void ClearTiledTargets() {
 }
 
 ResourceDesc Texture(uint32_t texture_address) {
-  if (!texture_address) return {};
+  if (!texture_address || !ValidGuest(texture_address)) {
+    NoteBadGuest(texture_address, "Texture");
+    return {};
+  }
   const auto* texture = Guest<guest::D3DBaseTexture>(texture_address);
   xenos::xe_gpu_texture_fetch_t fetch;
   fetch.dword_0 = texture->Format.dword[0];

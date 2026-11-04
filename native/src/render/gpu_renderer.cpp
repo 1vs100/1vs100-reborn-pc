@@ -626,6 +626,7 @@ bool Backend::Create(plume::RenderWindow window, uint32_t width, uint32_t height
     return false;
   }
   REXGPU_INFO("[gpu] d3d12 on {}", device_->getDescription().name);
+  REXGPU_INFO("[gpu] native renderer gate={}", onevs100::render::Enabled() ? 1 : 0);
 
   queue_ = device_->createCommandQueue(plume::RenderCommandListType::DIRECT);
   for (uint32_t i = 0; i < kFramesInFlight; ++i) {

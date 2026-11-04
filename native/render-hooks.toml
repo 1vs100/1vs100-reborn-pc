@@ -19,8 +19,9 @@ name = "OneVs100PrimaryKick"
 registers = ["r11", "r29"]
 after_instruction = true
 
-# After each add to the outstanding chunk count: the GPU would retire the buffers,
-# so the count returns to zero and BlockUntilIdle does not spin.
+# 0x2B04 holds no chunk counter in this build (device layout doc 7.2), so the
+# stand-in stays off until a trace finds the real wait. The probes stay wired
+# so the call sites remain visible.
 [[midasm_hook]]
 address = 0x822D9120
 name = "OneVs100ChunkQueued"

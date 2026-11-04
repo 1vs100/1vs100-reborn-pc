@@ -1,6 +1,7 @@
 // Range tracker plus the resource-lifetime observer hooks. Each hook calls through first
 // so the runtime's own header writes land before the range is read back out of the header.
 
+#include "render/gpu.h"
 #include "render/gpu_memory.h"
 
 #include <algorithm>
@@ -173,6 +174,10 @@ RangeState Query(uint32_t base, uint32_t size, QueryCache& cached) {
 }
 
 void RegisterResource(uint32_t resource_address) {
+  if (!resource_address || !ValidGuest(resource_address)) {
+    NoteBadGuest(resource_address, "RegisterResource");
+    return;
+  }
   uint32_t base[2], size[2];
   const int n = ResourceRanges(resource_address, base, size);
   for (int i = 0; i < n; ++i) {
@@ -182,6 +187,10 @@ void RegisterResource(uint32_t resource_address) {
 }
 
 void DirtyResource(uint32_t resource_address) {
+  if (!resource_address || !ValidGuest(resource_address)) {
+    NoteBadGuest(resource_address, "DirtyResource");
+    return;
+  }
   uint32_t base[2], size[2];
   const int n = ResourceRanges(resource_address, base, size);
   for (int i = 0; i < n; ++i) {

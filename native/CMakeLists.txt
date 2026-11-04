@@ -104,11 +104,13 @@ if(WINDOWS_STORE)
         COMMENT "Embedding UWP onboarding web page")
     # The generated headers are compiled in through a stub TU.
     list(APPEND ONEVS100_SOURCES
+        src/death_marker.cpp
         "${UWP_ONBOARDING_GENERATED}/embedded_manifest.h"
         "${UWP_ONBOARDING_GENERATED}/web_page.h")
 elseif(WIN32)
     list(APPEND ONEVS100_SOURCES
         src/crash_capture.cpp
+        src/death_marker.cpp
         src/dialogue_audio_win32.cpp
         src/local_profile_dialog_win32.cpp
         src/native_controls_win32.cpp

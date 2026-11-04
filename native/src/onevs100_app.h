@@ -17,6 +17,7 @@
 #include "matchmaking_client.h"
 #include "online_service.h"
 #include "xma_kick.h"
+#include "death_marker.h"
 #include <rex/system/kernel_state.h>
 #ifdef _WIN32
 #include "audio_xaudio2.h"
@@ -87,6 +88,7 @@ class Onevs100App : public rex::ReXApp {
                      std::to_string(version.Build) + "." + std::to_string(version.Revision)});
 #endif
     // All development saves/cache/config stay beside this isolated build.
+    death_marker::SetDirectory(folder);
     paths.user_data_root = folder / "userdata";
     paths.cache_root = folder / "cache";
     paths.config_path = folder / "onevs100.toml";
