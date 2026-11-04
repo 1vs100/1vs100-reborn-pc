@@ -16,6 +16,10 @@ ResourceDesc Surface(uint32_t surface_address, ResourceKind kind);
 void RegisterTiledTarget(uint32_t width, uint32_t height, const uint32_t* depth_surfaces, uint32_t depth_count,
                          const uint32_t* color_surfaces, uint32_t color_count);
 
+// Drops every band mapping; the EndTiling hook calls it after the band
+// resolves so later draws use the surfaces' own sizes again.
+void ClearTiledTargets();
+
 // The texture whose fetch constant sits in the D3DBaseTexture at texture_address; kNoResource if the header is unusable.
 ResourceDesc Texture(uint32_t texture_address);
 

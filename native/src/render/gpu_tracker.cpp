@@ -99,10 +99,17 @@ void RegisterTiledTarget(uint32_t width, uint32_t height, const uint32_t* depth_
   auto add = [&](uint32_t address, uint32_t canonical) {
     if (!address || !canonical) return;
     const auto* s = Guest<guest::D3DSurface>(address);
+    if (!s) return;
+    if (canonical != address && !Guest<guest::D3DSurface>(canonical)) return;
     g_tiled[address] = TiledEntry{width, height, canonical, uint32_t(s->ColorOrDepthInfo), uint32_t(s->Dimensions)};
   };
   for (uint32_t i = 0; i < depth_count; ++i) add(depth_surfaces[i], depth_surfaces[0]);
   for (uint32_t i = 0; i < color_count; ++i) add(color_surfaces[i], color_surfaces[i]);
+}
+
+void ClearTiledTargets() {
+  std::lock_guard lock(g_mutex);
+  g_tiled.clear();
 }
 
 ResourceDesc Texture(uint32_t texture_address) {
