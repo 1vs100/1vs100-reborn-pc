@@ -12,11 +12,11 @@ full frame, with no guest crashes and no hangs. The renderer replays the
 title's D3D9 API stream on the host GPU (plume/D3D12 backend) instead of
 emulating the GPU (the `xenos` plugin path, `native_renderer=false`).
 
-Current state (build 0.1.262):
+Current state (build 0.1.270):
 
 - Boots reliably; no guest access violations.
 - 3D fills the frame; menus and press-start show the blurred 3D scene.
-- The boot loading screen and the lobby's big screen are black (I2).
+- The boot loading screen renders.
 - Live gameplay is unverified (I3).
 
 ## 2. Open issues
@@ -42,28 +42,18 @@ menus came out black. `SamplesAsTexture` now accepts kInvalidTexture
 (the SDK's `gpu_allow_invalid_fetch_constants` behaviour).
 Console-verified: press-start and menu show the blurred 3D background.
 
-### I2. Loading screen and in-scene video missing - OPEN, primary
+### I2. Loading screen black - FIXED (0.1.270)
 
-Two separate defects.
+Cause: without a shader pack, runtime translation had no geometry
+shader built-ins. The loading screen's UI draws use user clip planes,
+which need the `clip_planes` GS, so `DrawPipeline` cached a null
+pipeline and every such draw was dropped. The built-ins (`clip_planes`,
+`rect_expand`, `point_expand`) now compile on first use. Console-verified:
+the loading screen, the lobby big screen and the gamertag text render.
 
-Loading screen (Primetime / Logos / ESRB / Online / Ads / Sweeps,
-about 1 s to 28 s after Lua start) is black. It is not video: the title
-draws it every frame (about 60 fps, two tiled passes). Frame shape: about
-26 UI sprite draws into the 1280x720 UI target, resolved to a texture;
-an empty 3D target resolved to a second texture; the composite
-(PS 0x40000001) samples both into the front.
-
-- The sprite textures are correct: presenting them directly shows the
-  dotted background (1280x720) and the font.
-- Sprite constants and vertices look sane (2/1280 transform, grey tint
-  0.235, alpha 1) and the state has no depth or stencil test.
-- Yet the resolved UI texture is black. The same shaders draw the menu
-  UI correctly later. Next: find what differs between the loading and
-  menu UI passes (draw thread, pending inline draws, tiled band clears).
-
-Lobby big screen: plays `media\ads\UserEd_N.wmv` / `Promo_N.wmv`
-through the title's own decoder (several of these files are absent).
-Not investigated yet.
+Open: the lobby big screen plays `media\ads\*.wmv` through the title's
+own decoder (several files absent); check that the ads play once the
+show is live.
 
 ### I3. Matchmaking never fills (peers=0) - OPEN, blocks gameplay verify
 
@@ -200,8 +190,7 @@ files: `native/src/render/gpu_{renderer,capture,draw,tracker,memory}.cpp`,
 
 ## 5. Open questions / next steps
 
-1. Loading screen (I2): the UI pass resolves black although its inputs
-   are correct. Lobby big screen: title-decoded WMV ads.
+1. Lobby big screen ads (title-decoded WMV): verify during a live show.
 2. Matchmaking stall (I3): the server offered a live session once
    ("scheduled game will end soon"), so it looks environmental.
 3. Review leftovers (latent, not observed):
