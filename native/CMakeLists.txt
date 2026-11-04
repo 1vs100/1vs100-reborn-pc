@@ -177,6 +177,36 @@ if(WIN32)
         target_link_options(onevs100 PRIVATE "LINKER:/DELAYLOAD:d3d12.dll")
         target_link_libraries(onevs100 PRIVATE delayimp)
     endif()
+
+    # Xenos shader microcode to DXIL, plus the X4 pack reader. The core library
+    # compiles the translator in; the command-line tool stays off.
+    enable_language(C)
+    set(XENOS_RECOMP_THIRDPARTY_ROOT
+        "${CMAKE_CURRENT_SOURCE_DIR}/third_party/xenosrecomp/thirdparty")
+    set(XENOS_RECOMP_BUILD_CLI OFF CACHE BOOL "" FORCE)
+    set(XENOS_RECOMP_DXIL ON CACHE BOOL "" FORCE)
+    set(ZSTD_BUILD_PROGRAMS OFF CACHE BOOL "" FORCE)
+    set(ZSTD_BUILD_SHARED OFF CACHE BOOL "" FORCE)
+    set(ZSTD_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    add_subdirectory("${XENOS_RECOMP_THIRDPARTY_ROOT}" xenosrecomp_thirdparty EXCLUDE_FROM_ALL)
+    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/third_party/xenosrecomp/XenosRecomp" xenosrecomp
+        EXCLUDE_FROM_ALL)
+    # Precompiled headers are skipped for this cross toolchain, so the vendored
+    # translation units get the shared header force-included instead.
+    target_compile_options(xenosrecomp_core PRIVATE
+        "/FI${CMAKE_CURRENT_SOURCE_DIR}/third_party/xenosrecomp/XenosRecomp/pch.h")
+    target_link_libraries(onevs100 PRIVATE xenosrecomp_core xxHash::xxhash)
+    if(WINDOWS_STORE)
+        # Translation runs at run time, so the compiler ships beside the exe.
+        target_link_options(onevs100 PRIVATE "LINKER:/DELAYLOAD:dxcompiler.dll"
+            "LINKER:/DELAYLOAD:dxil.dll")
+        target_link_libraries(onevs100 PRIVATE delayimp)
+        add_custom_command(TARGET onevs100 POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${XENOS_RECOMP_THIRDPARTY_ROOT}/dxc-bin/bin/x64/dxcompiler.dll"
+                "${XENOS_RECOMP_THIRDPARTY_ROOT}/dxc-bin/bin/x64/dxil.dll"
+                "$<TARGET_FILE_DIR:onevs100>")
+    endif()
 endif()
 
 if(WIN32)

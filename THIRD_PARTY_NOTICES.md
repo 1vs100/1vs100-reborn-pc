@@ -35,6 +35,14 @@ License: `native/src/avatar_native/third_party/mspack/COPYING.LIB`.
 
 `native/third_party/plume` is [plume](https://github.com/renderbag/plume) by renderbag and contributors, MIT. It is vendored with the D3D12 backend only: `plume_vulkan.cpp` is excluded from Windows builds, and the swap chain takes the CoreWindow path under `PLUME_UWP` (CreateSwapChainForCoreWindow, no window association). The UWP approach follows [plume-uwp](https://github.com/worleydl/plume-uwp) commit d40b98a.
 
+## XenosRecomp (MIT)
+
+`native/third_party/xenosrecomp` is [XenosRecomp](https://github.com/hedge-dev/XenosRecomp) by
+hedge-dev and contributors, MIT, as vendored by CrashCourse2Recomp. It translates Xenos shader
+microcode to DXIL at run time and reads the X4 shader pack. Its own third-party code keeps its
+licenses: fmt, xxHash, zstd, smol-v (see `native/third_party/xenosrecomp/thirdparty`), and the
+Microsoft DirectXShaderCompiler binaries (`thirdparty/dxc-bin`, LLVM/MIT).
+
 ## GLM
 
 `native/third_party/glm` is [GLM](https://github.com/g-truc/glm), MIT.
