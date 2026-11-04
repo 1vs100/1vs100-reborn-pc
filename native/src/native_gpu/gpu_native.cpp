@@ -5,9 +5,9 @@
 // for, and the records are executed with plume on a D3D12 device that owns the
 // window.
 //
-// Milestone 1 (this file, today): own the window, create the device and swap
-// chain, and present a cleared frame. Guest draws are not executed yet, so the
-// window stays a solid colour while native_renderer is on.
+// This module owns the guest GPU (MMIO, ring, vblank) and hands the guest's D3D
+// edge calls to the renderer in native/src/render, which owns the device and the
+// swap chain. The renderer presents when the guest swaps.
 #include "native_gpu/gpu_native.h"
 
 #include "native_gpu/guest_gpu.h"
@@ -38,10 +38,7 @@
 #include <plume_d3d12.h>
 #include <plume_render_interface.h>
 
-// plume_d3d12.cpp defines this without declaring it in a header.
-namespace plume {
-std::unique_ptr<RenderInterface> CreateD3D12Interface();
-}  // namespace plume
+#include "render/gpu.h"
 
 REXCVAR_DEFINE_BOOL(native_renderer, false, "GPU",
                     "Use the title's own D3D12 renderer instead of the xenos plugin (Windows)");
@@ -68,15 +65,6 @@ int LogSeh(const char* what, EXCEPTION_POINTERS* info) {
   return EXCEPTION_EXECUTE_HANDLER;
 }
 #endif
-
-using plume::RenderCommandList;
-using plume::RenderCommandQueue;
-using plume::RenderDevice;
-using plume::RenderInterface;
-using plume::RenderSwapChain;
-using plume::RenderSwapChainDesc;
-
-constexpr plume::RenderFormat kSwapChainFormat = plume::RenderFormat::R8G8B8A8_UNORM;
 
 }  // namespace
 
@@ -114,12 +102,12 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem {
     if (auto* runtime = rex::Runtime::instance()) {
       window_ = runtime->display_window();
     }
-    StartRenderThread();
+    StartRenderer();
     return X_STATUS_SUCCESS;
   }
 
   bool has_presentation() const override {
-    return swap_chain_ != nullptr && !swap_chain_->isEmpty() && swap_chain_->getTextureCount() != 0;
+    return render::Initialized();
   }
 
   void SetInterruptCallback(uint32_t callback, uint32_t user_data) override {
@@ -155,86 +143,34 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem {
   }
 
   void Shutdown() override {
-    StopRenderThread();
-    framebuffers_.clear();
-    framebuffer_textures_.clear();
-    fence_.reset();
+    StopRenderer();
     if (guest_gpu_) {
       guest_gpu_->Shutdown();
       guest_gpu_.reset();
     }
-    swap_chain_.reset();
-    queue_.reset();
-    device_.reset();
-    interface_.reset();
     window_ = nullptr;
   }
 
-  // Creates the device and swap chain, then starts the render thread. Runs on
-  // the UI thread: UWP requires the CoreWindow's own thread for the swap chain.
-  void StartRenderThread() {
-    if (render_thread_.joinable()) {
-      return;
-    }
-    RenderSwapChainDesc desc;
-    if (!DescribeWindow(&desc)) {
+  // Starts the renderer on the window. Runs on the UI thread: UWP requires the
+  // CoreWindow's own thread to create the swap chain for it.
+  void StartRenderer() {
+    plume::RenderWindow handle = nullptr;
+    uint32_t width = 0;
+    uint32_t height = 0;
+    if (!DescribeWindow(&handle, &width, &height)) {
       return;
     }
     plume::SetLogSink([](const char* message) { REXKRNL_ERROR("native renderer: {}", message); });
-    REXKRNL_INFO("native renderer: creating D3D12 interface");
-    interface_ = plume::CreateD3D12Interface();
-    if (!interface_) {
-      REXLOG_ERROR("native renderer: no D3D12 interface");
+    if (!render::Initialize(handle, width, height)) {
+      REXLOG_ERROR("native renderer: the renderer did not start");
       return;
     }
-    REXKRNL_INFO("native renderer: creating D3D12 device");
-#if defined(_WIN32)
-    __try {
-      device_ = interface_->createDevice();
-    } __except (LogSeh("createDevice", GetExceptionInformation())) {
-      return;
-    }
-#else
-    device_ = interface_->createDevice();
-#endif
-    if (!device_) {
-      REXLOG_ERROR("native renderer: no D3D12 device");
-      return;
-    }
-    REXKRNL_INFO("native renderer: creating command queue");
-#if defined(_WIN32)
-    __try {
-      queue_ = device_->createCommandQueue(plume::RenderCommandListType::DIRECT);
-    } __except (LogSeh("createCommandQueue", GetExceptionInformation())) {
-      return;
-    }
-#else
-    queue_ = device_->createCommandQueue(plume::RenderCommandListType::DIRECT);
-#endif
-    if (!queue_) {
-      REXLOG_ERROR("native renderer: no command queue");
-      return;
-    }
-    REXKRNL_INFO("native renderer: creating swap chain {}x{}", desc.width, desc.height);
-    swap_chain_ = queue_->createSwapChain(desc);
-    if (!swap_chain_ || swap_chain_->isEmpty() || swap_chain_->getTextureCount() == 0) {
-      // plume returns the object even when the swap chain creation failed.
-      REXLOG_ERROR("native renderer: no swap chain back buffers");
-      swap_chain_.reset();
-      queue_.reset();
-      device_.reset();
-      interface_.reset();
-      return;
-    }
-    REXLOG_INFO("native renderer: D3D12 device and swap chain ready ({}x{})",
-                swap_chain_->getWidth(), swap_chain_->getHeight());
-    running_.store(true);
-    render_thread_ = std::thread([this] { RenderLoop(); });
+    REXKRNL_INFO("native renderer: device and swap chain ready");
   }
 
  private:
   // Fills in the swap chain target for the current platform.
-  bool DescribeWindow(RenderSwapChainDesc* desc) {
+  bool DescribeWindow(plume::RenderWindow* handle, uint32_t* width, uint32_t* height) {
 #if REX_PLATFORM_WINRT
     // SDL owns a CoreWindow; the swap chain must be created for it, not for an
     // HWND. Bounds are in DIPs, the back buffer is in pixels.
@@ -252,103 +188,26 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem {
     if (auto display = winrt::Windows::Graphics::Display::DisplayInformation::GetForCurrentView()) {
       scale = display.LogicalDpi() / 96.0f;
     }
-    desc->renderWindow = static_cast<plume::RenderWindow>(winrt::get_abi(core_window));
-    desc->width = static_cast<uint32_t>(bounds.Width * scale);
-    desc->height = static_cast<uint32_t>(bounds.Height * scale);
+    *handle = static_cast<plume::RenderWindow>(winrt::get_abi(core_window));
+    *width = static_cast<uint32_t>(bounds.Width * scale);
+    *height = static_cast<uint32_t>(bounds.Height * scale);
 #else
     if (!window_) {
       REXLOG_INFO("native renderer: no window yet; not presenting");
       return false;
     }
-    void* handle = window_->GetNativeWindowHandle();
-    if (!handle) {
+    void* native_handle = window_->GetNativeWindowHandle();
+    if (!native_handle) {
       REXLOG_INFO("native renderer: no window handle yet; not presenting");
       return false;
     }
-    desc->renderWindow = static_cast<plume::RenderWindow>(handle);
+    *handle = static_cast<plume::RenderWindow>(native_handle);
 #endif
-    desc->format = kSwapChainFormat;
-    desc->textureCount = 2;
     return true;
   }
 
-  void StopRenderThread() {
-    if (!running_.exchange(false)) {
-      return;
-    }
-    if (render_thread_.joinable()) {
-      render_thread_.join();
-    }
-  }
-
-  void RenderLoop() {
-    while (running_.load(std::memory_order_relaxed)) {
-      RenderFrame();
-      std::this_thread::sleep_for(std::chrono::milliseconds(16));
-    }
-  }
-
-  // One framebuffer per back buffer, rebuilt when the swap chain hands out new
-  // textures (plume caches the render target handles in the framebuffer).
-  plume::RenderFramebuffer* FramebufferFor(plume::RenderTexture* back_buffer) {
-    for (size_t i = 0; i < framebuffers_.size(); ++i) {
-      if (framebuffer_textures_[i] == back_buffer) {
-        return framebuffers_[i].get();
-      }
-    }
-    const plume::RenderTexture* attachments[1] = {back_buffer};
-    auto framebuffer =
-        device_->createFramebuffer(plume::RenderFramebufferDesc(attachments, 1));
-    if (!framebuffer) {
-      return nullptr;
-    }
-    framebuffers_.push_back(std::move(framebuffer));
-    framebuffer_textures_.push_back(back_buffer);
-    return framebuffers_.back().get();
-  }
-
-  void RenderFrame() {
-    if (!swap_chain_ || swap_chain_->needsResize()) {
-      if (swap_chain_) {
-        swap_chain_->resize();
-      }
-      return;
-    }
-    uint32_t texture_index = 0;
-    if (!swap_chain_->acquireTexture(nullptr, &texture_index)) {
-      return;
-    }
-    plume::RenderTexture* back_buffer = swap_chain_->getTexture(texture_index);
-    if (!back_buffer) {
-      return;
-    }
-    plume::RenderFramebuffer* framebuffer = FramebufferFor(back_buffer);
-    if (!framebuffer) {
-      return;
-    }
-    if (!fence_) {
-      fence_ = device_->createCommandFence();
-      if (!fence_) {
-        return;
-      }
-    }
-    auto command_list = queue_->createCommandList();
-    if (!command_list) {
-      return;
-    }
-    command_list->begin();
-    plume::RenderTextureBarrier to_render_target(back_buffer, plume::RenderTextureLayout::COLOR_WRITE);
-    command_list->barriers(plume::RenderBarrierStage::GRAPHICS, nullptr, 0, &to_render_target, 1);
-    command_list->setFramebuffer(framebuffer);
-    command_list->clearColor(0, plume::RenderColor(0.05f, 0.07f, 0.15f, 1.0f));
-    plume::RenderTextureBarrier to_present(back_buffer, plume::RenderTextureLayout::PRESENT);
-    command_list->barriers(plume::RenderBarrierStage::GRAPHICS, nullptr, 0, &to_present, 1);
-    command_list->end();
-    // The command list outlives the frame only until the GPU has finished with
-    // it: its allocator is released with the list.
-    queue_->executeCommandLists(command_list.get(), fence_.get());
-    queue_->waitForCommandFence(fence_.get());
-    swap_chain_->present(texture_index, nullptr, 0);
+  void StopRenderer() {
+    render::Shutdown();
   }
 
   rex::ui::WindowedAppContext* app_context_ = nullptr;
@@ -364,16 +223,6 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem {
   uint32_t ring_block_size_log2_ = 0;
 
   std::unique_ptr<GuestGpu> guest_gpu_;
-  std::unique_ptr<RenderInterface> interface_;
-  std::unique_ptr<RenderDevice> device_;
-  std::unique_ptr<RenderCommandQueue> queue_;
-  std::unique_ptr<RenderSwapChain> swap_chain_;
-  std::unique_ptr<plume::RenderCommandFence> fence_;
-  std::vector<std::unique_ptr<plume::RenderFramebuffer>> framebuffers_;
-  std::vector<plume::RenderTexture*> framebuffer_textures_;
-
-  std::atomic<bool> running_{false};
-  std::thread render_thread_;
 };
 
 std::unique_ptr<rex::system::IGraphicsSystem> CreateNativeGraphicsSystem() {

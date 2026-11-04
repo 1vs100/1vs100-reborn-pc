@@ -1,0 +1,92 @@
+REX_HOOK_RAW(sub_825440B0) {
+  draw::FinishPending();
+  draw::DrawArgs a;
+  a.device = ctx.r3.u32;
+  a.type = xenos::PrimitiveType(ctx.r4.u32);
+  a.start = ctx.r5.u32;
+  a.base_vertex = int32_t(ctx.r5.u32);
+  a.count = ctx.r6.u32;
+  onevs100::render::cmdbuf::NotePending(a.device);
+  __imp__sub_825440B0(ctx, base);
+  draw::Capture(ctx, base, a);
+}
+
+// D3DDevice_DrawIndexedVertices 0x825444C8 (pDevice, PrimitiveType, BaseVertexIndex, StartIndex, IndexCount).
+REX_HOOK_RAW(sub_825444C8) {
+  draw::FinishPending();
+  draw::DrawArgs a;
+  a.device = ctx.r3.u32;
+  a.type = xenos::PrimitiveType(ctx.r4.u32);
+  a.base_vertex = int32_t(ctx.r5.u32);
+  a.start = ctx.r6.u32;
+  a.count = ctx.r7.u32;
+  a.indexed = true;
+  onevs100::render::cmdbuf::NotePending(a.device);
+  __imp__sub_825444C8(ctx, base);
+  draw::Capture(ctx, base, a);
+}
+
+// D3DDevice_BeginVertices 0x825435C8 (pDevice, PrimitiveType, VertexCount, VertexStreamZeroStride) returns the data
+// pointer; also reached from DrawVerticesUP.
+REX_HOOK_RAW(sub_825435C8) {
+  draw::DrawArgs a;
+  a.device = ctx.r3.u32;
+  a.type = xenos::PrimitiveType(ctx.r4.u32);
+  a.count = ctx.r5.u32;
+  a.stride = ctx.r6.u32;
+  a.vertex_bytes = (a.count * a.stride) & ~3u;
+  a.inline_data = true;
+  __imp__sub_825435C8(ctx, base);
+  draw::BeginInline(ctx, base, a, ctx.r3.u32, 0);
+}
+
+// D3DDevice_BeginIndexedVertices 0x82543AD0 (pDevice, PrimitiveType, BaseVertexIndex, NumVertices, IndexCount,
+// IndexDataFormat, VertexStreamZeroStride, ppIndexData, ppVertexData); the last argument is the stack slot r1+0x54.
+REX_HOOK_RAW(sub_82543AD0) {
+  draw::DrawArgs a;
+  a.device = ctx.r3.u32;
+  a.type = xenos::PrimitiveType(ctx.r4.u32);
+  a.base_vertex = int32_t(ctx.r5.u32);
+  a.count = ctx.r7.u32;
+  a.index32 = (ctx.r8.u32 & 4) != 0;
+  a.stride = ctx.r9.u32;
+  a.vertex_bytes = (ctx.r6.u32 * a.stride) & ~3u;
+  a.indexed = true;
+  a.inline_data = true;
+  const uint32_t pp_index = ctx.r10.u32;
+  const uint32_t pp_vertex = *REX_KERNEL_MEMORY()->TranslateVirtual<rex::be<uint32_t>*>(ctx.r1.u32 + 0x54);
+  __imp__sub_82543AD0(ctx, base);
+  const uint32_t index_data = pp_index ? uint32_t(*REX_KERNEL_MEMORY()->TranslateVirtual<rex::be<uint32_t>*>(pp_index)) : 0;
+  const uint32_t vertex_data =
+      pp_vertex ? uint32_t(*REX_KERNEL_MEMORY()->TranslateVirtual<rex::be<uint32_t>*>(pp_vertex)) : 0;
+  draw::BeginInline(ctx, base, a, vertex_data, index_data);
+}
+
+// D3DDevice_EndIndexedVertices 0x825435B8, which EndVertices shares; the game may also inline it, so every later
+// commit point finishes a pending record too.
+REX_HOOK_RAW(sub_825435B8) {
+  __imp__sub_825435B8(ctx, base);
+  draw::FinishPending();
+}
+
+// D3DDevice_DrawVerticesUP 0x82543A88 and DrawIndexedVerticesUP 0x82544010 run Begin, copy, and End inline.
+REX_HOOK_RAW(sub_82543A88) {
+  draw::FinishPending();
+  __imp__sub_82543A88(ctx, base);
+  draw::FinishPending();
+}
+
+REX_HOOK_RAW(sub_82544010) {
+  draw::FinishPending();
+  __imp__sub_82544010(ctx, base);
+  draw::FinishPending();
+}
+
+// D3DDevice_GpuSetBlendControl 0x82547510 (pDevice, RenderTargetIndex, BlendControl) writes the register to the ring
+// only; the capture keeps it until the shadow register changes.
+REX_HOOK_RAW(sub_82547510) {
+  if (!onevs100::render::cmdbuf::RecordBlend(ctx.r3.u32, ctx.r4.u32, ctx.r5.u32)) {
+    draw::SetBlendOverride(ctx.r3.u32, ctx.r4.u32, ctx.r5.u32);
+  }
+  __imp__sub_82547510(ctx, base);
+}

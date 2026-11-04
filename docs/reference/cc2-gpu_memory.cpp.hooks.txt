@@ -1,0 +1,87 @@
+REX_HOOK_RAW(sub_82538150) {
+  __imp__sub_82538150(ctx, base);
+  memory::RegisterResource(ctx.r3.u32);
+}
+
+// D3DVertexBuffer_Unlock 0x82538218 (pBuffer).
+REX_HOOK_RAW(sub_82538218) {
+  const uint32_t resource = ctx.r3.u32;
+  __imp__sub_82538218(ctx, base);
+  memory::DirtyResource(resource);
+}
+
+// D3D_CreateIndexBuffer 0x82538228 (Length, Usage, Format, Pool) returns the buffer.
+REX_HOOK_RAW(sub_82538228) {
+  __imp__sub_82538228(ctx, base);
+  memory::RegisterResource(ctx.r3.u32);
+}
+
+// D3DResource_Release returns the remaining reference count; only the final release retires its memory.
+REX_HOOK_RAW(sub_82538DD0) {
+  uint32_t addresses[2], sizes[2];
+  const int count = memory::ResourceRanges(ctx.r3.u32, addresses, sizes);
+  __imp__sub_82538DD0(ctx, base);
+  if (ctx.r3.u32 == 0) {
+    for (int i = 0; i < count; ++i) {
+      onevs100::render::tracker::InvalidateResolved(addresses[i], sizes[i]);
+      memory::MarkDirty(addresses[i], sizes[i]);
+    }
+  }
+}
+
+// D3DVertexBuffer_Lock 0x82539330 (pBuffer, Offset, Size, Flags).
+REX_HOOK_RAW(sub_82539330) {
+  const uint32_t resource = ctx.r3.u32;
+  __imp__sub_82539330(ctx, base);
+  memory::DirtyResource(resource);
+}
+
+// D3DIndexBuffer_Lock 0x82539380 (pBuffer, Offset, Size, Flags).
+REX_HOOK_RAW(sub_82539380) {
+  const uint32_t resource = ctx.r3.u32;
+  __imp__sub_82539380(ctx, base);
+  memory::DirtyResource(resource);
+}
+
+// D3D::LockSurface 0x8253A700 and Lock2DSurface 0x8253A7D8, first argument the texture.
+REX_HOOK_RAW(sub_8253A700) {
+  const uint32_t resource = ctx.r3.u32;
+  __imp__sub_8253A700(ctx, base);
+  memory::DirtyResource(resource);
+}
+
+REX_HOOK_RAW(sub_8253A7D8) {
+  const uint32_t resource = ctx.r3.u32;
+  __imp__sub_8253A7D8(ctx, base);
+  memory::DirtyResource(resource);
+}
+
+// D3DDevice_CreateTexture 0x8253B0E0 (Width, Height, Depth, Levels, Usage, Format, Pool, Type) returns the texture.
+REX_HOOK_RAW(sub_8253B0E0) {
+  __imp__sub_8253B0E0(ctx, base);
+  memory::RegisterResource(ctx.r3.u32);
+}
+
+// XGOffsetBaseTextureAddress 0x8276E158 (pTexture, pBase, pMip) and XGOffsetResourceAddress 0x8276E1C0 (pResource,
+// pBase): the header now points at its data, so the range becomes owned.
+REX_HOOK_RAW(sub_8276E158) {
+  const uint32_t resource = ctx.r3.u32;
+  __imp__sub_8276E158(ctx, base);
+  memory::RegisterResource(resource);
+}
+
+REX_HOOK_RAW(sub_8276E1C0) {
+  const uint32_t resource = ctx.r3.u32;
+  __imp__sub_8276E1C0(ctx, base);
+  memory::RegisterResource(resource);
+}
+
+// XGSetTextureHeader 0x8276E0E8 (Width, Height, Levels, Usage, Format, Pool, BaseOffset, MipOffset, Pitch, pTexture,
+// pBaseSize, pMipSize); pTexture is the tenth argument, the stack slot at r1+0x58. The avatar header setup 0x829EB4B8
+// builds its texture headers this way with absolute bases and no XGOffset call, and it runs again after every
+// completed asset build, so the header's range is registered (and thereby dirtied) here.
+REX_HOOK_RAW(sub_8276E0E8) {
+  const uint32_t texture = *REX_KERNEL_MEMORY()->TranslateVirtual<rex::be<uint32_t>*>(ctx.r1.u32 + 0x58);
+  __imp__sub_8276E0E8(ctx, base);
+  if (texture) memory::RegisterResource(texture);
+}

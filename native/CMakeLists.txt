@@ -167,7 +167,24 @@ if(WIN32)
     target_sources(onevs100 PRIVATE
         src/native_gpu/guest_gpu.cpp
         src/native_gpu/gpu_native.cpp
+        src/render/display_settings.cpp
+        src/render/edge.cpp
+        src/render/gpu_capture.cpp
+        src/render/gpu_cmdbuf.cpp
+        src/render/gpu_draw.cpp
+        src/render/gpu_formats.cpp
+        src/render/gpu_memory.cpp
+        src/render/gpu_overlay.cpp
+        src/render/gpu_pointer.cpp
+        src/render/gpu_renderer.cpp
+        src/render/gpu_shader_pack.cpp
+        src/render/gpu_texture_decode.cpp
+        src/render/gpu_tracker.cpp
     )
+    target_include_directories(onevs100 PRIVATE src)
+    # A development build may read the shader pack from the source tree.
+    target_compile_definitions(onevs100 PRIVATE
+        "ONEVS100_SOURCE_DIR=\"${CMAKE_SOURCE_DIR}\"")
     target_include_directories(onevs100 PRIVATE third_party/glm)
     # The app shell only offers native_renderer when the renderer is compiled in.
     target_compile_definitions(onevs100 PRIVATE ONEVS100_NATIVE_GPU=1)

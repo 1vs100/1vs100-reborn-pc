@@ -1,0 +1,18 @@
+// Display options the renderer reads while presenting.
+#pragma once
+
+namespace onevs100::render::display {
+
+// Render target size as a percentage of the guest surface.
+int ResolutionScale();
+
+// Copy of the above for the surfaces the guest renders shadows into.
+int ShadowScale();
+
+// Draw the frame counter over the presented image.
+bool FpsCounter();
+
+// Width over height of the presented image.
+float AspectRatio();
+
+}  // namespace onevs100::render::display
