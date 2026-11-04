@@ -46,7 +46,6 @@ set(ONEVS100_SOURCES
     src/avatar_native/third_party/mspack/system.c
     src/avatar_native/third_party/mspack/logging.cc
     src/exit_probe.cpp
-    src/shared_body.cpp
     src/platform_compat.cpp
     src/round_even.cpp
     src/xma_kick.cpp

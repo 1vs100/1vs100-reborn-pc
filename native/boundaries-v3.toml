@@ -62,15 +62,8 @@
 "0x82374278" = { size = 8 }
 "0x823A2D58" = { size = 8 }
 "0x823A2D78" = { size = 8 }
-# Shared branches whose generated labels were omitted; discover bodies rather
-# than inventing implementations or lengths. Preserve guest register state.
-"0x8252DC90" = { parent = 0x8252D7E0 }
-"0x8252DD30" = { parent = 0x8252D7E0 }
-"0x8252DD34" = { parent = 0x8252D7E0 }
-"0x8252DD48" = { parent = 0x8252D7E0 }
-"0x8252DA58" = { parent = 0x8252D7E0 }
-"0x8252D930" = { parent = 0x8252D7E0, size = 0x424 }
-"0x8252D970" = { parent = 0x8252D7E0 }
+# CXrnsSession::DoLinkTerminated, also entered as a tail call from the switch at 0x8252D824.
+"0x8252D930" = { size = 0x424 }
 # Vtable dispatch thunks of the live host stream, reached only through pointers.
 "0x8261E868" = { size = 0x20 }
 "0x8261E888" = { size = 0x20 }
