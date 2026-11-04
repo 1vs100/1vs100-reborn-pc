@@ -7,7 +7,11 @@ struct Constants {
   uint linear_filter;
 };
 
+#ifdef __spirv__
+[[vk::push_constant]] ConstantBuffer<Constants> g_constants : register(b0, space1);
+#else
 ConstantBuffer<Constants> g_constants : register(b0, space1);
+#endif
 
 Texture2D<float4> g_texture : register(t0, space0);
 SamplerState g_point : register(s1, space0);

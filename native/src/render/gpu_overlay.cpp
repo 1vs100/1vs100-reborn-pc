@@ -1,6 +1,7 @@
 // Overlay recording on the UI thread and its replay on the render thread (gpu_overlay.h, gpu_overlay_pass.h).
 
 #include "render/gpu_overlay.h"
+#include "render/gpu_shader_pack.h"
 
 #include <algorithm>
 #include <cstddef>
@@ -192,10 +193,9 @@ bool OverlayPass::Create(plume::RenderDevice* device, plume::RenderFormat target
   layout.end();
   layout_ = layout.create(device);
 
-  vs_ = device->createShader(shaders::kOverlay_vs_dxil, sizeof(shaders::kOverlay_vs_dxil), "VsMain",
-                             plume::RenderShaderFormat::DXIL);
-  ps_ = device->createShader(shaders::kOverlay_ps_dxil, sizeof(shaders::kOverlay_ps_dxil), "PsMain",
-                             plume::RenderShaderFormat::DXIL);
+  constexpr auto format = kHostSpirv ? plume::RenderShaderFormat::SPIRV : plume::RenderShaderFormat::DXIL;
+  vs_ = device->createShader(shaders::kOverlay_vs.data(), shaders::kOverlay_vs.size(), "VsMain", format);
+  ps_ = device->createShader(shaders::kOverlay_ps.data(), shaders::kOverlay_ps.size(), "PsMain", format);
   if (!layout_ || !vs_ || !ps_) return false;
 
   const plume::RenderInputSlot slot(0, sizeof(rex::ui::ImmediateVertex));

@@ -1,8 +1,15 @@
 // Copies retained render-target contents between resolution scales, including individual MSAA samples.
-cbuffer ResizeConstants : register(b0, space1) {
+struct ResizeConstants {
   float2 source_ratio;
   uint stencil_mask;
 };
+#ifdef __spirv__
+[[vk::push_constant]] ConstantBuffer<ResizeConstants> g_resize : register(b0, space1);
+#else
+ConstantBuffer<ResizeConstants> g_resize : register(b0, space1);
+#endif
+#define source_ratio g_resize.source_ratio
+#define stencil_mask g_resize.stencil_mask
 
 Texture2D<float4> source_single : register(t0);
 Texture2DMS<float4> source_multi : register(t0);

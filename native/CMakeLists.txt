@@ -149,81 +149,112 @@ endif()
 
 rexglue_setup_target(onevs100 GPU_PLUGINS xenos)
 
-# The title's own D3D12 renderer. It replaces the xenos plugin when the
-# native_renderer setting is on; see native/src/native_gpu/. UWP is the target
-# that can be tested on the console, so it compiles there too.
+# The title's own renderer, replacing the xenos plugin when the native_renderer
+# setting is on: D3D12 on Windows and UWP, Vulkan elsewhere.
 set(PLUME_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-if(WIN32)
-    add_subdirectory(third_party/plume plume)
-    target_link_libraries(onevs100 PRIVATE plume)
-    if(WINDOWS_STORE)
-        # AppContainer has no HWND swap chain; plume takes the CoreWindow path.
-        target_compile_definitions(plume PUBLIC PLUME_UWP=1)
-    endif()
+# SDL creates the Vulkan surface, for Wayland and X11 alike.
+if(NOT WIN32)
+    set(PLUME_SDL_VULKAN_ENABLED ON CACHE BOOL "" FORCE)
 endif()
-if(WIN32)
-    target_sources(onevs100 PRIVATE
-        src/render/display_settings.cpp
-        src/render/settings.cpp
-        src/render/edge.cpp
-        src/render/edge_draw.cpp
-        src/render/edge_memory.cpp
-        src/render/edge_watch.cpp
-        src/render/gpu_capture.cpp
-        src/render/gpu_cmdbuf.cpp
-        src/render/gpu_draw.cpp
-        src/render/gpu_formats.cpp
-        src/render/gpu_memory.cpp
-        src/render/gpu_overlay.cpp
-        src/render/gpu_pointer.cpp
-        src/render/gpu_renderer.cpp
-        src/render/gpu_shader_pack.cpp
-        src/render/gpu_texture_decode.cpp
-        src/render/gpu_tracker.cpp
-    )
-    target_include_directories(onevs100 PRIVATE src)
-    # A development build may read the shader pack from the source tree.
-    target_compile_definitions(onevs100 PRIVATE
-        "ONEVS100_SOURCE_DIR=\"${CMAKE_SOURCE_DIR}\"")
-    target_include_directories(onevs100 PRIVATE third_party/glm)
-    # The app shell only offers native_renderer when the renderer is compiled in.
-    target_compile_definitions(onevs100 PRIVATE ONEVS100_NATIVE_GPU=1)
-    if(WINDOWS_STORE)
-        # A package that statically imports d3d12.dll is refused at activation;
-        # the SDK load-libraries it on UWP for the same reason.
-        target_link_options(onevs100 PRIVATE "LINKER:/DELAYLOAD:d3d12.dll")
-        target_link_libraries(onevs100 PRIVATE delayimp)
-    endif()
+add_subdirectory(third_party/plume plume)
+target_link_libraries(onevs100 PRIVATE plume)
+if(WINDOWS_STORE)
+    # AppContainer has no HWND swap chain; plume takes the CoreWindow path.
+    target_compile_definitions(plume PUBLIC PLUME_UWP=1)
+endif()
+target_sources(onevs100 PRIVATE
+    src/render/display_settings.cpp
+    src/render/settings.cpp
+    src/render/edge.cpp
+    src/render/edge_draw.cpp
+    src/render/edge_memory.cpp
+    src/render/edge_watch.cpp
+    src/render/gpu_capture.cpp
+    src/render/gpu_cmdbuf.cpp
+    src/render/gpu_draw.cpp
+    src/render/gpu_formats.cpp
+    src/render/gpu_memory.cpp
+    src/render/gpu_overlay.cpp
+    src/render/gpu_pointer.cpp
+    src/render/gpu_renderer.cpp
+    src/render/gpu_shader_pack.cpp
+    src/render/gpu_texture_decode.cpp
+    src/render/gpu_tracker.cpp
+)
+target_include_directories(onevs100 PRIVATE src)
+# A development build may read the shader pack from the source tree.
+target_compile_definitions(onevs100 PRIVATE
+    "ONEVS100_SOURCE_DIR=\"${CMAKE_SOURCE_DIR}\"")
+target_include_directories(onevs100 PRIVATE third_party/glm)
+# The app shell only offers native_renderer when the renderer is compiled in.
+target_compile_definitions(onevs100 PRIVATE ONEVS100_NATIVE_GPU=1)
+if(WINDOWS_STORE)
+    # A package that statically imports d3d12.dll is refused at activation;
+    # the SDK load-libraries it on UWP for the same reason.
+    target_link_options(onevs100 PRIVATE "LINKER:/DELAYLOAD:d3d12.dll")
+    target_link_libraries(onevs100 PRIVATE delayimp)
+endif()
 
-    # Xenos shader microcode to DXIL, plus the X4 pack reader. The core library
-    # compiles the translator in; the command-line tool stays off.
-    enable_language(C)
-    set(XENOS_RECOMP_THIRDPARTY_ROOT
-        "${CMAKE_CURRENT_SOURCE_DIR}/third_party/xenosrecomp/thirdparty")
-    set(XENOS_RECOMP_BUILD_CLI OFF CACHE BOOL "" FORCE)
-    set(XENOS_RECOMP_DXIL ON CACHE BOOL "" FORCE)
-    set(ZSTD_BUILD_PROGRAMS OFF CACHE BOOL "" FORCE)
-    set(ZSTD_BUILD_SHARED OFF CACHE BOOL "" FORCE)
-    set(ZSTD_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-    add_subdirectory("${XENOS_RECOMP_THIRDPARTY_ROOT}" xenosrecomp_thirdparty EXCLUDE_FROM_ALL)
-    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/third_party/xenosrecomp/XenosRecomp" xenosrecomp
-        EXCLUDE_FROM_ALL)
-    # Precompiled headers are skipped for this cross toolchain, so the vendored
-    # translation units get the shared header force-included instead.
+# Xenos shader microcode to DXIL and SPIR-V, plus the X4 pack reader. The core
+# library compiles the translator in; the command-line tool stays off.
+enable_language(C)
+set(XENOS_RECOMP_THIRDPARTY_ROOT
+    "${CMAKE_CURRENT_SOURCE_DIR}/third_party/xenosrecomp/thirdparty")
+if(NOT WIN32 AND NOT EXISTS "${XENOS_RECOMP_THIRDPARTY_ROOT}/dxc-bin/lib/x64/libdxcompiler.so")
+    # Microsoft publishes DXC for Linux x86_64 only.
+    if(NOT (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64)$"))
+        message(FATAL_ERROR "The native renderer needs DXC; no release exists for "
+            "${CMAKE_SYSTEM_NAME} ${CMAKE_SYSTEM_PROCESSOR}")
+    endif()
+    # The same DXC release as the Windows binaries, fetched once.
+    set(_dxc_archive "${CMAKE_CURRENT_BINARY_DIR}/linux_dxc_2024_07_31.x86_64.tar.gz")
+    file(DOWNLOAD
+        "https://github.com/microsoft/DirectXShaderCompiler/releases/download/v1.8.2407/linux_dxc_2024_07_31.x86_64.tar.gz"
+        "${_dxc_archive}"
+        EXPECTED_HASH SHA256=b58725ac191df0686994fb9d54d27ee8dd3f180b023d562733112a499ea1195c)
+    set(_dxc_extract "${CMAKE_CURRENT_BINARY_DIR}/dxc-linux")
+    file(ARCHIVE_EXTRACT INPUT "${_dxc_archive}" DESTINATION "${_dxc_extract}")
+    file(COPY "${_dxc_extract}/lib/libdxcompiler.so" "${_dxc_extract}/lib/libdxil.so"
+        DESTINATION "${XENOS_RECOMP_THIRDPARTY_ROOT}/dxc-bin/lib/x64")
+    file(COPY_FILE "${_dxc_extract}/bin/dxc" "${XENOS_RECOMP_THIRDPARTY_ROOT}/dxc-bin/bin/x64/dxc-linux")
+endif()
+set(XENOS_RECOMP_BUILD_CLI OFF CACHE BOOL "" FORCE)
+set(XENOS_RECOMP_DXIL ${WIN32} CACHE BOOL "" FORCE)
+set(ZSTD_BUILD_PROGRAMS OFF CACHE BOOL "" FORCE)
+set(ZSTD_BUILD_SHARED OFF CACHE BOOL "" FORCE)
+set(ZSTD_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+add_subdirectory("${XENOS_RECOMP_THIRDPARTY_ROOT}" xenosrecomp_thirdparty EXCLUDE_FROM_ALL)
+add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/third_party/xenosrecomp/XenosRecomp" xenosrecomp
+    EXCLUDE_FROM_ALL)
+# Precompiled headers are skipped for the cross toolchain, so the vendored
+# translation units get the shared header force-included instead.
+if(MSVC OR CMAKE_CXX_SIMULATE_ID STREQUAL "MSVC")
     target_compile_options(xenosrecomp_core PRIVATE
         "/FI${CMAKE_CURRENT_SOURCE_DIR}/third_party/xenosrecomp/XenosRecomp/pch.h")
-    target_link_libraries(onevs100 PRIVATE xenosrecomp_core xxHash::xxhash)
-    if(WINDOWS_STORE)
-        # Translation runs at run time, so the compiler ships beside the exe.
-        target_link_options(onevs100 PRIVATE "LINKER:/DELAYLOAD:dxcompiler.dll"
-            "LINKER:/DELAYLOAD:dxil.dll")
-        target_link_libraries(onevs100 PRIVATE delayimp)
-        add_custom_command(TARGET onevs100 POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${XENOS_RECOMP_THIRDPARTY_ROOT}/dxc-bin/bin/x64/dxcompiler.dll"
-                "${XENOS_RECOMP_THIRDPARTY_ROOT}/dxc-bin/bin/x64/dxil.dll"
-                "$<TARGET_FILE_DIR:onevs100>")
-    endif()
+else()
+    target_compile_options(xenosrecomp_core PRIVATE
+        -include "${CMAKE_CURRENT_SOURCE_DIR}/third_party/xenosrecomp/XenosRecomp/pch.h")
+endif()
+target_link_libraries(onevs100 PRIVATE xenosrecomp_core xxHash::xxhash)
+if(WINDOWS_STORE)
+    # Translation runs at run time, so the compiler ships beside the exe.
+    target_link_options(onevs100 PRIVATE "LINKER:/DELAYLOAD:dxcompiler.dll"
+        "LINKER:/DELAYLOAD:dxil.dll")
+    target_link_libraries(onevs100 PRIVATE delayimp)
+endif()
+if(WINDOWS_STORE)
+    add_custom_command(TARGET onevs100 POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${XENOS_RECOMP_THIRDPARTY_ROOT}/dxc-bin/bin/x64/dxcompiler.dll"
+            "${XENOS_RECOMP_THIRDPARTY_ROOT}/dxc-bin/bin/x64/dxil.dll"
+            "$<TARGET_FILE_DIR:onevs100>")
+elseif(NOT WIN32)
+    # Beside the executable, which finds them through its $ORIGIN RUNPATH.
+    add_custom_command(TARGET onevs100 POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${XENOS_RECOMP_THIRDPARTY_ROOT}/dxc-bin/lib/x64/libdxcompiler.so"
+            "${XENOS_RECOMP_THIRDPARTY_ROOT}/dxc-bin/lib/x64/libdxil.so"
+            "$<TARGET_FILE_DIR:onevs100>")
 endif()
 
 if(WIN32)

@@ -17,13 +17,18 @@
 #include "matchmaking_client.h"
 #include "online_service.h"
 #include "xma_kick.h"
+#ifdef _WIN32
 #include "death_marker.h"
+#endif
 #include <rex/system/kernel_state.h>
 #ifdef _WIN32
 #include "audio_xaudio2.h"
 #endif
 #if ONEVS100_NATIVE_GPU
 #include "render/gpu.h"
+#if !defined(_WIN32)
+#include <SDL3/SDL_video.h>
+#endif
 #endif
 #if REX_PLATFORM_WINRT
 #include <winrt/windows.applicationmodel.h>
@@ -51,6 +56,7 @@ class Onevs100App : public rex::ReXApp {
     config.gpu_plugin = "xenos";
 #ifdef _WIN32
     config.audio_factory = REX_AUDIO_BACKEND(xaudio2::XAudio2AudioSystem);
+#endif
 #if ONEVS100_NATIVE_GPU
     // The edge layer stands in for the GPU: no graphics system, no plugin, and
     // nothing reads the ring. The renderer starts on the UI thread below.
@@ -58,7 +64,6 @@ class Onevs100App : public rex::ReXApp {
       config.graphics = nullptr;
       config.gpu_plugin.clear();
     }
-#endif
 #endif
   }
   void OnConfigurePaths(rex::PathConfig& paths) override {
@@ -88,7 +93,9 @@ class Onevs100App : public rex::ReXApp {
                      std::to_string(version.Build) + "." + std::to_string(version.Revision)});
 #endif
     // All development saves/cache/config stay beside this isolated build.
+#ifdef _WIN32
     death_marker::SetDirectory(folder);
+#endif
     paths.user_data_root = folder / "userdata";
     paths.cache_root = folder / "cache";
     paths.config_path = folder / "onevs100.toml";
@@ -192,12 +199,22 @@ class Onevs100App : public rex::ReXApp {
     handle = static_cast<plume::RenderWindow>(winrt::get_abi(core_window));
     width = static_cast<uint32_t>(bounds.Width * scale);
     height = static_cast<uint32_t>(bounds.Height * scale);
-#else
+#elif defined(_WIN32)
     if (!window()) {
       REXLOG_ERROR("native renderer: no window");
       return;
     }
     handle = static_cast<plume::RenderWindow>(window()->GetNativeWindowHandle());
+#else
+    // plume creates the Vulkan surface through SDL; the title has one window.
+    int count = 0;
+    SDL_Window** windows = SDL_GetWindows(&count);
+    if (windows && count > 0) handle = windows[0];
+    SDL_free(windows);
+    if (!handle) {
+      REXLOG_ERROR("native renderer: no window");
+      return;
+    }
 #endif
     if (!onevs100::render::Initialize(handle, width, height)) {
       REXLOG_ERROR("native renderer: the renderer did not start");

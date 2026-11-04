@@ -512,11 +512,11 @@ uint64_t BuiltinKey(std::string_view name)
     return XXH3_64bits(name.data(), name.size());
 }
 
-std::vector<uint8_t> CompileBuiltin(const BuiltinShader& builtin, std::string* error)
+std::vector<uint8_t> CompileBuiltin(const BuiltinShader& builtin, bool spirv, std::string* error)
 {
     try
     {
-        return compileOrThrow(builtin.source, builtin.stage == kPackBlitPS, false, builtin.name,
+        return compileOrThrow(builtin.source, builtin.stage == kPackBlitPS, spirv, builtin.name,
             builtin.stage == kPackGS ? L"-T gs_6_0" : nullptr);
     }
     catch (const std::exception& e)

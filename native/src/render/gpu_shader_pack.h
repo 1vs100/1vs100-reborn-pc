@@ -22,16 +22,23 @@ struct PackBinding {
   uint8_t mag = 0xFF, min = 0xFF, mip = 0xFF, aniso = 0xFF;  // translator overrides; 0xFF = from the fetch constant
 };
 
+// The host backend's shader bytecode: D3D12 on Windows, Vulkan elsewhere.
+#if defined(_WIN32)
+inline constexpr bool kHostSpirv = false;
+#else
+inline constexpr bool kHostSpirv = true;
+#endif
+
 struct ShaderEntry {
   uint32_t id = 0;            // stable per process, 1-based
   ShaderStage stage = ShaderStage::kVertex;
   uint64_t runtime_hash = 0;
-  std::vector<uint8_t> dxil, dxil_trim;
+  std::vector<uint8_t> code, code_trim;  // host bytecode: DXIL with D3D12, SPIR-V with Vulkan
   std::vector<PackBinding> bindings;
   uint32_t vfetch_count = 0;  // X3 layout-table records the VS reads from b5; 0 for the directory pack
   uint16_t written_ovar = 0xFFFF;  // VS: oVar outputs the trimmed variant keeps
   uint16_t read_ivar = 0;          // PS: iVar inputs the signature declares
-  bool has_trim() const { return !dxil_trim.empty(); }
+  bool has_trim() const { return !code_trim.empty(); }
 };
 
 // ABI constants the loaded pack was built against; the host lays out its bindings from them.

@@ -32,3 +32,7 @@ outputs/
 mods/_export/
 *.log
 launcher-settings.ini
+
+# Linux DXC, fetched by native/CMakeLists.txt
+native/third_party/xenosrecomp/thirdparty/dxc-bin/lib/x64/*.so
+native/third_party/xenosrecomp/thirdparty/dxc-bin/bin/x64/dxc-linux

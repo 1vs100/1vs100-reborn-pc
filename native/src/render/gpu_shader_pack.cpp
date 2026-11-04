@@ -45,6 +45,12 @@ REXCVAR_DEFINE_BOOL(gpu_boolean_variants, true, "GPU", "Use precompiled pixel sh
 namespace onevs100::render {
 
 namespace {
+constexpr auto kHostBlob = kHostSpirv ? xenosrecomp::BlobKind::kSpirv : xenosrecomp::BlobKind::kDxil;
+constexpr auto kHostTrimBlob = kHostSpirv ? xenosrecomp::BlobKind::kSpirvTrim : xenosrecomp::BlobKind::kDxilTrim;
+constexpr const char* kHostExtension = kHostSpirv ? ".spirv" : ".dxil";
+}  // namespace
+
+namespace {
 
 namespace fs = std::filesystem;
 
@@ -135,8 +141,8 @@ class RuntimeSource : public Source {
       if (builtin.stage != xenosrecomp::kPackGS || name != builtin.name) continue;
       std::string error;
       auto e = std::make_unique<ShaderEntry>();
-      e->dxil = xenosrecomp::CompileBuiltin(builtin, &error);
-      if (e->dxil.empty()) {
+      e->code = xenosrecomp::CompileBuiltin(builtin, kHostSpirv, &error);
+      if (e->code.empty()) {
         REXGPU_ERROR("[gpu] built-in {} failed to compile: {}", name, error);
         return nullptr;
       }
@@ -155,7 +161,7 @@ class RuntimeSource : public Source {
   uint32_t next_builtin_id_ = 0x7F000000;
 };
 
-// shaderpack/manifest.csv plus <hash>.<vs|ps|vst>.dxil; files load on first use.
+// shaderpack/manifest.csv plus <hash>.<vs|ps|vst>.<dxil|spirv>; files load on first use.
 class DirectorySource : public Source {
  public:
   bool Open(const fs::path& dir) {
@@ -192,9 +198,9 @@ class DirectorySource : public Source {
       char stem[32];
       std::snprintf(stem, sizeof(stem), "%016llX", static_cast<unsigned long long>(hash));
       const char* type = stage == ShaderStage::kPixel ? "ps" : "vs";
-      e->dxil = ReadFile(dir_ / (std::string(stem) + "." + type + ".dxil"));
+      e->code = ReadFile(dir_ / (std::string(stem) + "." + type + kHostExtension));
       if (stage == ShaderStage::kVertex) {
-        e->dxil_trim = ReadFile(dir_ / (std::string(stem) + ".vst.dxil"));
+        e->code_trim = ReadFile(dir_ / (std::string(stem) + ".vst" + kHostExtension));
       }
       e->bindings = ParseBindings(row.bindings);
       row.entry = std::move(e);
@@ -209,10 +215,10 @@ class DirectorySource : public Source {
       auto e = std::make_unique<ShaderEntry>();
       e->id = next_id_++;
       e->stage = ShaderStage::kGeometry;
-      e->dxil = ReadFile(dir_ / (builtin + ".gs.dxil"));
+      e->code = ReadFile(dir_ / (builtin + ".gs" + kHostExtension));
       slot = std::move(e);
     }
-    return slot->dxil.empty() ? nullptr : slot.get();
+    return slot->code.empty() ? nullptr : slot.get();
   }
 
  private:
@@ -303,8 +309,8 @@ class ContainerSource : public Source {
       e->stage = stage;
       e->runtime_hash = pe->fp2;
       std::string error;
-      pack_.Decompress(*pe, xenosrecomp::BlobKind::kDxil, e->dxil, &error);
-      pack_.Decompress(*pe, xenosrecomp::BlobKind::kDxilTrim, e->dxil_trim, &error);
+      pack_.Decompress(*pe, kHostBlob, e->code, &error);
+      pack_.Decompress(*pe, kHostTrimBlob, e->code_trim, &error);
       FillEntry(*e, pack_.Reflection(*pe));
     std::lock_guard lock(mutex_);
     auto& slot = entries_[pe];
@@ -416,9 +422,9 @@ const ShaderEntry* SpecializePixelShader(const ShaderEntry* original, uint32_t b
       return value;
     };
     const uint32_t base_size = word(), mask = word(), count = word();
-    if (base_size != original->dxil.size() || base_size > data.size() - offset ||
+    if (base_size != original->code.size() || base_size > data.size() - offset ||
         !mask || (mask & 0xFFFFu) || std::popcount(mask) > 10 || count != (1u << std::popcount(mask)) ||
-        std::memcmp(data.data() + offset, original->dxil.data(), base_size) != 0) {
+        std::memcmp(data.data() + offset, original->code.data(), base_size) != 0) {
       REXGPU_DEBUG("[gpu] boolean variants for {:016X} rejected: base shader or mask mismatch", original->runtime_hash);
       return original;
     }
@@ -447,7 +453,7 @@ const ShaderEntry* SpecializePixelShader(const ShaderEntry* original, uint32_t b
   if (!entry) {
     entry = std::make_unique<ShaderEntry>(*original);
     entry->id = next_id++;
-    entry->dxil = bundle.blobs.at(value);
+    entry->code = bundle.blobs.at(value);
   }
   return entry.get();
 }
@@ -562,8 +568,8 @@ const ShaderEntry* TranslateMiss(ShaderStage stage, uint64_t fp2, std::span<cons
   xenosrecomp::Pack cached;
   if (!dir.empty() && xenosrecomp::CacheLoad(dir, xstage, code_fp2, cached, &error) && !cached.entries().empty()) {
     const auto& pe = cached.entries()[0];
-    cached.Decompress(pe, xenosrecomp::BlobKind::kDxil, e->dxil, &error);
-    cached.Decompress(pe, xenosrecomp::BlobKind::kDxilTrim, e->dxil_trim, &error);
+    cached.Decompress(pe, kHostBlob, e->code, &error);
+    cached.Decompress(pe, kHostTrimBlob, e->code_trim, &error);
     FillEntry(*e, cached.Reflection(pe));
     *source = "cache";
   } else {
@@ -571,6 +577,7 @@ const ShaderEntry* TranslateMiss(ShaderStage stage, uint64_t fp2, std::span<cons
     xenosrecomp::TranslateInput in;
     in.stage = xstage;
     in.ucode = words;
+    in.targets = (kHostSpirv ? xenosrecomp::kSpirv : xenosrecomp::kDxil) | xenosrecomp::kTrim;
     REXGPU_INFO("[gpu] translating {} fp2={:016X} dwords={}",
                 stage == ShaderStage::kPixel ? "ps" : "vs", fp2, words.size());
     xenosrecomp::TranslateResult result;
@@ -590,10 +597,11 @@ const ShaderEntry* TranslateMiss(ShaderStage stage, uint64_t fp2, std::span<cons
       g_fallback[key] = nullptr;
       return nullptr;
     }
-    e->dxil = result.dxil, e->dxil_trim = result.dxil_trim;
-    REXGPU_INFO("[gpu] translated {} fp2={:016X} dxil={} B trim={} B",
-                stage == ShaderStage::kPixel ? "ps" : "vs", fp2, e->dxil.size(),
-                e->dxil_trim.size());
+    e->code = kHostSpirv ? result.spirv : result.dxil;
+    e->code_trim = kHostSpirv ? result.spirv_trim : result.dxil_trim;
+    REXGPU_INFO("[gpu] translated {} fp2={:016X} code={} B trim={} B",
+                stage == ShaderStage::kPixel ? "ps" : "vs", fp2, e->code.size(),
+                e->code_trim.size());
     FillEntry(*e, result.reflection);
     if (!dir.empty()) {
       std::error_code ec;

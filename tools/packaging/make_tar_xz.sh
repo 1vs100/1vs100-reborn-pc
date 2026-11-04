@@ -15,7 +15,7 @@ fi
 build_dir=$(realpath "$1")
 mkdir -p "$(dirname "$2")"
 out_file=$(cd "$(dirname "$2")" && pwd)/$(basename "$2")
-for f in onevs100 launcher librexruntime.so librexgpu-xenos.so onevs100.toml RUN.md manifest.txt; do
+for f in onevs100 launcher librexruntime.so librexgpu-xenos.so libdxcompiler.so libdxil.so onevs100.toml RUN.md manifest.txt; do
   if [ ! -f "$build_dir/$f" ]; then
     echo "missing $build_dir/$f" >&2
     exit 1
@@ -36,7 +36,7 @@ trap 'rm -rf "$stage"' EXIT
 root="$stage/1vs100"
 mkdir -p "$root/content"
 cp "$build_dir/onevs100" "$build_dir/launcher" "$root/"
-cp "$build_dir/librexruntime.so" "$build_dir/librexgpu-xenos.so" "$root/"
+cp "$build_dir/librexruntime.so" "$build_dir/librexgpu-xenos.so" "$build_dir/libdxcompiler.so" "$build_dir/libdxil.so" "$root/"
 cp "$build_dir/onevs100.toml" "$build_dir/RUN.md" "$build_dir/manifest.txt" "$root/"
 if [ -f "$build_dir/content/.keep" ]; then
   cp "$build_dir/content/.keep" "$root/content/"

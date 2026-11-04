@@ -31,7 +31,7 @@
 #endif
 
 #ifdef PLUME_SDL_VULKAN_ENABLED
-#include <SDL_vulkan.h>
+#include <SDL3/SDL_vulkan.h>
 #endif
 
 // UWP has no HWND that a swap chain can be created for. The handle carried here

@@ -67,7 +67,11 @@ REXCVAR_DEFINE_BOOL(gpu_async_pipelines, true, "GPU",
 REXCVAR_DEFINE_BOOL(gpu_vsync, true, "GPU", "Wait for vblank on present; the Swap hook paces to 60 Hz either way");
 
 namespace plume {
+#if defined(_WIN32)
 extern std::unique_ptr<RenderInterface> CreateD3D12Interface();
+#else
+extern std::unique_ptr<RenderInterface> CreateVulkanInterface(RenderWindow sdlWindow);
+#endif
 }  // namespace plume
 
 namespace onevs100::render {
@@ -96,6 +100,27 @@ constexpr uint32_t kSamplerHeap = 1024;  // one append-only table of exact sampl
 constexpr uint32_t kBlank2D = 0;
 constexpr uint32_t kBlankCube = 2046;
 constexpr uint32_t kBlank3D = 2045;
+
+constexpr plume::RenderShaderFormat kShaderFormat =
+    kHostSpirv ? plume::RenderShaderFormat::SPIRV : plume::RenderShaderFormat::DXIL;
+
+// plume's Vulkan backend has no root descriptors: the draw shaders read every constant block and the shared memory
+// through these device addresses (XePushConstants in rexglue_shader_common.h).
+struct DrawAddresses {
+  uint64_t system;
+  uint64_t floats_vs;
+  uint64_t floats_ps;
+  uint64_t bool_loop;
+  uint64_t fetch;
+  uint64_t indices_vs;
+  uint64_t indices_ps;
+  uint64_t shared_memory;
+  uint64_t vfetch_vs;
+};
+static_assert(sizeof(DrawAddresses) == 72);
+
+// Device addresses back the Vulkan draw bindings; D3D12 binds the same buffers as root descriptors.
+constexpr plume::RenderBufferFlags kAddressable = kHostSpirv ? plume::RenderBufferFlag::DEVICE_ADDRESSABLE : 0;
 
 // Root descriptor order in the D3D12 draw layout.
 enum RootSlot : uint32_t {
@@ -591,6 +616,7 @@ class Backend {
     std::chrono::steady_clock::time_point window_start{};
     uint32_t frames = 0;
     uint32_t shown = 0;
+    uint32_t windows = 0;  // half-second windows counted, for the periodic log line
   } fps_;
 
   std::atomic<bool> resize_requested_{false};
@@ -604,9 +630,13 @@ bool Backend::Create(plume::RenderWindow window, uint32_t width, uint32_t height
     REXGPU_ERROR("[gpu] the window has no native handle");
     return false;
   }
+#if defined(_WIN32)
   interface_ = plume::CreateD3D12Interface();
+#else
+  interface_ = plume::CreateVulkanInterface(window);
+#endif
   if (!interface_) {
-    REXGPU_ERROR("[gpu] cannot create the d3d12 interface");
+    REXGPU_ERROR("[gpu] cannot create the {} interface", kHostSpirv ? "vulkan" : "d3d12");
     return false;
   }
   std::string adapter;
@@ -625,7 +655,7 @@ bool Backend::Create(plume::RenderWindow window, uint32_t width, uint32_t height
     REXGPU_ERROR("[gpu] cannot create a device");
     return false;
   }
-  REXGPU_INFO("[gpu] d3d12 on {}", device_->getDescription().name);
+  REXGPU_INFO("[gpu] {} on {}", kHostSpirv ? "vulkan" : "d3d12", device_->getDescription().name);
   REXGPU_INFO("[gpu] native renderer gate={}", onevs100::render::Enabled() ? 1 : 0);
 
   queue_ = device_->createCommandQueue(plume::RenderCommandListType::DIRECT);
@@ -667,14 +697,10 @@ bool Backend::Create(plume::RenderWindow window, uint32_t width, uint32_t height
   layout.end();
   layout_ = layout.create(device_.get());
 
-  vs_ = device_->createShader(shaders::kBlit_vs_dxil, sizeof(shaders::kBlit_vs_dxil), "VsMain",
-                              plume::RenderShaderFormat::DXIL);
-  ps_ = device_->createShader(shaders::kBlit_ps_dxil, sizeof(shaders::kBlit_ps_dxil), "PsMain",
-                              plume::RenderShaderFormat::DXIL);
-  resolve_vs_ = device_->createShader(shaders::kResolve_vs_dxil, sizeof(shaders::kResolve_vs_dxil), "VsMain",
-                                      plume::RenderShaderFormat::DXIL);
-  resolve_ps_ = device_->createShader(shaders::kResolve_ps_dxil, sizeof(shaders::kResolve_ps_dxil), "PsMain",
-                                      plume::RenderShaderFormat::DXIL);
+  vs_ = device_->createShader(shaders::kBlit_vs.data(), shaders::kBlit_vs.size(), "VsMain", kShaderFormat);
+  ps_ = device_->createShader(shaders::kBlit_ps.data(), shaders::kBlit_ps.size(), "PsMain", kShaderFormat);
+  resolve_vs_ = device_->createShader(shaders::kResolve_vs.data(), shaders::kResolve_vs.size(), "VsMain", kShaderFormat);
+  resolve_ps_ = device_->createShader(shaders::kResolve_ps.data(), shaders::kResolve_ps.size(), "PsMain", kShaderFormat);
   if (!layout_ || !vs_ || !ps_ || !resolve_vs_ || !resolve_ps_ || !BlitPipeline(kSwapChainFormat)) {
     REXGPU_ERROR("[gpu] cannot build the blit pipeline");
     return false;
@@ -722,6 +748,7 @@ bool Backend::CreateDrawResources() {
 
   plume::RenderPipelineLayoutBuilder layout;
   layout.begin(false, false);
+#if defined(_WIN32)
   using V = plume::RenderShaderVisibility;
   using T = plume::RenderRootDescriptorType;
   layout.addRootDescriptor(0, 0, T::CONSTANT_BUFFER);
@@ -734,6 +761,11 @@ bool Backend::CreateDrawResources() {
   layout.addRootDescriptor(0, 0, T::SHADER_RESOURCE);
   layout.addRootDescriptor(0, 0, T::UNORDERED_ACCESS);
   if (abi.vfetch_table) layout.addRootDescriptor(5, 0, T::CONSTANT_BUFFER, V::VERTEX);
+#else
+  layout.addPushConstant(0, 0, sizeof(DrawAddresses),
+                         plume::RenderShaderStageFlag::VERTEX | plume::RenderShaderStageFlag::GEOMETRY |
+                             plume::RenderShaderStageFlag::PIXEL);
+#endif
   layout.addDescriptorSet(sampler_set_builder_);  // set 0: samplers, space0
   layout.addDescriptorSet(texture_set_builder_);  // set 1: 2D arrays, space1
   layout.addDescriptorSet(texture_set_builder_);  // set 2: 3D, space2
@@ -771,7 +803,7 @@ bool Backend::CreateDrawResources() {
   texture_set_->setTexture(kBlank3D, blank_3d_.get(), plume::RenderTextureLayout::SHADER_READ, blank_3d_view_.get());
 
   const plume::RenderBufferFlags shared_flags = plume::RenderBufferFlag::STORAGE | plume::RenderBufferFlag::UNORDERED_ACCESS |
-                                                plume::RenderBufferFlag::INDEX;
+                                                plume::RenderBufferFlag::INDEX | kAddressable;
   shared_memory_ = device_->createBuffer(plume::RenderBufferDesc::DefaultBuffer(kSharedMemorySize, shared_flags));
   dummy_uav_ = device_->createBuffer(plume::RenderBufferDesc::DefaultBuffer(256, plume::RenderBufferFlag::UNORDERED_ACCESS));
   if (!shared_memory_ || !dummy_uav_) return false;
@@ -1435,6 +1467,7 @@ void Backend::UpdateFps() {
     f.shown = uint32_t(f.frames / elapsed + 0.5);
     f.frames = 0;
     f.window_start = now;
+    if (++f.windows % 10 == 0) REXGPU_INFO("[gpu] fps {}", f.shown);
   }
   if (!f.tried) {
     std::filesystem::path root;
@@ -1650,9 +1683,9 @@ UploadSpan Backend::Upload(uint64_t size, uint64_t align) {
   }
   // Overflow grows the slot instead of dropping data.
   UploadChunk chunk;
-  chunk.size = std::max(kUploadChunkSize, (size + align + 0xFFFF) & ~0xFFFFull);
+  chunk.size = std::max(kUploadChunkSize, (size + align + 0xFFFF) & ~uint64_t(0xFFFF));
   const plume::RenderBufferFlags flags = plume::RenderBufferFlag::CONSTANT | plume::RenderBufferFlag::INDEX |
-                                         plume::RenderBufferFlag::STORAGE;
+                                         plume::RenderBufferFlag::STORAGE | kAddressable;
   chunk.buffer = device_->createBuffer(plume::RenderBufferDesc::UploadBuffer(chunk.size, flags));
   if (!chunk.buffer) return {};
   chunk.mapped = static_cast<uint8_t*>(chunk.buffer->map());
@@ -1944,9 +1977,9 @@ plume::RenderShader* Backend::Shader(const ShaderEntry* entry, bool trimmed) {
   const uint64_t key = (uint64_t(entry->id) << 2) | (uint64_t(entry->stage) << 40) | (trimmed ? 1 : 0);
   auto& shader = shaders_[key];
   if (!shader) {
-    const auto& bytes = trimmed ? entry->dxil_trim : entry->dxil;
+    const auto& bytes = trimmed ? entry->code_trim : entry->code;
     if (bytes.empty()) return nullptr;
-    shader = device_->createShader(bytes.data(), bytes.size(), "main", plume::RenderShaderFormat::DXIL);
+    shader = device_->createShader(bytes.data(), bytes.size(), "main", kShaderFormat);
     if (!shader) REXGPU_ERROR("[gpu] cannot create shader {:016X}", entry->runtime_hash);
   }
   return shader.get();
@@ -2210,6 +2243,7 @@ void Backend::Execute(DrawRecord& r) {
   list->setGraphicsDescriptorSet(texture_set_.get(), 1);
   list->setGraphicsDescriptorSet(texture_set_.get(), 2);
   list->setGraphicsDescriptorSet(texture_set_.get(), 3);
+#if defined(_WIN32)
   list->setGraphicsRootDescriptor(b0.buffer->at(b0.offset), kRootSystem);
   list->setGraphicsRootDescriptor(b1_vs.buffer->at(b1_vs.offset), kRootFloatsVs);
   list->setGraphicsRootDescriptor(b1_ps.buffer->at(b1_ps.offset), kRootFloatsPs);
@@ -2220,6 +2254,14 @@ void Backend::Execute(DrawRecord& r) {
   list->setGraphicsRootDescriptor(shared_memory_->at(0), kRootShared);
   list->setGraphicsRootDescriptor(dummy_uav_->at(0), kRootSharedUav);
   if (abi.vfetch_table) list->setGraphicsRootDescriptor(b5.buffer->at(b5.offset), kRootVfetch);
+#else
+  auto address = [](const UploadSpan& span) { return span.buffer->getDeviceAddress() + span.offset; };
+  const DrawAddresses addresses{address(b0),    address(b1_vs), address(b1_ps),
+                                address(b2),    address(b3),    address(b4_vs),
+                                address(b4_ps), shared_memory_->getDeviceAddress(),
+                                abi.vfetch_table ? address(b5) : 0};
+  list->setGraphicsPushConstants(0, &addresses, 0, sizeof(addresses));
+#endif
   // Guest pixels to host texels: the viewport by the target's exact ratio, the scissor edges as resolves round them.
   const float fx = float(size_source->width) / float(size_source->desc.width);
   const float fy = float(size_source->height) / float(size_source->desc.height);
@@ -2244,16 +2286,12 @@ plume::RenderPipeline* Backend::ResizePipeline(const HostResource& source, uint3
   const uint32_t variant = (source.depth() ? (stencil_mask ? 4u : 2u) : 0u) + (source.samples > 1 ? 1u : 0u);
   auto& shader = resize_shaders_[variant];
   if (!shader) {
-    struct Blob { const uint8_t* data; size_t size; const char* entry; };
-    const Blob blobs[] = {
-        {shaders::kResize_color_dxil, sizeof(shaders::kResize_color_dxil), "ColorMain"},
-        {shaders::kResize_color_ms_dxil, sizeof(shaders::kResize_color_ms_dxil), "ColorMsMain"},
-        {shaders::kResize_depth_dxil, sizeof(shaders::kResize_depth_dxil), "DepthMain"},
-        {shaders::kResize_depth_ms_dxil, sizeof(shaders::kResize_depth_ms_dxil), "DepthMsMain"},
-        {shaders::kResize_stencil_dxil, sizeof(shaders::kResize_stencil_dxil), "StencilMain"},
-        {shaders::kResize_stencil_ms_dxil, sizeof(shaders::kResize_stencil_ms_dxil), "StencilMsMain"}};
+    struct Blob { std::span<const uint8_t> code; const char* entry; };
+    const Blob blobs[] = {{shaders::kResize_color, "ColorMain"},     {shaders::kResize_color_ms, "ColorMsMain"},
+                          {shaders::kResize_depth, "DepthMain"},     {shaders::kResize_depth_ms, "DepthMsMain"},
+                          {shaders::kResize_stencil, "StencilMain"}, {shaders::kResize_stencil_ms, "StencilMsMain"}};
     const auto& blob = blobs[variant];
-    shader = device_->createShader(blob.data, blob.size, blob.entry, plume::RenderShaderFormat::DXIL);
+    shader = device_->createShader(blob.code.data(), blob.code.size(), blob.entry, kShaderFormat);
     if (!shader) return nullptr;
   }
   const uint64_t key = uint64_t(source.format) | (uint64_t(source.samples) << 16) |

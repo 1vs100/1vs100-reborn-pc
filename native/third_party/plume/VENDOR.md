@@ -48,3 +48,8 @@ approach follows worleydl/plume-uwp commit d40b98a.
 
 Local patch: `plume_vulkan.cpp` is only compiled when `WIN32` is not set. It does
 not build against the Store headers and Windows uses the D3D12 backend.
+
+Local patch: the SDL Vulkan path (`PLUME_SDL_VULKAN_ENABLED`) targets SDL3: it links
+`SDL3::Headers`, includes `<SDL3/SDL_vulkan.h>`, and uses the SDL3 signatures of
+`SDL_Vulkan_CreateSurface` and `SDL_Vulkan_GetInstanceExtensions`. Linux builds use it, so
+the window system (Wayland or X11) is SDL's choice.

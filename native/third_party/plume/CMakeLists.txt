@@ -28,15 +28,7 @@ if(WIN32)
 endif()
 
 # Enable SDL Vulkan support
-if(PLUME_SDL_VULKAN_ENABLED)
-    if (NOT TARGET SDL2::SDL2)
-        find_package(SDL2 REQUIRED)
-    else()
-        set(SDL2_INCLUDE_DIRS "$<TARGET_PROPERTY:SDL2::SDL2,INTERFACE_INCLUDE_DIRECTORIES>")
-    endif()
 
-    message(STATUS "Plume - Building with SDL2_INCLUDE_DIRS: ${SDL2_INCLUDE_DIRS}")
-endif()
 
 # Enable D3D12 Agility SDK support
 if(PLUME_D3D12_AGILITY_SDK_ENABLED)
@@ -99,9 +91,10 @@ if(WIN32)
     target_link_libraries(plume PUBLIC d3d12 dxgi)
 endif()
 
+# [rexglue vendored change] SDL3: the consumer provides SDL3::Headers.
 if(PLUME_SDL_VULKAN_ENABLED)
     target_compile_definitions(plume PUBLIC PLUME_SDL_VULKAN_ENABLED)
-    target_include_directories(plume PUBLIC ${SDL2_INCLUDE_DIRS})
+    target_link_libraries(plume PUBLIC SDL3::Headers)
 endif()
 
 if(PLUME_D3D12_AGILITY_SDK_ENABLED)
