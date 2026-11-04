@@ -2499,6 +2499,18 @@ bool EndsWithSwap(const Packet& packet) {
   return !packet.records.empty() && std::holds_alternative<SwapRecord>(packet.records.back());
 }
 
+namespace {
+// Once-per-second progress lines while the render thread and the guest agree on the queue;
+// a stall shows which side stopped.
+bool LogSecond() {
+  static thread_local auto last = std::chrono::steady_clock::time_point{};
+  const auto now = std::chrono::steady_clock::now();
+  if (now - last < std::chrono::seconds(1)) return false;
+  last = now;
+  return true;
+}
+}  // namespace
+
 void RenderThread(Renderer* r) {
   for (;;) {
     Packet packet;
@@ -2509,7 +2521,9 @@ void RenderThread(Renderer* r) {
       packet = std::move(r->packets.front());
       r->packets.pop_front();
     }
+    if (LogSecond()) REXGPU_INFO("[gpu] render thread: executing {} records", packet.records.size());
     r->backend.Execute(packet);
+    if (LogSecond()) REXGPU_INFO("[gpu] render thread: done");
     if (EndsWithSwap(packet)) {
       std::lock_guard lock(r->mutex);
       --r->queued_frames;
@@ -2524,6 +2538,9 @@ void RenderThread(Renderer* r) {
 
 void Push(Renderer* r, Packet packet) {
   std::unique_lock lock(r->mutex);
+  if (r->queued_frames >= kMaxQueuedFrames && LogSecond()) {
+    REXGPU_INFO("[gpu] guest blocked: {} frames queued", r->queued_frames);
+  }
   r->guest_cv.wait(lock, [r] { return r->stopping || r->queued_frames < kMaxQueuedFrames; });
   if (r->stopping) return;
   if (EndsWithSwap(packet)) ++r->queued_frames;

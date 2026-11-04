@@ -40,6 +40,28 @@ with XenosRecomp (the compiler ships in the package and the cache lives in the u
 folder). The console shows the lobby screen, with text, avatars and the show sign
 drawn correctly.
 
+The title now runs end to end on the console with the renderer selected and no
+guest fault. What it draws is still wrong, and the measurements below say why.
+
+Two defects remain, both measured on 0.1.183 and 0.1.184:
+
+- Only the flat UI is visible. The plugin draws the lobby as a 3D scene (theatre
+  front, marquee, avatars, full-width bar); the native path draws the bar and the
+  show sign over black. The draw path is reached, 124 shader keys are translated
+  and cached, so the scene's draws are captured but do not reach the frame.
+- The renderer runs at about one frame per second. Each frame is ~1061 records,
+  and the render thread needs a second or more per packet, so the guest spends
+  its time blocked on the two-frame queue. Suspect synchronous first-use pipeline
+  compiles on the draw path (`DrawPipeline(..., wait=true)`) or per-draw pipeline
+  key churn; check before touching anything else, because a slow frame also hides
+  intermediate state from screenshots.
+
+The present itself is correct: the guest submits 880 of the front buffer's 1280
+columns in two resolve passes (0..864, 864..880) and leaves the video scale to the
+XDK scaler, so the present maps that region over the swap chain by widening the
+destination rect. The widening works; the uv push constants of the blit do not
+reach the executed vertex shader, which is why the destination carries the scale.
+
 Open item: the title renders 880 of the front buffer's 1280 columns and leaves the
 video scale to the XDK scaler, which never runs without a GPU. The capture now tracks
 the region its resolves cover and the swap record carries it, but the present still
