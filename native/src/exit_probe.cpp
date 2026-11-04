@@ -6,6 +6,10 @@
 #include <algorithm>
 #include <cstdlib>
 #include <string>
+#include <rex/logging/api.h>
+#if !REX_PLATFORM_WINRT
+#include <SDL3/SDL_messagebox.h>
+#endif
 
 // Player 1's pad state: the runtime's result (SDL/XInput) plus the optional
 // native sources (USB DualSense direct reader, mouse panel; see
@@ -68,6 +72,9 @@ REX_HOOK_RAW(sub_82324738) {
   sub_82324730(ctx, base);
 }
 
+// The Lua error that reached the title's error handler, reported by the terminal path below.
+static thread_local std::string g_lua_error;
+
 REX_HOOK_RAW(sub_82135A98) {
   const auto caller = uint32_t(ctx.lr);
   __imp__sub_82135A98(ctx, base);
@@ -77,13 +84,20 @@ REX_HOOK_RAW(sub_82135A98) {
   }
   if ((caller == 0x8215C010 || caller == 0x8215C17C) && ctx.r3.u32) {
     const char* message = reinterpret_cast<const char*>(base + ctx.r3.u32);
-    REXKRNL_ERROR("Guest Lua terminal error: {}", std::string_view(message, strnlen(message, 1024)));
+    g_lua_error.assign(message, strnlen(message, 1024));
+    REXKRNL_ERROR("Guest Lua terminal error: {}", g_lua_error);
   }
 }
 
-// Preserve the original terminal path.
+// The title's terminal routine waits 6 s and then stores to guest address 0, which the host
+// faults on forever. Report the error and end the process instead.
 REX_HOOK_RAW(sub_82121648) {
-  REXKRNL_ERROR("Guest terminal path: object={:08X}, reason={:08X}, caller={:08X}",
-      ctx.r3.u32, ctx.r4.u32, uint32_t(ctx.lr));
-  __imp__sub_82121648(ctx, base);
+  std::string text = fmt::format("Game error {:08X} (caller {:08X})", ctx.r4.u32, uint32_t(ctx.lr));
+  if (!g_lua_error.empty()) text += ": " + g_lua_error;
+  REXKRNL_ERROR("Guest terminal path: {}", text);
+  rex::FlushLogging();
+#if !REX_PLATFORM_WINRT
+  SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "1 vs 100", text.c_str(), nullptr);
+#endif
+  std::_Exit(1);
 }
