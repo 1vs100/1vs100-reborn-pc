@@ -45,6 +45,10 @@ REX_HOOK_RAW(sub_822F29A8) {
   a.vertex_bytes = (a.count * a.stride) & ~3u;
   a.inline_data = true;
   __imp__sub_822F29A8(ctx, base);
+  // Without the renderer the plugin owns the GPU state and there is nothing to capture.
+  if (!onevs100::render::Enabled()) {
+    return;
+  }
   draw::BeginInline(ctx, base, a, ctx.r3.u32, 0);
 }
 
@@ -65,6 +69,9 @@ REX_HOOK_RAW(sub_822F2E88) {
   const uint32_t pp_index = ctx.r10.u32;
   const uint32_t pp_vertex = Load32(ctx.r1.u32 + 0x54);
   __imp__sub_822F2E88(ctx, base);
+  if (!onevs100::render::Enabled()) {
+    return;
+  }
   const uint32_t index_data = pp_index ? Load32(pp_index) : 0;
   const uint32_t vertex_data = pp_vertex ? Load32(pp_vertex) : 0;
   draw::BeginInline(ctx, base, a, vertex_data, index_data);
@@ -75,6 +82,9 @@ REX_HOOK_RAW(sub_822F2E88) {
 // finishes a pending record as well.
 REX_HOOK_RAW(sub_822F2988) {
   __imp__sub_822F2988(ctx, base);
+  if (!onevs100::render::Enabled()) {
+    return;
+  }
   draw::FinishPending();
 }
 
@@ -82,12 +92,20 @@ REX_HOOK_RAW(sub_822F2988) {
 // Begin, copy the guest's data and finish, so the pending record is closed on
 // both sides of the call.
 REX_HOOK_RAW(sub_822F2E40) {
+  if (!onevs100::render::Enabled()) {
+    __imp__sub_822F2E40(ctx, base);
+    return;
+  }
   draw::FinishPending();
   __imp__sub_822F2E40(ctx, base);
   draw::FinishPending();
 }
 
 REX_HOOK_RAW(sub_822F33A0) {
+  if (!onevs100::render::Enabled()) {
+    __imp__sub_822F33A0(ctx, base);
+    return;
+  }
   draw::FinishPending();
   __imp__sub_822F33A0(ctx, base);
   draw::FinishPending();
@@ -96,6 +114,10 @@ REX_HOOK_RAW(sub_822F33A0) {
 // D3DDevice_DrawVertices 0x822F3440 (pDevice, PrimitiveType, StartVertex,
 // VertexCount).
 REX_HOOK_RAW(sub_822F3440) {
+  if (!onevs100::render::Enabled()) {
+    __imp__sub_822F3440(ctx, base);
+    return;
+  }
   draw::FinishPending();
   draw::DrawArgs a;
   a.device = ctx.r3.u32;
@@ -111,6 +133,10 @@ REX_HOOK_RAW(sub_822F3440) {
 // D3DDevice_DrawIndexedVertices 0x822F3830 (pDevice, PrimitiveType,
 // BaseVertexIndex, StartIndex, IndexCount).
 REX_HOOK_RAW(sub_822F3830) {
+  if (!onevs100::render::Enabled()) {
+    __imp__sub_822F3830(ctx, base);
+    return;
+  }
   draw::FinishPending();
   draw::DrawArgs a;
   a.device = ctx.r3.u32;

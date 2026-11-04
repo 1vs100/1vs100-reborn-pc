@@ -50,6 +50,12 @@ T* Guest(uint32_t address) {
 // r8 is the fence being issued and r7 the tagged ring position; the runtime's own
 // CPU-completion branch publishes the same two words at 0x822D9070.
 void OneVs100FenceIssued(PPCRegister& r7, PPCRegister& r8, PPCRegister& r11) {
+  // The writeback page belongs to the graphics system in use. The plugin owns it when the
+  // renderer is off; when the renderer is on this stand-in has to answer from the first
+  // call, which is before the renderer itself has started.
+  if (!onevs100::render::Enabled()) {
+    return;
+  }
   const auto* device = Guest<const D3DDevice>(r11.u32);
   if (device == nullptr) {
     return;
@@ -69,6 +75,12 @@ void OneVs100FenceIssued(PPCRegister& r7, PPCRegister& r8, PPCRegister& r11) {
 // After the primary write index is stored, 0x822D8D88: the ring has no reader,
 // so its read pointer follows the write index and range waits do not block.
 void OneVs100PrimaryKick(PPCRegister& r11, PPCRegister& r29) {
+  // The writeback page belongs to the graphics system in use. The plugin owns it when the
+  // renderer is off; when the renderer is on this stand-in has to answer from the first
+  // call, which is before the renderer itself has started.
+  if (!onevs100::render::Enabled()) {
+    return;
+  }
   const auto* device = Guest<const D3DDevice>(r29.u32);
   if (device == nullptr) {
     return;
@@ -87,6 +99,12 @@ void OneVs100PrimaryKick(PPCRegister& r11, PPCRegister& r29) {
 // After each add to the outstanding chunk count, 0x822D9120 and 0x822D915C: the
 // GPU would retire the buffers, so the count drops straight back to zero.
 void OneVs100ChunkQueued(PPCRegister& r31) {
+  // The writeback page belongs to the graphics system in use. The plugin owns it when the
+  // renderer is off; when the renderer is on this stand-in has to answer from the first
+  // call, which is before the renderer itself has started.
+  if (!onevs100::render::Enabled()) {
+    return;
+  }
   auto* device = Guest<D3DDevice>(r31.u32);
   if (device == nullptr) {
     return;

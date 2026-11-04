@@ -18,6 +18,8 @@
 #include <rex/ppc/func.h>
 #include <rex/system/kernel_state.h>
 
+#include "render/gpu.h"
+
 REXCVAR_DEFINE_BOOL(render_edge_log, false, "GPU", "Log the guest registers of the D3D edge calls");
 
 namespace onevs100::render::edge {
@@ -124,12 +126,21 @@ using onevs100::render::edge::Observe;
 
 // D3DDevice_SetIndices(pDevice, pIndexData, BaseVertexIndex).
 REX_HOOK_RAW(sub_822E2FB8) {
+  // Without the renderer the plugin owns the GPU state and there is nothing to observe.
+  if (!onevs100::render::Enabled()) {
+    __imp__sub_822E2FB8(ctx, base);
+    return;
+  }
   Observe(onevs100::render::edge::kSetIndices, ctx);
   __imp__sub_822E2FB8(ctx, base);
 }
 
 // D3DDevice_SetScissorRect(pDevice, pRect).
 REX_HOOK_RAW(sub_822E2C88) {
+  if (!onevs100::render::Enabled()) {
+    __imp__sub_822E2C88(ctx, base);
+    return;
+  }
   Observe(onevs100::render::edge::kSetScissor, ctx);
   __imp__sub_822E2C88(ctx, base);
 }
@@ -137,48 +148,80 @@ REX_HOOK_RAW(sub_822E2C88) {
 // D3DDevice_Resolve(pDevice, Flags, pSourceRect, pDestTexture, pDestPoint, DestLevel, DestSliceOrFace,
 // D3DDevice_SetStreamSource(pDevice, StreamNumber, pStreamData, OffsetInBytes, Stride).
 REX_HOOK_RAW(sub_822E2E10) {
+  if (!onevs100::render::Enabled()) {
+    __imp__sub_822E2E10(ctx, base);
+    return;
+  }
   Observe(onevs100::render::edge::kSetStreamSource, ctx);
   __imp__sub_822E2E10(ctx, base);
 }
 
 // D3DDevice_SetViewport(pDevice, pViewport).
 REX_HOOK_RAW(sub_822E3948) {
+  if (!onevs100::render::Enabled()) {
+    __imp__sub_822E3948(ctx, base);
+    return;
+  }
   Observe(onevs100::render::edge::kSetViewport, ctx);
   __imp__sub_822E3948(ctx, base);
 }
 
 // D3DDevice_SetTexture(pDevice, Sampler, pTexture).
 REX_HOOK_RAW(sub_822DFE90) {
+  if (!onevs100::render::Enabled()) {
+    __imp__sub_822DFE90(ctx, base);
+    return;
+  }
   Observe(onevs100::render::edge::kSetTexture, ctx);
   __imp__sub_822DFE90(ctx, base);
 }
 
 // D3DDevice_SetVertexShader(pDevice, pShader).
 REX_HOOK_RAW(sub_822EB5C0) {
+  if (!onevs100::render::Enabled()) {
+    __imp__sub_822EB5C0(ctx, base);
+    return;
+  }
   Observe(onevs100::render::edge::kSetVertexShader, ctx);
   __imp__sub_822EB5C0(ctx, base);
 }
 
 // D3DDevice_SetPixelShader(pDevice, pShader).
 REX_HOOK_RAW(sub_822EB3B8) {
+  if (!onevs100::render::Enabled()) {
+    __imp__sub_822EB3B8(ctx, base);
+    return;
+  }
   Observe(onevs100::render::edge::kSetPixelShader, ctx);
   __imp__sub_822EB3B8(ctx, base);
 }
 
 // D3DDevice_IsBusy(pDevice).
 REX_HOOK_RAW(sub_822D97B8) {
+  if (!onevs100::render::Enabled()) {
+    __imp__sub_822D97B8(ctx, base);
+    return;
+  }
   Observe(onevs100::render::edge::kIsBusy, ctx);
   __imp__sub_822D97B8(ctx, base);
 }
 
 // D3DDevice_IsFencePending(pDevice, FenceValue).
 REX_HOOK_RAW(sub_822D9850) {
+  if (!onevs100::render::Enabled()) {
+    __imp__sub_822D9850(ctx, base);
+    return;
+  }
   Observe(onevs100::render::edge::kIsFencePending, ctx);
   __imp__sub_822D9850(ctx, base);
 }
 
 // D3DDevice_BlockUntilIdle(pDevice).
 REX_HOOK_RAW(sub_822D9AB0) {
+  if (!onevs100::render::Enabled()) {
+    __imp__sub_822D9AB0(ctx, base);
+    return;
+  }
   Observe(onevs100::render::edge::kBlockUntilIdle, ctx);
   __imp__sub_822D9AB0(ctx, base);
 }

@@ -16,6 +16,7 @@
 #include <rex/system/kernel_state.h>
 #include <rex/types.h>
 
+#include "render/gpu.h"
 #include "render/gpu_memory.h"
 #include "render/guest/d3d_device.h"
 
@@ -35,6 +36,10 @@ uint32_t ReferenceCount(uint32_t resource) {
 // D3DDevice_CreateVertexBuffer 0x822DAB10 (Length, Usage, Pool) returns the buffer.
 REX_HOOK_RAW(sub_822DAB10) {
   __imp__sub_822DAB10(ctx, base);
+  // Without the renderer the plugin owns the GPU state and there is nothing to track.
+  if (!onevs100::render::Enabled()) {
+    return;
+  }
   memory::RegisterResource(ctx.r3.u32);
 }
 
@@ -42,12 +47,18 @@ REX_HOOK_RAW(sub_822DAB10) {
 REX_HOOK_RAW(sub_822DAC88) {
   const uint32_t resource = ctx.r3.u32;
   __imp__sub_822DAC88(ctx, base);
+  if (!onevs100::render::Enabled()) {
+    return;
+  }
   memory::DirtyResource(resource);
 }
 
 // D3DDevice_CreateIndexBuffer 0x822DACA8 (Length, Usage, Format, Pool) returns the buffer.
 REX_HOOK_RAW(sub_822DACA8) {
   __imp__sub_822DACA8(ctx, base);
+  if (!onevs100::render::Enabled()) {
+    return;
+  }
   memory::RegisterResource(ctx.r3.u32);
 }
 
@@ -57,6 +68,10 @@ REX_HOOK_RAW(sub_822DACA8) {
 // so the count is read instead, while the header is still valid.
 REX_HOOK_RAW(sub_822DBCA0) {
   const uint32_t resource = ctx.r3.u32;
+  if (!onevs100::render::Enabled()) {
+    __imp__sub_822DBCA0(ctx, base);
+    return;
+  }
   if (resource && ReferenceCount(resource) == 1) memory::DirtyResource(resource);
   __imp__sub_822DBCA0(ctx, base);
 }
@@ -65,6 +80,9 @@ REX_HOOK_RAW(sub_822DBCA0) {
 REX_HOOK_RAW(sub_822DBD20) {
   const uint32_t resource = ctx.r3.u32;
   __imp__sub_822DBD20(ctx, base);
+  if (!onevs100::render::Enabled()) {
+    return;
+  }
   memory::DirtyResource(resource);
 }
 
@@ -72,6 +90,9 @@ REX_HOOK_RAW(sub_822DBD20) {
 REX_HOOK_RAW(sub_822DBE50) {
   const uint32_t resource = ctx.r3.u32;
   __imp__sub_822DBE50(ctx, base);
+  if (!onevs100::render::Enabled()) {
+    return;
+  }
   memory::DirtyResource(resource);
 }
 
@@ -79,12 +100,18 @@ REX_HOOK_RAW(sub_822DBE50) {
 REX_HOOK_RAW(sub_822DEAF8) {
   const uint32_t resource = ctx.r3.u32;
   __imp__sub_822DEAF8(ctx, base);
+  if (!onevs100::render::Enabled()) {
+    return;
+  }
   memory::DirtyResource(resource);
 }
 
 REX_HOOK_RAW(sub_822DEBD0) {
   const uint32_t resource = ctx.r3.u32;
   __imp__sub_822DEBD0(ctx, base);
+  if (!onevs100::render::Enabled()) {
+    return;
+  }
   memory::DirtyResource(resource);
 }
 
@@ -92,6 +119,9 @@ REX_HOOK_RAW(sub_822DEBD0) {
 // Type) returns the texture.
 REX_HOOK_RAW(sub_822DFAF0) {
   __imp__sub_822DFAF0(ctx, base);
+  if (!onevs100::render::Enabled()) {
+    return;
+  }
   memory::RegisterResource(ctx.r3.u32);
 }
 
@@ -101,12 +131,18 @@ REX_HOOK_RAW(sub_822DFAF0) {
 REX_HOOK_RAW(sub_824773F8) {
   const uint32_t resource = ctx.r3.u32;
   __imp__sub_824773F8(ctx, base);
+  if (!onevs100::render::Enabled()) {
+    return;
+  }
   memory::RegisterResource(resource);
 }
 
 REX_HOOK_RAW(sub_82477460) {
   const uint32_t resource = ctx.r3.u32;
   __imp__sub_82477460(ctx, base);
+  if (!onevs100::render::Enabled()) {
+    return;
+  }
   memory::RegisterResource(resource);
 }
 
@@ -117,5 +153,8 @@ REX_HOOK_RAW(sub_82477460) {
 REX_HOOK_RAW(sub_82476D20) {
   const uint32_t texture = *REX_KERNEL_MEMORY()->TranslateVirtual<rex::be<uint32_t>*>(ctx.r1.u32 + 0x58);
   __imp__sub_82476D20(ctx, base);
+  if (!onevs100::render::Enabled()) {
+    return;
+  }
   if (texture) memory::RegisterResource(texture);
 }

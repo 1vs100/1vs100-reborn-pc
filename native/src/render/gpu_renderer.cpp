@@ -1346,18 +1346,30 @@ void Backend::Execute(const SwapRecord& r) {
     }
     if (front) {
       plume::RenderRect fit;
-      if (r.source_rect.right > r.source_rect.left && r.source_rect.bottom > r.source_rect.top) {
-        // The video scaler fills the screen from the region the guest rendered,
-        // which is narrower than the front buffer it resolves into.
-        fit = plume::RenderRect(0, 0, int32_t(bw), int32_t(bh));
-        const plume::RenderRect source(r.source_rect.left, r.source_rect.top, r.source_rect.right,
-                                       r.source_rect.bottom);
-        static std::atomic<uint32_t> traced{0};
+      // The record names guest texels; the blit normalizes by host texels.
+      const int32_t sleft = std::clamp(Scaled(*front, r.source_rect.left), 0, int32_t(front->width));
+      const int32_t stop = std::clamp(Scaled(*front, r.source_rect.top), 0, int32_t(front->height));
+      const int32_t sright = std::clamp(Scaled(*front, r.source_rect.right), sleft, int32_t(front->width));
+      const int32_t sbottom = std::clamp(Scaled(*front, r.source_rect.bottom), stop, int32_t(front->height));
+      static std::atomic<uint32_t> traced{0};
+      if (sright > sleft && sbottom > stop) {
+        // The XDK video scaler fills the screen from the region the guest rendered,
+        // which is narrower than the front buffer it resolves into. The blit maps the
+        // whole texture over the destination rect and the scissor clips the rest, so
+        // the destination is widened and shifted instead of the sample rect narrowed.
+        const float sx = float(bw) / float(sright - sleft);
+        const float sy = float(bh) / float(sbottom - stop);
+        const int32_t left = int32_t(-float(sleft) * sx);
+        const int32_t top = int32_t(-float(stop) * sy);
+        fit = plume::RenderRect(left, top, left + int32_t(float(front->width) * sx),
+                                top + int32_t(float(front->height) * sy));
         if (traced.fetch_add(1, std::memory_order_relaxed) < 3) {
-          REXGPU_INFO("[gpu] present scaled: source {},{},{},{} of {}x{} into {}x{}", source.left,
-                      source.top, source.right, source.bottom, front->width, front->height, bw, bh);
+          REXGPU_INFO("[gpu] present scaled: source {},{},{},{} of {}x{} into {}x{}, dest {},{},{},{}",
+                      sleft, stop, sright, sbottom, front->width, front->height, bw, bh, fit.left, fit.top,
+                      fit.right, fit.bottom);
         }
-        Blit(*front, source, back, back_framebuffer, kSwapChainFormat, fit, 1.0f, true);
+        Blit(*front, plume::RenderRect(0, 0, int32_t(front->width), int32_t(front->height)), back,
+             back_framebuffer, kSwapChainFormat, fit, 1.0f, true);
       } else {
         FitRect(bw, bh, uint32_t(onevs100::render::display::AspectRatio() * 9000.0f + 0.5f), 9000, fit);
         Blit(*front, plume::RenderRect(0, 0, int32_t(front->width), int32_t(front->height)), back,

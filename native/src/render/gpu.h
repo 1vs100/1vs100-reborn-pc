@@ -21,6 +21,12 @@ bool Initialize(plume::RenderWindow window, uint32_t width = 0, uint32_t height 
 // True once the device and swap chain exist.
 bool Initialized();
 
+// True when the renderer was selected for this run, whether or not it has started
+// yet. The edge hooks use this: the renderer starts on the presenting thread after
+// the title has already begun submitting work, so the stand-in for the GPU has to
+// act from the first call, while the plugin path must never be touched.
+bool Enabled();
+
 // Stops the render thread, idles the device and destroys everything in reverse order; safe to call twice.
 void Shutdown();
 
