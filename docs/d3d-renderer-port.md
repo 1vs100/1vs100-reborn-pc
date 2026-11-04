@@ -32,7 +32,24 @@ Draws, clears, resolves and swaps are captured by function hooks on the runtime'
 points, which build records. A render thread executes the records with plume and presents
 at swap.
 
-## Measured state on the console
+## The renderer draws the title
+
+The guest runs with no graphics system, the edge hooks satisfy its waits, the draw
+and resource entry points are captured, and each shader is translated on first use
+with XenosRecomp (the compiler ships in the package and the cache lives in the user
+folder). The console shows the lobby screen, with text, avatars and the show sign
+drawn correctly.
+
+Open item: the title renders 880 of the front buffer's 1280 columns and leaves the
+video scale to the XDK scaler, which never runs without a GPU. The capture now tracks
+the region its resolves cover and the swap record carries it, but the present still
+places that region as if it were the whole front buffer, so the frame shows black
+bars instead of filling the screen. Next step is the swap blit itself: in
+`Backend::Execute(const SwapRecord&)` the source rect branch must reach `Blit` with
+the full back buffer as the destination, and the result compared against the
+`record swap ... scaler=0,0,880,720` log line.
+
+## Measured state at the port
 
 - The ported renderer starts: device and swap chain come up on `SraKmd_arden`.
   `native/src/render/`, commit `c4e4f49`.
