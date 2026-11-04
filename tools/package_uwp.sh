@@ -38,6 +38,11 @@ mkdir -p "$layout/Logos"
 
 cp "$build_dir"/onevs100.exe "$build_dir"/rexruntime.dll "$build_dir"/rexgpu-xenos.dll \
   "$build_dir"/SDL3.dll "$layout/"
+# The native renderer translates shader microcode at run time, so the compiler
+# ships in the package; a packaged app cannot load these from the system.
+if [ -f "$build_dir/dxcompiler.dll" ]; then
+  cp "$build_dir"/dxcompiler.dll "$build_dir"/dxil.dll "$layout/"
+fi
 cp "$script_dir/uwp/AppxManifest.xml" "$layout/"
 # Same config as the desktop archives; copied to LocalState on first run.
 cp "$script_dir/../package/onevs100.toml" "$layout/"

@@ -1105,8 +1105,48 @@ void Backend::Blit(HostResource& source, const plume::RenderRect& source_rect, p
   list->drawInstanced(3, 1, 0, 0);
 }
 
+#if defined(_WIN32)
+namespace {
+
+int LogSehRecord(EXCEPTION_POINTERS* info) {
+  const auto* fault = info->ExceptionRecord;
+  REXGPU_ERROR("[gpu] record execution raised SEH code={:08X} address={:016X}",
+               static_cast<uint32_t>(fault->ExceptionCode),
+               reinterpret_cast<uintptr_t>(fault->ExceptionAddress));
+  return EXCEPTION_EXECUTE_HANDLER;
+}
+
+}  // namespace
+#endif
+
 void Backend::Execute(Record& record) {
+  // A record kind that faults would otherwise take the title down silently.
+  static std::atomic<uint32_t> traced{0};
+  if (traced.fetch_add(1, std::memory_order_relaxed) < 24) {
+    std::visit(
+        [](auto& r) {
+          using T = std::decay_t<decltype(r)>;
+          if constexpr (std::is_same_v<T, ClearRecord>) {
+            REXGPU_INFO("[gpu] record clear targets={} depth={}", r.color[0].id != 0, r.clear_depth);
+          } else if constexpr (std::is_same_v<T, ResolveRecord>) {
+            REXGPU_INFO("[gpu] record resolve src={} dst={}", r.source.id, r.dest.id);
+          } else if constexpr (std::is_same_v<T, SwapRecord>) {
+            REXGPU_INFO("[gpu] record swap front={} frame={}", r.front.id, r.frame);
+          } else if constexpr (std::is_same_v<T, DrawRecord>) {
+            REXGPU_INFO("[gpu] record draw indexed={} count={}", r.indexed, r.count);
+          }
+        },
+        record);
+  }
+#if defined(_WIN32)
+  __try {
+    std::visit([this](auto& r) { Execute(r); }, record);
+  } __except (LogSehRecord(GetExceptionInformation())) {
+    return;
+  }
+#else
   std::visit([this](auto& r) { Execute(r); }, record);
+#endif
 }
 
 // Guest rects to host texels of the target, clipped to it.

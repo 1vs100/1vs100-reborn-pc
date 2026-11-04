@@ -13,6 +13,16 @@
 #include <unordered_set>
 #include <utility>
 
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 #include <rex/cvar.h>
 #include <rex/graphics/format/ucode.h>
 #include <rex/graphics/registers.h>
@@ -1459,8 +1469,35 @@ void FinishInline() {
   Submit(std::move(r));
 }
 
+}  // namespace
+
+#if defined(_WIN32)
+// The capture reads guest structures that differ between XDK build versions, so
+// a fault is reported rather than taking the title down mid-frame.
+int LogSehCapture(EXCEPTION_POINTERS* info) {
+  const auto* fault = info->ExceptionRecord;
+  REXGPU_ERROR("[gpu] draw capture raised SEH code={:08X} address={:016X}",
+               static_cast<uint32_t>(fault->ExceptionCode),
+               reinterpret_cast<uintptr_t>(fault->ExceptionAddress));
+  return EXCEPTION_EXECUTE_HANDLER;
+}
+#endif
+
+namespace {
+
+bool FirstDraw() {
+  static std::atomic<bool> seen{false};
+  return !seen.exchange(true);
+}
+
+}  // namespace
+
 void Capture(PPCContext& ctx, uint8_t* base, const DrawArgs& a) {
   if (!REXCVAR_GET(gpu_draws) || !a.count) return;
+  if (FirstDraw()) {
+    REXGPU_INFO("[gpu] first draw: type={} indexed={} count={} start={} device={:08X}", int(a.type),
+                a.indexed, a.count, a.start, a.device);
+  }
   if (cmdbuf::Recording(a.device)) {
     cmdbuf::RecordDraw(a);
     return;
@@ -1470,7 +1507,12 @@ void Capture(PPCContext& ctx, uint8_t* base, const DrawArgs& a) {
   if (Build(ctx, base, a, r, Guest<D3DDevice>(a.device)) && r.constants) Submit(std::move(r));
 }
 
-void BeginInline(PPCContext& ctx, uint8_t* base, const DrawArgs& a, uint32_t vertex_data, uint32_t index_data) {
+void BeginInline(PPCContext& ctx, uint8_t* base, const DrawArgs& a, uint32_t vertex_data,
+                 uint32_t index_data) {
+  if (FirstDraw()) {
+    REXGPU_INFO("[gpu] first inline draw: type={} indexed={} count={} stride={} vertices={:08X} indices={:08X}",
+                int(a.type), a.indexed, a.count, a.stride, vertex_data, index_data);
+  }
   FinishInline();
   if (cmdbuf::Recording(a.device)) {
     cmdbuf::RecordDraw(a);
@@ -1484,10 +1526,17 @@ void BeginInline(PPCContext& ctx, uint8_t* base, const DrawArgs& a, uint32_t ver
   p.index_data = index_data;
   if (!REXCVAR_GET(gpu_draws) || !a.count || !vertex_data) return;
   std::lock_guard lock(g_mutex);
+#if defined(_WIN32)
+  __try {
+    p.valid = Build(ctx, base, a, p.record, Guest<D3DDevice>(a.device)) && p.record.constants;
+  } __except (LogSehCapture(GetExceptionInformation())) {
+    p.valid = false;
+    return;
+  }
+#else
   p.valid = Build(ctx, base, a, p.record, Guest<D3DDevice>(a.device)) && p.record.constants;
+#endif
 }
-
-}  // namespace
 
 void FinishPending() { FinishInline(); }
 

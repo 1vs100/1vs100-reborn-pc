@@ -17,6 +17,16 @@
 
 #include <xenosrecomp.h>
 
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 #include <rex/cvar.h>
 #include <rex/filesystem.h>
 #include <rex/graphics/format/ucode.h>
@@ -97,6 +107,25 @@ class Source {
   bool uses_fp2 = false;  // keyed by the fp2 fingerprint instead of the runtime microcode hash
   uint64_t identity = 0;
   fs::path sidecar_dir;
+};
+
+// No pack: the translator derives everything it needs from the microcode, so
+// every shader is translated on first use and cached on disk afterwards.
+class RuntimeSource : public Source {
+ public:
+  RuntimeSource() {
+    abi.system_size = xenosrecomp::kB0Size;
+    abi.vfetch_table = false;  // the layout records are literals inside the translated shader
+    abi.texture_heap = xenosrecomp::kTextureHeap;
+    abi.texture_clamp = xenosrecomp::kTextureHeap - 1;
+    abi.sampler_heap = xenosrecomp::kSamplerHeap;
+    abi.shared_mem_size = xenosrecomp::kSharedMemSize;
+    name = "runtime translation";
+    uses_fp2 = true;
+  }
+
+  const ShaderEntry* Find(ShaderStage, uint64_t) override { return nullptr; }
+  const ShaderEntry* Builtin(const std::string&) override { return nullptr; }
 };
 
 // shaderpack/manifest.csv plus <hash>.<vs|ps|vst>.dxil; files load on first use.
@@ -302,8 +331,21 @@ bool LoadShaderPack() {
       return true;
     }
   }
-  REXGPU_ERROR("[gpu] no usable shader pack ({}); every draw is a pack miss", wanted);
-  return false;
+  // No pack: translate on demand. Slower on the first use of each shader, and
+  // the disk cache carries the results across runs.
+  REXGPU_WARN("[gpu] no usable shader pack ({}); translating each shader on first use", wanted);
+#if defined(_WIN32)
+  // Translation loads these two beside the executable; a packaged app that
+  // cannot load them dies on the first shader, so probe once and say so.
+  const HMODULE dxc = LoadLibraryW(L"dxcompiler.dll");
+  const DWORD dxc_error = dxc ? 0 : GetLastError();
+  const HMODULE dxil = LoadLibraryW(L"dxil.dll");
+  const DWORD dxil_error = dxil ? 0 : GetLastError();
+  REXGPU_INFO("[gpu] translation libraries: dxcompiler {} (error {}), dxil {} (error {})",
+              dxc ? "loaded" : "missing", dxc_error, dxil ? "loaded" : "missing", dxil_error);
+#endif
+  g_source = std::make_unique<RuntimeSource>();
+  return true;
 }
 
 const PackAbi& ShaderPackAbi() { return g_source ? g_source->abi : g_default_abi; }
@@ -389,11 +431,31 @@ std::mutex g_fallback_mutex;
 std::unordered_map<uint64_t, std::unique_ptr<ShaderEntry>> g_fallback;  // (stage, fp2) -> entry, null = failed
 uint32_t g_fallback_id = 0x40000000;
 
+#if defined(_WIN32)
+// Translation runs DXC in-process; a structured exception there would take the
+// whole title down, so it is reported instead.
+int LogSehTranslation(EXCEPTION_POINTERS* info) {
+  const auto* record = info->ExceptionRecord;
+  REXGPU_ERROR("[gpu] translation raised SEH code={:08X} address={:016X}",
+               static_cast<uint32_t>(record->ExceptionCode),
+               reinterpret_cast<uintptr_t>(record->ExceptionAddress));
+  return EXCEPTION_EXECUTE_HANDLER;
+}
+#endif
+
 fs::path CacheRoot() {
   const std::string configured = REXCVAR_GET(gpu_shader_cache_dir);
   if (configured == "none") return {};
   if (!configured.empty()) return fs::path(configured);
-  return rex::filesystem::GetExecutableFolder() / "gpu_shader_cache";
+  // The package folder is read-only on a packaged build, so the cache lives in
+  // the user folder there.
+  const auto folder =
+#if REX_PLATFORM_WINRT
+      rex::filesystem::GetUserFolder();
+#else
+      rex::filesystem::GetExecutableFolder();
+#endif
+  return folder / "gpu_shader_cache";
 }
 
 // The guest words with everything outside the control-flow region and the exec clause slots zeroed, walked the way
@@ -482,7 +544,19 @@ const ShaderEntry* TranslateMiss(ShaderStage stage, uint64_t fp2, std::span<cons
     xenosrecomp::TranslateInput in;
     in.stage = xstage;
     in.ucode = words;
-    const auto result = xenosrecomp::Translate(in);
+    REXGPU_INFO("[gpu] translating {} fp2={:016X} dwords={}",
+                stage == ShaderStage::kPixel ? "ps" : "vs", fp2, words.size());
+    xenosrecomp::TranslateResult result;
+#if defined(_WIN32)
+    __try {
+      result = xenosrecomp::Translate(in);
+    } __except (LogSehTranslation(GetExceptionInformation())) {
+      g_fallback[key] = nullptr;
+      return nullptr;
+    }
+#else
+    result = xenosrecomp::Translate(in);
+#endif
     if (!result.ok) {
       REXGPU_ERROR("[gpu] runtime translation of {} fp2={:016X} failed: {}",
                    stage == ShaderStage::kPixel ? "ps" : "vs", fp2, result.error);
@@ -490,6 +564,9 @@ const ShaderEntry* TranslateMiss(ShaderStage stage, uint64_t fp2, std::span<cons
       return nullptr;
     }
     e->dxil = result.dxil, e->dxil_trim = result.dxil_trim;
+    REXGPU_INFO("[gpu] translated {} fp2={:016X} dxil={} B trim={} B",
+                stage == ShaderStage::kPixel ? "ps" : "vs", fp2, e->dxil.size(),
+                e->dxil_trim.size());
     FillEntry(*e, result.reflection);
     if (!dir.empty()) {
       std::error_code ec;

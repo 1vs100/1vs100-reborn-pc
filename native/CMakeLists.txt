@@ -167,6 +167,8 @@ if(WIN32)
         src/render/display_settings.cpp
         src/render/settings.cpp
         src/render/edge.cpp
+        src/render/edge_draw.cpp
+        src/render/edge_memory.cpp
         src/render/edge_watch.cpp
         src/render/gpu_capture.cpp
         src/render/gpu_cmdbuf.cpp

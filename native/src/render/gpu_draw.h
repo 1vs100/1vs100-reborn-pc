@@ -43,6 +43,17 @@ VsSnapshot SnapshotVs(const guest::D3DDevice* device);
 void FinishPreparation(Packet& packet);
 
 // Builds and submits a draw from `device`, a merged copy of a recorded and a live device struct; a.device names the
+// Guest thread: submits the draw the runtime just built for these arguments.
+void Capture(PPCContext& ctx, uint8_t* base, const DrawArgs& a);
+
+// Guest thread: Begin*Vertices returned the guest buffer the title fills next;
+// vertex_data and index_data are those guest addresses, 0 when unused.
+void BeginInline(PPCContext& ctx, uint8_t* base, const DrawArgs& a, uint32_t vertex_data,
+                 uint32_t index_data);
+
+// Guest thread: submits a started inline draw whose End the title inlined.
+void FinishPending();
+
 // device whose shader cache and blend overrides apply. Inline (Begin/UP) draws are not replayed.
 void Replay(PPCContext& ctx, uint8_t* base, const DrawArgs& a, const guest::D3DDevice* device, const VsSnapshot& vs);
 

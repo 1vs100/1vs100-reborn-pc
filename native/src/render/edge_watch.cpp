@@ -122,12 +122,6 @@ using onevs100::render::edge::kSetViewport;
 using onevs100::render::edge::kSwap;
 using onevs100::render::edge::Observe;
 
-// D3DDevice_BeginVertices(pDevice, PrimitiveType, VertexCount, VertexStreamZeroStride).
-REX_HOOK_RAW(sub_822F29A8) {
-  Observe(onevs100::render::edge::kBeginVertices, ctx);
-  __imp__sub_822F29A8(ctx, base);
-}
-
 // D3DDevice_SetIndices(pDevice, pIndexData, BaseVertexIndex).
 REX_HOOK_RAW(sub_822E2FB8) {
   Observe(onevs100::render::edge::kSetIndices, ctx);
@@ -141,18 +135,6 @@ REX_HOOK_RAW(sub_822E2C88) {
 }
 
 // D3DDevice_Resolve(pDevice, Flags, pSourceRect, pDestTexture, pDestPoint, DestLevel, DestSliceOrFace,
-// D3DDevice_DrawIndexedVertices(pDevice, PrimitiveType, BaseVertexIndex, StartIndex, IndexCount).
-REX_HOOK_RAW(sub_822F3830) {
-  Observe(onevs100::render::edge::kDrawIndexedVertices, ctx);
-  __imp__sub_822F3830(ctx, base);
-}
-
-// D3DDevice_DrawVertices(pDevice, PrimitiveType, StartVertex, VertexCount).
-REX_HOOK_RAW(sub_822F3440) {
-  Observe(onevs100::render::edge::kDrawVertices, ctx);
-  __imp__sub_822F3440(ctx, base);
-}
-
 // D3DDevice_SetStreamSource(pDevice, StreamNumber, pStreamData, OffsetInBytes, Stride).
 REX_HOOK_RAW(sub_822E2E10) {
   Observe(onevs100::render::edge::kSetStreamSource, ctx);
