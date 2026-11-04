@@ -7,7 +7,7 @@
        picker-granted access). Verified on console: both caps together
        launch fine (0.1.88.0, HTTP 200) — the earlier 0.1.0.0 failure was
        a stale post-uninstall state, not the capabilities. -->
-  <Identity Name="OneVs100.Native" Publisher="CN=OneVs100 Test" Version="0.1.197.0" ProcessorArchitecture="x64"/>
+  <Identity Name="OneVs100.Native" Publisher="CN=OneVs100 Test" Version="0.1.262.0" ProcessorArchitecture="x64"/>
   <Properties>
     <DisplayName>1 vs 100</DisplayName>
     <PublisherDisplayName>1vs100</PublisherDisplayName>

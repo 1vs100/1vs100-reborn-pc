@@ -31,6 +31,13 @@ struct GuestTextureDesc {
   bool expand = false;        // per-component conversion to float (signs, gamma, packed or depth formats)
 };
 
+// SetTexture(n, NULL) clears only the type bits of the fetch constant, and the hardware samples it anyway. The title
+// relies on that: an effect commit unbinds sampler 0 after the post passes set their source on it directly.
+inline bool SamplesAsTexture(rex::graphics::xenos::FetchConstantType type) {
+  return type == rex::graphics::xenos::FetchConstantType::kTexture ||
+         type == rex::graphics::xenos::FetchConstantType::kInvalidTexture;
+}
+
 // False for dimensions or formats the decoder does not handle; the reason is logged once per format.
 bool DescribeTexture(const rex::graphics::xenos::xe_gpu_texture_fetch_t& fetch, GuestTextureDesc& out);
 

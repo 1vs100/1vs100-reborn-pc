@@ -489,7 +489,7 @@ bool DescribeTexture(const xenos::xe_gpu_texture_fetch_t& fetch, GuestTextureDes
 bool TextureMemory(const xenos::xe_gpu_texture_fetch_t& fetch, uint32_t& base, uint32_t& base_size, uint32_t& mip,
                    uint32_t& mip_size) {
   base = base_size = mip = mip_size = 0;
-  if (fetch.type != xenos::FetchConstantType::kTexture) return false;
+  if (!SamplesAsTexture(fetch.type)) return false;
   if (fetch.dimension == xenos::DataDimension::k1D) return false;
   uint32_t w1, h1, d1, base_page, mip_page, mip_min, mip_max;
   texture_util::GetSubresourcesFromFetchConstant(fetch, &w1, &h1, &d1, &base_page, &mip_page, &mip_min, &mip_max);

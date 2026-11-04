@@ -520,7 +520,7 @@ TextureBinding BindTexture(const D3DDevice* device, const PackBinding& b, uint8_
   xenos::xe_gpu_texture_fetch_t f;
   const auto group = device->m_Constants.Fetch[b.fetch_constant & 31].get();
   std::memcpy(&f, &group, sizeof(f));
-  if (f.type != xenos::FetchConstantType::kTexture) return out;
+  if (!SamplesAsTexture(f.type) || !f.base_address) return out;
   BindingSlotCache& cache = g_binding_cache[b.fetch_constant & 31];
   const uint64_t overrides = BindingOverrides(b);
   const uint32_t epoch = tracker::ResolveEpoch();
