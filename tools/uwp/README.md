@@ -25,7 +25,7 @@ The prefix is an install tree with `bin/SDL3.dll` and `lib/SDL3.lib` at its root
 
 ## Manifest
 
-`package/manifest.txt` is the single file list for both this onboarding and the desktop launcher's Files tab. Lines are `<sha256-hex> <size> <kind> <relative/path>`, with paths relative to the user-data root (`content/...`, `avatar-content/...`).
+`package/manifest.txt` is the single file list for both this onboarding and the desktop launcher's Files tab. Lines are `<sha256-hex> <size> <kind> <relative/path>`, with paths relative to the user-data root (`content/...`).
 
 Content packages are named `<content id>58`, the name the game looks for. Edit the file by hand and keep it identical to the table in the 1vs100-reborn-x360 INSTALL.md. It is embedded in the UWP build and shipped in the desktop release archives for the launcher.
 

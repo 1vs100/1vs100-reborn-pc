@@ -2,8 +2,7 @@
 #include "native_bridge.h"
 #include "local_avatar.h"
 #include "../local_profile.h"
-#include <rex/cvar.h>
-#include <rex/filesystem.h>
+#include "../content_install.h"
 #include <rex/hook.h>
 #include <rex/platform.h>
 #include <rex/system/kernel_state.h>
@@ -21,28 +20,15 @@ static_assert(xe::kernel::NativeAvatarHostOffset(0xFDD6E000u)==rex::memory::deta
 using xe::kernel::NativeAvatarGuest;
 namespace a=xe::kernel::xna::avatar;
 namespace xa=xe::kernel::xam;
-REXCVAR_DEFINE_STRING(native_avatar_content, "", "Avatar",
-                      "Avatar asset content root (folder holding 0000000000000000)");
-std::filesystem::path NativeAvatarContentPath() {
-  if (const char* p = std::getenv("ONEVS100_NATIVE_AVATAR_CONTENT"); p && *p) return p;
-  std::filesystem::path path = REXCVAR_GET(native_avatar_content);
-#if REX_PLATFORM_WINRT
-  // The install folder is read-only; avatar assets live in LocalState,
-  // where the first-run onboarding puts them.
-  if (path.empty()) path = "avatar-content";
-  if (path.is_relative()) path = rex::filesystem::GetUserFolder() / path;
-  std::error_code error;
-  if (!std::filesystem::exists(path, error)) return {};
-#else
-  if (!path.empty() && path.is_relative()) path = rex::filesystem::GetExecutableFolder() / path;
-#endif
-  return path;
+std::optional<std::filesystem::path> NativeAvatarPack() {
+  static const std::optional<std::filesystem::path> pack = FindAvatarPack();
+  return pack;
 }
-bool NativeAvatarEnabled() { return !NativeAvatarContentPath().empty(); }
+bool NativeAvatarEnabled() { return NativeAvatarPack().has_value(); }
 namespace xe::kernel::xna {
 avatar::Catalog* XnaAvatarCatalog() {
-  const std::filesystem::path path = NativeAvatarContentPath();
-  return path.empty() ? nullptr : avatar::SharedCatalog(path);
+  const auto pack = NativeAvatarPack();
+  return pack ? avatar::SharedCatalog(*pack) : nullptr;
 }
 }
 namespace {

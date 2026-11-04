@@ -2565,48 +2565,18 @@ bool ReadStfsFile(const std::filesystem::path& package, const char* name,
   return true;
 }
 
-// The AvatarAssetPack.toc, either as a bare file or extracted from the STFS
-// container that Dashboard content keeps it in. content_root is a bare .toc
-// path when it names a file, else the content folder holding
-// .../FFFE07DF00000002/AvatarAssetPack.toc or the FFFE07DF00000002 node
-// itself as the STFS container.
-bool ReadAvatarTocBytes(const std::filesystem::path& content_root,
-                        std::vector<uint8_t>* out) {
-  std::error_code error;
-  if (std::filesystem::is_regular_file(content_root, error)) {
-    if (HasStfsMagic(content_root)) {
-      return ReadStfsFile(content_root, "AvatarAssetPack.toc", out);
-    }
-    return ReadRawFile(content_root, out);
-  }
-  const std::filesystem::path toc = CatalogPath(content_root);
-  if (std::filesystem::is_regular_file(toc, error)) {
-    return ReadRawFile(toc, out);
-  }
-  // Unextracted tree: the FFFE07DF00000002 node is the container file.
-  if (std::filesystem::is_regular_file(toc.parent_path(), error) &&
-      HasStfsMagic(toc.parent_path())) {
-    return ReadStfsFile(toc.parent_path(), "AvatarAssetPack.toc", out);
-  }
-  // Bare container staged straight under the content root.
-  const std::filesystem::path package = content_root / "FFFE07DF00000002";
-  if (std::filesystem::is_regular_file(package, error) &&
-      HasStfsMagic(package)) {
-    return ReadStfsFile(package, "AvatarAssetPack.toc", out);
-  }
-  return false;
+// The pack table as a bare AvatarAssetPack.toc or inside its STFS package.
+bool ReadAvatarTocBytes(const std::filesystem::path& pack, std::vector<uint8_t>* out) {
+  if (HasStfsMagic(pack)) return ReadStfsFile(pack, "AvatarAssetPack.toc", out);
+  return ReadRawFile(pack, out);
 }
 }  // namespace
-std::filesystem::path CatalogPath(const std::filesystem::path& content_root) {
-  return content_root / "0000000000000000" / "FFFE07DF" / "00008000" /
-         "FFFE07DF00000002" / "AvatarAssetPack.toc";
-}
 
 namespace {
 size_t closet_items = 0;
 }
 
-Catalog* SharedCatalog(const std::filesystem::path& content_root) {
+Catalog* SharedCatalog(const std::filesystem::path& pack) {
   static std::mutex mutex;
   static std::unique_ptr<Catalog> catalog;
   static std::chrono::steady_clock::time_point last_attempt;
@@ -2622,8 +2592,8 @@ Catalog* SharedCatalog(const std::filesystem::path& content_root) {
   attempted = true;
   last_attempt = now;
   std::vector<uint8_t> toc;
-  if (!ReadAvatarTocBytes(content_root, &toc)) {
-    REXKRNL_WARN("Avatar: no pack table under {}", content_root.string());
+  if (!ReadAvatarTocBytes(pack, &toc)) {
+    REXKRNL_WARN("Avatar: no pack table in {}", pack.string());
     return nullptr;
   }
   auto loaded = std::make_unique<Catalog>();

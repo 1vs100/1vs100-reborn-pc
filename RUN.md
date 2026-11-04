@@ -20,11 +20,7 @@ The game connects to the 1vs100.fans server by default. You can change the serve
 
 Make your avatar at [360sona.com](https://360sona.com). Open **My Sonas**, then **Import / Export**, and click **Save the description (.bin)**. Pick that `.bin` file in the launcher.
 
-To show avatars at all, the game needs the avatar asset files from Xbox 360 System Update 17559 ([download](https://archive.org/details/xbox-360-system-update-17559-cd-usb)). Add this line to `onevs100.toml`, with the path to the `FFFE07DF00000002` package or to the folder holding `0000000000000000/FFFE07DF/...`:
-
-```
-native_avatar_content = "/path/to/avatar/content"
-```
+The game also needs the avatar pack table from Xbox 360 System Update 17559 ([download](https://archive.org/details/xbox-360-system-update-17559-cd-usb)). Put `AvatarAssetPack.toc`, or the `FFFE07DF00000002` package that holds it, in the `content` folder with the game packages.
 
 ## Without the launcher
 

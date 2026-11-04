@@ -19,6 +19,7 @@ namespace {
 
 constexpr uint32_t kGameTitleId = 0x584A07D1;
 constexpr uint32_t kGameMediaId = 0x20FFDD23;
+constexpr uint32_t kAvatarTitleId = 0xFFFE07DF;
 
 std::vector<std::filesystem::path> ConfiguredPackages() {
   std::filesystem::path source = REXCVAR_GET(content);
@@ -99,6 +100,16 @@ std::optional<std::filesystem::path> FindGamePackage() {
   REXKRNL_WARN("content: {} title matches, none is a game container; using {}", games.size(),
                games.front().path.filename().string());
   return games.front().path;
+}
+
+std::optional<std::filesystem::path> FindAvatarPack() {
+  for (const auto& file : ConfiguredPackages()) {
+    if (file.filename() == "AvatarAssetPack.toc") return file;
+    auto header = rex::filesystem::StfsContainerDevice::ReadPackageHeader(file);
+    if (header && header->metadata.execution_info.title_id == kAvatarTitleId) return file;
+  }
+  REXKRNL_ERROR("content: no AvatarAssetPack.toc or avatar package in {}", REXCVAR_GET(content));
+  return std::nullopt;
 }
 
 void InstallConfiguredContent() {

@@ -10,6 +10,10 @@ void InstallConfiguredContent();
 // when no unpacked game folder is present.
 std::optional<std::filesystem::path> FindGamePackage();
 
+// The avatar pack table among the content files: AvatarAssetPack.toc itself,
+// or the dashboard avatar package (title FFFE07DF) that holds it.
+std::optional<std::filesystem::path> FindAvatarPack();
+
 // What the content setting resolved to, for "no game files" diagnostics.
 struct ContentScan {
   std::filesystem::path source;

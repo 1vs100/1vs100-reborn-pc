@@ -1,9 +1,8 @@
 #pragma once
 #include "onevs100_init.h"
 #include <filesystem>
-// Avatar asset content root: ONEVS100_NATIVE_AVATAR_CONTENT, else the
-// native_avatar_content setting. Empty when neither is set.
-std::filesystem::path NativeAvatarContentPath();
+#include <optional>
+std::optional<std::filesystem::path> NativeAvatarPack();
 bool NativeAvatarEnabled();
 void NativeAvatarInitialize(PPCContext&,uint8_t*);
 void NativeAvatarSizes(PPCContext&,uint8_t*);

@@ -22,7 +22,6 @@ param([ValidateSet('Offline','LocalHost','LocalJoin','Gameserver')][string]$Mode
       [switch]$NoMods,
       [string]$GameBuildDir='build',
       [string]$AssetsDir='native\assets',
-      [string]$ContentDir='content',
       [string]$ReferenceModsDir='reference-mods',
       [string]$StageRoot='outputs\room',
       [string]$SeedProfilesDir='player-data\profiles')
@@ -170,7 +169,6 @@ if ($Mode -ne 'Gameserver') {
     }
 }
 $log=Join-Path $root ('outputs/diagnostics/native-room-'+$Mode.ToLower()+'-'+(Get-Date -Format yyyyMMdd-HHmmss)+'.log')
-$oldContent=[Environment]::GetEnvironmentVariable('ONEVS100_NATIVE_AVATAR_CONTENT','Process')
 # Extra player-1 input sources in the game (native_controls.cpp).
 $controlVars=@{ONEVS100_DUALSENSE_HID=$(if($DualSenseDirect){'1'}else{$null});ONEVS100_MOUSE_PANEL=$(if($MousePanel){'1'}else{$null})}
 $oldControlVars=@{}
@@ -181,8 +179,6 @@ foreach($key in $sdlHints.Keys) { $oldSdlHints[$key]=[Environment]::GetEnvironme
 try {
     [Environment]::SetEnvironmentVariable('ONEVS100_PLAYER_DATA',$playerData,'Process')
     [Environment]::SetEnvironmentVariable('ONEVS100_PROFILE_SLOT',$(if($profileSlot){$profileSlot}else{$null}),'Process')
-    $avatarContent=Join-Path $root $ContentDir
-    if(Test-Path $avatarContent) { [Environment]::SetEnvironmentVariable('ONEVS100_NATIVE_AVATAR_CONTENT',$avatarContent,'Process') }
     # Launcher Display/Controls options arrive as runtime flags (--fullscreen, --vsync, ...).
     $gameFlags=@($GameArgs -split '\s+' | Where-Object { $_ -match '^--[a-z_]+(=[A-Za-z0-9._-]+)?$' })
     if(-not ($gameFlags -match '^--mnk_mode')) { $gameFlags+='--mnk_mode=true' }
@@ -204,5 +200,4 @@ try {
     foreach($key in $controlVars.Keys) { [Environment]::SetEnvironmentVariable($key,$oldControlVars[$key],'Process') }
     [Environment]::SetEnvironmentVariable('ONEVS100_PLAYER_DATA',$null,'Process')
     [Environment]::SetEnvironmentVariable('ONEVS100_PROFILE_SLOT',$null,'Process')
-    [Environment]::SetEnvironmentVariable('ONEVS100_NATIVE_AVATAR_CONTENT',$oldContent,'Process')
 }

@@ -12,11 +12,11 @@ Decisions (user-confirmed): in-process gate (onboarding runs inside
 ## Done
 
 - Common manifest: `package/manifest.txt` (12 entries, generated 2026-11-03
-  from `build/linux-src/content` + `avatar-content` via
+  from `build/linux-src/content` via
   `tools/uwp/make_manifest.py --store ... --kinds
   tools/uwp/manifest-kinds.txt`). Format: `<sha256> <size> <kind>
   <path>` with kinds `game|launch|show|episode|avatar`; paths are
-  relative to the user-data root (`content/…`, `avatar-content/…`).
+  relative to the user-data root (`content/…`).
   The desktop launcher's Files tab reads the same file (exact name +
   size match, role from kind; header heuristics remain the fallback).
 - Vendored `native/src/uwp_onboarding/` (manifest, net, storage, ui,
@@ -27,9 +27,8 @@ Decisions (user-confirmed): in-process gate (onboarding runs inside
   verifies, own SDL window + loop otherwise, tears SDL down before the
   game starts; never destroys the App, like upstream).
 - Native UWP paths: relative `content` resolves under the user folder
-  (`native/src/content_install.cpp`); `native_avatar_content` defaults to
-  `avatar-content` on UWP and resolves under the user folder, staying
-  empty when the dir is absent (`native/src/avatar_native/native_provider.cpp`).
+  (`native/src/content_install.cpp`); the avatar pack table is found in
+  the same content folder (`FindAvatarPack`).
 - Gate call in `Onevs100App::OnConfigurePaths` (WINRT only), after the
   toml seed. Quitting onboarding falls through to the existing "no game
   files" error.

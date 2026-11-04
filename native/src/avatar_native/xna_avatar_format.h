@@ -418,8 +418,8 @@ int32_t FeatureEntry(const Description& description, uint32_t feature);
 int32_t HeadFeatureForUsage(uint32_t usage);
 int32_t FindAnimation(const Catalog& catalog, const uint8_t* asset_id);
 
-std::filesystem::path CatalogPath(const std::filesystem::path& content_root);
-Catalog* SharedCatalog(const std::filesystem::path& content_root);
+// pack: AvatarAssetPack.toc or the STFS package holding it.
+Catalog* SharedCatalog(const std::filesystem::path& pack);
 // Native PC build: marketplace and award items imported for the Avatar Editor
 // (ONEVS100_AVATAR_CLOSET: <guid>.bin + closet_index.tsv). Each becomes an
 // installed entry through Catalog::AddAsset. SharedCatalog loads the folder

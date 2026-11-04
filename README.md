@@ -25,7 +25,7 @@ The Xbox 360 game 1 vs 100, rebuilt for the PC with the [ReXGlue](https://github
 You need files from your own Xbox 360. This repository ships no game content.
 
 1. Put the 1 vs 100 game files where the executable finds them. Put the untouched game package in the `content/` folder next to the executable (used as-is, no unpacking), or unpack `default.xex` and its media into an `assets/` folder next to the built executable. You can also pass `--game_data_root=<folder>`.
-2. Point the game at your avatar content. Set `ONEVS100_NATIVE_AVATAR_CONTENT` (or the `native_avatar_content` setting) to the content folder holding `0000000000000000/FFFE07DF/...`, to the `AvatarAssetPack.toc` file itself, or to the `FFFE07DF00000002` package from a dashboard system update. Without it the game runs with no avatars. Make yours at [360sona.com](https://360sona.com) (**My Sonas → Import / Export → Save the description (.bin)**) and save it as `profiles/avatar.bin` in the player data folder, otherwise the game builds one from your profile id. The asset files come from Xbox 360 System Update 17559 ([CD + USB download](https://archive.org/details/xbox-360-system-update-17559-cd-usb)).
+2. Put the avatar pack table in the same `content/` folder. Use either `AvatarAssetPack.toc` or the `FFFE07DF00000002` package it comes in. The game needs it to start. Make yours at [360sona.com](https://360sona.com) (**My Sonas → Import / Export → Save the description (.bin)**) and save it as `profiles/avatar.bin` in the player data folder, otherwise the game builds one from your profile id. The asset files come from Xbox 360 System Update 17559 ([CD + USB download](https://archive.org/details/xbox-360-system-update-17559-cd-usb)).
 3. Host voice lines need no copying: with the show package in `content`, the game reads `vo.xwb`/`vo.xsb` from the package itself.
 4. For online play you need the stock retail 2.0.1149.0 game files with their original Lua scripts, plus the show and episode packages. Put these settings in `onevs100.toml` next to the executable:
 ```
@@ -44,7 +44,7 @@ Every setting in `onevs100.toml` also works as a command line flag, for example 
 6. Set your gamertag. On Linux there is no profile window, so write it in `profiles/local-name.txt` in the player data folder. On Windows use `Edit profile`, or pass `--edit_profile` (Windows only). Names take 1-15 characters: letters, numbers, spaces, `_` or `-`, with no leading or trailing space.
 7. The player data folder is `userdata/` next to the executable, whether you run `onevs100` directly or press Launch. A relative `content` path resolves against the executable folder. Give avatar paths as absolute paths.
 
-The game also reads these environment variables: `ONEVS100_NATIVE_AVATAR_CONTENT` (avatar content, or the `native_avatar_content` setting), `ONEVS100_PLAYER_DATA` (player data folder), `ONEVS100_PROFILE_SLOT` (second copy identity), `ONEVS100_PROFILE_XUID` (forced profile id, hex).
+The game also reads these environment variables: `ONEVS100_PLAYER_DATA` (player data folder), `ONEVS100_PROFILE_SLOT` (second copy identity), `ONEVS100_PROFILE_XUID` (forced profile id, hex).
 
 ## Controls and settings
 
@@ -75,7 +75,6 @@ Windows only: `ONEVS100_DUALSENSE_HID=1` reads a USB DualSense directly as a bac
 |---|---|---|
 | `online_service` / `gameserver_host` / `guest_bind_address` | `gameserver` / unset | server play; server host/IP; second copy's bind IP |
 | `content` | `content` | game/show/episode package(s), used in place |
-| `native_avatar_content` | unset | avatar assets, `AvatarAssetPack.toc`, or update package |
 | `fullscreen` | `true` | fullscreen or windowed |
 | `mnk_mode` / `mnk_mouse` / `mnk_sensitivity` / `mnk_passthrough` | off | keyboard-pad emulation (above) |
 | `input_backend` | `sdl` | `sdl` or (Windows) `xinput` |
@@ -83,7 +82,7 @@ Windows only: `ONEVS100_DUALSENSE_HID=1` reads a USB DualSense directly as a bac
 | `audio_backend` | `sdl` | audio driver |
 | `lua_print_log` | `false` | write the title's Lua `print` output to the log |
 
-Environment overrides: `ONEVS100_NATIVE_AVATAR_CONTENT`, `ONEVS100_PLAYER_DATA`, `ONEVS100_PROFILE_SLOT`, `ONEVS100_PROFILE_XUID`, `ONEVS100_DUALSENSE_HID`, `ONEVS100_MOUSE_PANEL`, and `SDL_VIDEO_DRIVER` on Linux. Gamertag and avatar live in `userdata/profiles/` (`local-name.txt`, `avatar.bin`). The remaining `vulkan_*` / `d3d12_*` / `gpu_*` knobs come from the ReXGlue SDK and keep their tested defaults; the debug-show switches (skins, Host Tool, debug menu) live in `lua/NativeDebug.lua` and the dev launcher's Debug tab.
+Environment overrides: `ONEVS100_PLAYER_DATA`, `ONEVS100_PROFILE_SLOT`, `ONEVS100_PROFILE_XUID`, `ONEVS100_DUALSENSE_HID`, `ONEVS100_MOUSE_PANEL`, and `SDL_VIDEO_DRIVER` on Linux. Gamertag and avatar live in `userdata/profiles/` (`local-name.txt`, `avatar.bin`). The remaining `vulkan_*` / `d3d12_*` / `gpu_*` knobs come from the ReXGlue SDK and keep their tested defaults; the debug-show switches (skins, Host Tool, debug menu) live in `lua/NativeDebug.lua` and the dev launcher's Debug tab.
 [docs/gameserver-mode.md](docs/gameserver-mode.md) has the developer details.
 ## Linux notes
 

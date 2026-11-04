@@ -41,9 +41,10 @@ constexpr uint32_t kGameTitleId = 0x584A07D1;
 constexpr uint32_t kGameMediaId = 0x20FFDD23;
 constexpr uint32_t kLaunchTitleId = 0x584A07E4;
 constexpr uint32_t kShowEpisodeTitleId = 0x584A07DC;
-// STFS header fields (big-endian u32): magic "LIVE" at 0, content_type at
+constexpr uint32_t kAvatarTitleId = 0xFFFE07DF;
+// STFS header fields (big-endian u32): magic "LIVE"/"PIRS"/"CON " at 0, content_type at
 // 0x344, media_id at 0x354, title_id at 0x360.
-constexpr uint32_t kStfsMagic = 0x4C495645;
+constexpr uint32_t kStfsLive = 0x4C495645, kStfsPirs = 0x50495253, kStfsCon = 0x434F4E20;
 constexpr size_t kStfsHeaderPeek = 0x400;
 constexpr size_t kStfsContentTypeOff = 0x344;
 constexpr size_t kStfsMediaIdOff = 0x354;
@@ -177,7 +178,6 @@ struct Settings {
   std::string host;
   bool windowed = false;
   std::string content = "content";
-  std::string avatarAssets;
   bool keyboard = false;
   bool mouse_look = false;
 };
@@ -195,7 +195,6 @@ std::expected<Settings, Error> LoadSettings(const fs::path& config) {
   if (auto host = table["gameserver_host"].value<std::string>()) settings.host = *host;
   if (auto fullscreen = table["fullscreen"].value<bool>()) settings.windowed = !*fullscreen;
   if (auto content = table["content"].value<std::string>()) settings.content = *content;
-  if (auto assets = table["native_avatar_content"].value<std::string>()) settings.avatarAssets = *assets;
   if (auto keyboard = table["mnk_mode"].value<bool>()) settings.keyboard = *keyboard;
   if (auto mouse_look = table["mnk_mouse"].value<bool>()) settings.mouse_look = *mouse_look;
   return settings;
@@ -258,7 +257,7 @@ std::expected<void, Error> ImportAvatar(const Paths& paths, const fs::path& sour
   return {};
 }
 
-enum class FileRole { Game, Launch, Show, Episode, ShowEpisode, Other, Invalid };
+enum class FileRole { Game, Launch, Show, Episode, ShowEpisode, Avatar, Other, Invalid };
 
 struct ContentFile {
   std::string name;
@@ -330,11 +329,9 @@ struct FilesCheck {
   size_t showCount = 0;
   size_t episodeCount = 0;
   size_t showEpisodeCount = 0;
-  std::string avatarAssetsSetting;
-  fs::path avatarAssetsPath;
-  bool avatarAssetsOk = false;
+  bool hasAvatar = false;
   bool ok() const {
-    if (!dirOk || !hasGame || !hasLaunch || !avatarAssetsOk) return false;
+    if (!dirOk || !hasGame || !hasLaunch || !hasAvatar) return false;
     if (manifestOk) return showCount > 0 && episodeCount > 0;
     return showEpisodeCount > 0;
   }
@@ -352,7 +349,8 @@ std::optional<std::array<uint32_t, 3>> PeekStfsHeader(const fs::path& file) {
   unsigned char head[kStfsHeaderPeek] = {};
   in.read(reinterpret_cast<char*>(head), sizeof(head));
   if (static_cast<size_t>(in.gcount()) < kStfsTitleIdOff + 4) return std::nullopt;
-  if (ReadBigEndian32(head) != kStfsMagic) return std::nullopt;
+  const uint32_t magic = ReadBigEndian32(head);
+  if (magic != kStfsLive && magic != kStfsPirs && magic != kStfsCon) return std::nullopt;
   return std::array<uint32_t, 3>{ReadBigEndian32(head + kStfsContentTypeOff),
                                  ReadBigEndian32(head + kStfsMediaIdOff),
                                  ReadBigEndian32(head + kStfsTitleIdOff)};
@@ -369,7 +367,25 @@ FileRole ClassifyPackage(uint32_t title, uint32_t media, uint32_t type) {
   if (title == kGameTitleId && (media == kGameMediaId || IsGameContainer(type))) return FileRole::Game;
   if (title == kLaunchTitleId) return FileRole::Launch;
   if (title == kShowEpisodeTitleId) return FileRole::ShowEpisode;
+  if (title == kAvatarTitleId) return FileRole::Avatar;
   return FileRole::Other;
+}
+
+// Same rules as FindAvatarPack in native/src/content_install.cpp.
+ContentFile ClassifyFile(const fs::path& path) {
+  ContentFile file;
+  file.name = PathText(path.filename());
+  file.present = true;
+  if (auto header = PeekStfsHeader(path)) {
+    file.valid = true;
+    file.role = ClassifyPackage((*header)[2], (*header)[1], (*header)[0]);
+  } else if (file.name == "AvatarAssetPack.toc") {
+    file.valid = true;
+    file.role = FileRole::Avatar;
+  } else {
+    file.note = "not a package";
+  }
+  return file;
 }
 
 fs::path ResolveContentDir(const Paths& paths, const std::string& setting) {
@@ -539,7 +555,6 @@ struct App {
   int frames = 0;
   int filesFrame = -1000000;
   std::string contentSetting = "content";
-  std::string avatarAssetsSetting;
   void Report(const Error& error) { status = {Describe(error), true}; }
   void Report(std::string text) { status = {std::move(text), false}; }
 
@@ -555,7 +570,6 @@ struct App {
     SDL_strlcpy(host.data(), settings->host.c_str(), host.size());
     windowed = settings->windowed;
     contentSetting = settings->content;
-    avatarAssetsSetting = settings->avatarAssets;
     keyboard = settings->keyboard;
     mouse_look = settings->mouse_look;
     RefreshFiles(*this);
@@ -567,7 +581,6 @@ struct App {
     out.host = host.data();
     out.windowed = windowed;
     out.content = contentSetting;
-    out.avatarAssets = avatarAssetsSetting;
     out.keyboard = keyboard;
     out.mouse_look = mouse_look;
     return SaveSettings(paths.config, out);
@@ -590,12 +603,12 @@ void RefreshFiles(App& app) {
     check.manifestOk = manifest.has_value();
     if (manifest) {
       for (const auto& entry : *manifest) {
-        if (entry.kind == "avatar") continue;
         ContentFile file;
         file.name = entry.name;
         file.role = entry.kind == "game"    ? FileRole::Game
                     : entry.kind == "launch" ? FileRole::Launch
                     : entry.kind == "show"   ? FileRole::Show
+                    : entry.kind == "avatar" ? FileRole::Avatar
                                              : FileRole::Episode;
         const fs::path full = check.dir / PathFromUtf8(entry.name.c_str());
         std::error_code entryEc;
@@ -604,7 +617,7 @@ void RefreshFiles(App& app) {
           file.note = "not found";
         } else if (fs::file_size(full, entryEc) != entry.size) {
           file.note = "size mismatch (expected " + std::to_string(entry.size) + ")";
-        } else if (!PeekStfsHeader(full)) {
+        } else if (file.role != FileRole::Avatar && !PeekStfsHeader(full)) {
           file.note = "not a package";
         } else {
           file.valid = true;
@@ -623,16 +636,7 @@ void RefreshFiles(App& app) {
             break;
           }
         if (known) continue;
-        ContentFile file;
-        file.name = name;
-        file.present = true;
-        if (auto header = PeekStfsHeader(entry.path())) {
-          file.valid = true;
-          file.role = ClassifyPackage((*header)[2], (*header)[1], (*header)[0]);
-        } else {
-          file.note = "not a package";
-        }
-        check.files.push_back(std::move(file));
+        check.files.push_back(ClassifyFile(entry.path()));
       }
       std::sort(check.files.begin(), check.files.end(), [](const ContentFile& a, const ContentFile& b) {
         if ((a.role == FileRole::Game) != (b.role == FileRole::Game))
@@ -645,16 +649,7 @@ void RefreshFiles(App& app) {
       for (const auto& entry : fs::directory_iterator(check.dir, ec)) {
         std::error_code entryEc;
         if (!entry.is_regular_file(entryEc)) continue;
-        ContentFile file;
-        file.name = PathText(entry.path().filename());
-        file.present = true;
-        if (auto header = PeekStfsHeader(entry.path())) {
-          file.valid = true;
-          file.role = ClassifyPackage((*header)[2], (*header)[1], (*header)[0]);
-        } else {
-          file.note = "not a package";
-        }
-        check.files.push_back(std::move(file));
+        check.files.push_back(ClassifyFile(entry.path()));
       }
       std::sort(check.files.begin(), check.files.end(),
                 [](const ContentFile& a, const ContentFile& b) { return a.name < b.name; });
@@ -666,21 +661,9 @@ void RefreshFiles(App& app) {
       if (file.role == FileRole::Show) ++check.showCount;
       if (file.role == FileRole::Episode) ++check.episodeCount;
       if (file.role == FileRole::ShowEpisode) ++check.showEpisodeCount;
+      if (file.role == FileRole::Avatar) check.hasAvatar = true;
     }
     check.showEpisodeCount += check.showCount + check.episodeCount;
-  }
-  // Avatar assets: the native_avatar_content setting, else the environment
-  // the game itself also reads.
-  check.avatarAssetsSetting = app.avatarAssetsSetting;
-  std::string raw = app.avatarAssetsSetting;
-  if (raw.empty()) {
-    if (const char* env = std::getenv("ONEVS100_NATIVE_AVATAR_CONTENT")) raw = env;
-  }
-  if (!raw.empty()) {
-    fs::path p = PathFromUtf8(raw.c_str());
-    if (p.is_relative()) p = app.paths.base / p;
-    check.avatarAssetsPath = p;
-    check.avatarAssetsOk = fs::is_regular_file(p, ec) || fs::is_directory(p, ec);
   }
   app.files = std::move(check);
 }
@@ -816,6 +799,7 @@ const char* RoleLabel(FileRole role) {
     case FileRole::Show: return "Show pack";
     case FileRole::Episode: return "Episode pack";
     case FileRole::ShowEpisode: return "Show / episode pack";
+    case FileRole::Avatar: return "Avatar pack table";
     case FileRole::Other: return "Other content";
     case FileRole::Invalid: return "Not a package";
   }
@@ -898,13 +882,9 @@ void DrawFilesTab(App& app) {
   drawRole(FileRole::Invalid);
   ImGui::Dummy(ImVec2(0, 6));
   SectionLabel("AVATAR DATA");
-  if (check.avatarAssetsOk) {
-    FileRow(true, "Avatar assets", PathText(check.avatarAssetsPath));
-  } else if (check.avatarAssetsSetting.empty()) {
-    FileRow(false, "Avatar assets", "set native_avatar_content in onevs100.toml");
-  } else {
-    FileRow(false, "Avatar assets", "not found: " + check.avatarAssetsSetting);
-  }
+  drawRole(FileRole::Avatar);
+  if (check.dirOk && !hasRole(FileRole::Avatar))
+    FileRow(false, "Avatar pack table", "add AvatarAssetPack.toc or the FFFE07DF00000002 package");
   ImGui::Dummy(ImVec2(0, 6));
   if (ImGui::Button("Rescan")) RefreshFiles(app);
 }
