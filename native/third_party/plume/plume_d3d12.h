@@ -24,6 +24,11 @@
 #include "D3D12MemAlloc.h"
 
 namespace plume {
+
+    // Diagnostics sink; UWP has no visible stderr.
+    typedef void (*LogSink)(const char *message);
+    void SetLogSink(LogSink sink);
+
     struct D3D12Buffer;
     struct D3D12CommandQueue;
     struct D3D12Device;

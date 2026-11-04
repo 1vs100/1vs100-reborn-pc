@@ -10,10 +10,16 @@
 // window stays a solid colour while native_renderer is on.
 #include "native_gpu/gpu_native.h"
 
+#include "native_gpu/guest_gpu.h"
+
 #include <atomic>
 #include <chrono>
 #include <thread>
 #include <vector>
+
+#if defined(_WIN32)
+#include <windows.h>
+#endif
 
 #include <rex/cvar.h>
 #include <rex/logging.h>
@@ -22,7 +28,6 @@
 #include <rex/ui/window.h>
 #include <rex/ui/windowed_app_context.h>
 #include <rex/platform.h>
-#include <rex/system/gpu_plugin.h>
 
 #if REX_PLATFORM_WINRT
 #include <winrt/windows.foundation.h>
@@ -30,6 +35,7 @@
 #include <winrt/windows.ui.core.h>
 #endif
 
+#include <plume_d3d12.h>
 #include <plume_render_interface.h>
 
 // plume_d3d12.cpp defines this without declaring it in a header.
@@ -39,6 +45,8 @@ std::unique_ptr<RenderInterface> CreateD3D12Interface();
 
 REXCVAR_DEFINE_BOOL(native_renderer, false, "GPU",
                     "Use the title's own D3D12 renderer instead of the xenos plugin (Windows)");
+REXCVAR_DEFINE_BOOL(native_renderer_present, true, "GPU",
+                    "native_renderer: create the swap chain and present (off = guest GPU only)");
 
 namespace onevs100::gpu {
 
@@ -46,6 +54,20 @@ namespace onevs100::gpu {
 using rex::X_STATUS;
 
 namespace {
+
+#if defined(_WIN32)
+// Logs a structured exception instead of letting it kill the process, so a
+// failure inside the GPU backend names its code and address.
+int LogSeh(const char* what, EXCEPTION_POINTERS* info) {
+  const auto* record = info->ExceptionRecord;
+  const uintptr_t address = reinterpret_cast<uintptr_t>(record->ExceptionAddress);
+  const HMODULE base = GetModuleHandleW(nullptr);
+  const uintptr_t offset = address - reinterpret_cast<uintptr_t>(base);
+  REXKRNL_ERROR("native renderer: {} raised SEH code={:08X} address={:016X} (exe+{:X})", what,
+                static_cast<uint32_t>(record->ExceptionCode), address, offset);
+  return EXCEPTION_EXECUTE_HANDLER;
+}
+#endif
 
 using plume::RenderCommandList;
 using plume::RenderCommandQueue;
@@ -76,21 +98,19 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem {
     dispatcher_ = function_dispatcher;
     kernel_state_ = kernel_state;
 
-    // The guest GPU, MMIO and the command processor still come from the xenos
-    // plugin, built headless so it does not touch the window. The renderer here
-    // owns presentation while it grows into the full path.
-    guest_gpu_ = rex::system::LoadGpuPlugin("xenos");
-    if (!guest_gpu_) {
-      REXLOG_ERROR("native renderer: headless xenos plugin failed to load");
+    // The guest GPU is ours: MMIO registers, ring writeback and the vblank
+    // interrupt. The ring is never parsed; draws arrive through the edge hooks.
+    guest_gpu_ = std::make_unique<GuestGpu>();
+    if (!guest_gpu_->Initialize(function_dispatcher, kernel_state)) {
+      REXLOG_ERROR("native renderer: guest GPU setup failed");
+      guest_gpu_.reset();
       return X_STATUS_UNSUCCESSFUL;
     }
-    const X_STATUS guest_status = guest_gpu_->SetupGuestGpu(function_dispatcher, kernel_state);
-    if (XFAILED(guest_status)) {
-      REXLOG_ERROR("native renderer: headless guest GPU setup failed: {:08X}",
-                   static_cast<uint32_t>(guest_status));
-      return guest_status;
-    }
 
+    if (!REXCVAR_GET(native_renderer_present)) {
+      REXKRNL_INFO("native renderer: presentation disabled by native_renderer_present");
+      return X_STATUS_SUCCESS;
+    }
     if (auto* runtime = rex::Runtime::instance()) {
       window_ = runtime->display_window();
     }
@@ -128,9 +148,10 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem {
 
   void InitializeShaderStorage(const std::filesystem::path& cache_root, uint32_t title_id,
                                bool blocking) override {
-    if (guest_gpu_) {
-      guest_gpu_->InitializeShaderStorage(cache_root, title_id, blocking);
-    }
+    // No persistent pipeline cache yet; the renderer compiles what it needs.
+    (void)cache_root;
+    (void)title_id;
+    (void)blocking;
   }
 
   void Shutdown() override {
@@ -159,21 +180,42 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem {
     if (!DescribeWindow(&desc)) {
       return;
     }
+    plume::SetLogSink([](const char* message) { REXKRNL_ERROR("native renderer: {}", message); });
+    REXKRNL_INFO("native renderer: creating D3D12 interface");
     interface_ = plume::CreateD3D12Interface();
     if (!interface_) {
       REXLOG_ERROR("native renderer: no D3D12 interface");
       return;
     }
+    REXKRNL_INFO("native renderer: creating D3D12 device");
+#if defined(_WIN32)
+    __try {
+      device_ = interface_->createDevice();
+    } __except (LogSeh("createDevice", GetExceptionInformation())) {
+      return;
+    }
+#else
     device_ = interface_->createDevice();
+#endif
     if (!device_) {
       REXLOG_ERROR("native renderer: no D3D12 device");
       return;
     }
+    REXKRNL_INFO("native renderer: creating command queue");
+#if defined(_WIN32)
+    __try {
+      queue_ = device_->createCommandQueue(plume::RenderCommandListType::DIRECT);
+    } __except (LogSeh("createCommandQueue", GetExceptionInformation())) {
+      return;
+    }
+#else
     queue_ = device_->createCommandQueue(plume::RenderCommandListType::DIRECT);
+#endif
     if (!queue_) {
       REXLOG_ERROR("native renderer: no command queue");
       return;
     }
+    REXKRNL_INFO("native renderer: creating swap chain {}x{}", desc.width, desc.height);
     swap_chain_ = queue_->createSwapChain(desc);
     if (!swap_chain_ || swap_chain_->isEmpty() || swap_chain_->getTextureCount() == 0) {
       // plume returns the object even when the swap chain creation failed.
@@ -321,7 +363,7 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem {
   uint32_t ring_read_ptr_ = 0;
   uint32_t ring_block_size_log2_ = 0;
 
-  std::unique_ptr<rex::system::IGraphicsSystem> guest_gpu_;
+  std::unique_ptr<GuestGpu> guest_gpu_;
   std::unique_ptr<RenderInterface> interface_;
   std::unique_ptr<RenderDevice> device_;
   std::unique_ptr<RenderCommandQueue> queue_;

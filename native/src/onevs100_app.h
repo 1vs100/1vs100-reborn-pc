@@ -20,6 +20,8 @@
 #include <rex/system/kernel_state.h>
 #ifdef _WIN32
 #include "audio_xaudio2.h"
+#endif
+#if ONEVS100_NATIVE_GPU
 #include "native_gpu/gpu_native.h"
 #endif
 #if REX_PLATFORM_WINRT
@@ -46,10 +48,12 @@ class Onevs100App : public rex::ReXApp {
     config.gpu_plugin = "xenos";
 #ifdef _WIN32
     config.audio_factory = REX_AUDIO_BACKEND(xaudio2::XAudio2AudioSystem);
-    if (rex::cvar::GetFlagSource("native_renderer") != rex::cvar::Source::kDefault) {
+#if ONEVS100_NATIVE_GPU
+    if (rex::cvar::Query<bool>("native_renderer")) {
       config.graphics = onevs100::gpu::CreateNativeGraphicsSystem();
       config.gpu_plugin.clear();
     }
+#endif
 #endif
   }
   void OnConfigurePaths(rex::PathConfig& paths) override {

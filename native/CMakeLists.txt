@@ -50,7 +50,6 @@ set(ONEVS100_SOURCES
     src/platform_compat.cpp
     src/round_even.cpp
     src/jpeg_probe.cpp
-    src/io_probe.cpp
     src/gpu_probe.cpp
     src/xma_kick.cpp
     src/jump_hooks.cpp
@@ -154,17 +153,30 @@ rexglue_setup_target(onevs100 GPU_PLUGINS xenos)
 
 # The title's own D3D12 renderer. It replaces the xenos plugin when the
 # native_renderer setting is on; see native/src/native_gpu/. UWP is the target
-# that can be tested on the console.
+# that can be tested on the console, so it compiles there too.
+set(PLUME_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 if(WIN32)
-    set(PLUME_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
     add_subdirectory(third_party/plume plume)
+    target_link_libraries(onevs100 PRIVATE plume)
     if(WINDOWS_STORE)
         # AppContainer has no HWND swap chain; plume takes the CoreWindow path.
         target_compile_definitions(plume PUBLIC PLUME_UWP=1)
     endif()
-    target_sources(onevs100 PRIVATE src/native_gpu/gpu_native.cpp)
+endif()
+if(WIN32)
+    target_sources(onevs100 PRIVATE
+        src/native_gpu/guest_gpu.cpp
+        src/native_gpu/gpu_native.cpp
+    )
     target_include_directories(onevs100 PRIVATE third_party/glm)
-    target_link_libraries(onevs100 PRIVATE plume)
+    # The app shell only offers native_renderer when the renderer is compiled in.
+    target_compile_definitions(onevs100 PRIVATE ONEVS100_NATIVE_GPU=1)
+    if(WINDOWS_STORE)
+        # A package that statically imports d3d12.dll is refused at activation;
+        # the SDK load-libraries it on UWP for the same reason.
+        target_link_options(onevs100 PRIVATE "LINKER:/DELAYLOAD:d3d12.dll")
+        target_link_libraries(onevs100 PRIVATE delayimp)
+    endif()
 endif()
 
 if(WIN32)
