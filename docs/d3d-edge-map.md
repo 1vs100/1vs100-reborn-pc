@@ -55,6 +55,7 @@ ones.
 |---|---|
 | 0x822E74D0 | `D3DDevice_Resolve` |
 | 0x822E5C58 | `D3DDevice_ClearF` |
+| 0x822E5D80 | packed `D3DDevice_Clear` (unnamed; Count=r4, pRects=r5, Flags=r6, color=r7, Z=f1, Stencil=r9) |
 | 0x822DC8B8 | `D3DDevice_FlushHiZStencil` |
 | 0x822F4E58 | `D3D::SimpleSwap` |
 | 0x822F4ED8 | `D3D::ComplexSwap` |
@@ -71,6 +72,7 @@ ones.
 | 0x822D8FA8 | `D3D::CDevice::SetFence` |
 | 0x822F9A88 | `D3DDevice_BeginCommandBuffer` |
 | 0x822FBC20 | `D3DDevice_EndCommandBuffer` |
+| 0x822F8818 | `D3DDevice_SetCommandBufferPredication` |
 | 0x822FBFF8 | `D3DDevice_RunCommandBuffer` |
 | 0x822FDBA8 | `D3D::InitializePresentationParameters` |
 | 0x822FE0B0 | `D3D::InitializeHardwareDevice` |
