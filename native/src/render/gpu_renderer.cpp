@@ -402,6 +402,7 @@ class Backend {
  public:
   bool Create(plume::RenderWindow window, uint32_t width, uint32_t height);
   uint32_t PendingWarmups() const { return warm_pending_.load(std::memory_order_acquire); }
+  size_t DrawPipelineCount() const { return draw_pipelines_.size(); }  // render-thread only: cache keys, not live pipelines
   void Destroy();
   void Execute(Packet& packet);
   void RequestResize() { resize_requested_.store(true, std::memory_order_release); }
@@ -2514,9 +2515,17 @@ void RenderThread(Renderer* r) {
       packet = std::move(r->packets.front());
       r->packets.pop_front();
     }
-    if (LogSecond()) REXGPU_INFO("[gpu] render thread: executing {} records", packet.records.size());
+    static thread_local size_t shown_pipelines = 0;
+    const bool log_now = LogSecond();
+    if (log_now) REXGPU_INFO("[gpu] render thread: executing {} records", packet.records.size());
     r->backend.Execute(packet);
-    if (LogSecond()) REXGPU_INFO("[gpu] render thread: done");
+    if (log_now) {
+      const size_t pipelines = r->backend.DrawPipelineCount();
+      const size_t added = pipelines - shown_pipelines;
+      shown_pipelines = pipelines;
+      REXGPU_INFO("[gpu] render thread: done (pipelines {}, +{} new, warm {})", pipelines, added,
+                  r->backend.PendingWarmups());
+    }
     if (EndsWithSwap(packet)) {
       std::lock_guard lock(r->mutex);
       --r->queued_frames;
