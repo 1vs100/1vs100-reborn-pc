@@ -23,6 +23,7 @@
 #include <plume_render_interface.h>
 
 #include <rex/cvar.h>
+#include <rex/ui/renderdoc_api.h>
 #include <rex/graphics/registers.h>
 #include <rex/graphics/xenos.h>
 #include <rex/hash.h>
@@ -70,6 +71,8 @@ REXCVAR_DEFINE_BOOL(gpu_force_dxbc, false, "GPU",
                     "Use the shader model 5.1 path (DXBC) on D3D12 devices that also take DXIL");
 REXCVAR_DEFINE_BOOL(gpu_async_pipelines, true, "GPU",
                     "Compile frame pipelines ahead on workers and wait before drawing with an unfinished pipeline");
+REXCVAR_DEFINE_INT32(gpu_renderdoc_capture_frame, 0, "GPU",
+                     "Under RenderDoc, capture the frame presented after this many presents; 0 captures none");
 REXCVAR_DEFINE_BOOL(gpu_vsync, true, "GPU", "Wait for vblank on present; the Swap hook paces to 60 Hz either way");
 
 namespace plume {
@@ -623,6 +626,7 @@ class Backend {
   std::map<std::array<uint32_t, 5>, std::unique_ptr<plume::RenderFramebuffer>> draw_framebuffers_;
 
   std::atomic<bool> resize_requested_{false};
+  std::unique_ptr<rex::ui::RenderDocAPI> renderdoc_ = rex::ui::RenderDocAPI::CreateIfConnected();
 };
 
 std::mutex g_font_mutex;
@@ -1464,6 +1468,10 @@ void Backend::Execute(const SwapRecord& r) {
   slot_ = (slot_ + 1) % kFramesInFlight;
   NotifyOverlayPresented();
   ++frame_counter_;
+  if (renderdoc_ && frame_counter_ == uint64_t(REXCVAR_GET(gpu_renderdoc_capture_frame))) {
+    renderdoc_->api_1_0_0()->TriggerCapture();
+    REXGPU_INFO("[gpu] RenderDoc capture requested at present {}", frame_counter_);
+  }
   // A frame's persistent frees are safe once every slot has cycled past it.
   if (frame_counter_ > kFramesInFlight) persistent_.Retire(frame_counter_ - kFramesInFlight - 1);
   ResizeTargets(uint32_t(onevs100::render::display::ResolutionScale()), uint32_t(onevs100::render::display::ShadowScale()));

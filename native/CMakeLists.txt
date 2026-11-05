@@ -185,7 +185,7 @@ target_include_directories(onevs100 PRIVATE src)
 # A development build may read the shader pack from the source tree.
 target_compile_definitions(onevs100 PRIVATE
     "ONEVS100_SOURCE_DIR=\"${CMAKE_SOURCE_DIR}\"")
-target_include_directories(onevs100 PRIVATE third_party/glm)
+target_include_directories(onevs100 PRIVATE third_party/glm "${REXSDK_DIR}/thirdparty/renderdoc")
 # The app shell only offers native_renderer when the renderer is compiled in.
 target_compile_definitions(onevs100 PRIVATE ONEVS100_NATIVE_GPU=1)
 if(WINDOWS_STORE)
