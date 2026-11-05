@@ -667,7 +667,23 @@ struct SentRange {
   uint32_t version = 0;
   uint64_t frame = UINT64_MAX;
   memory::QueryCache range_cache;
+  uint64_t checked = UINT64_MAX;  // frame of the last stripe check
+  uint64_t sample = 0;
+  uint32_t rewrites = 0;          // content changes the generation missed
 };
+
+// 32 stripes of 128 bytes spread over a range, for the per-frame change check of registered vertex data.
+uint64_t SampleRange(const uint8_t* bytes, uint32_t size) {
+  uint8_t stripes[32 * 128];
+  size_t n = 0;
+  for (uint32_t i = 0; i < 32; ++i) {
+    const uint32_t at = uint32_t((uint64_t(size) * i) / 32) & ~15u;
+    const uint32_t len = std::min<uint32_t>(128, size - at);
+    std::memcpy(stripes + n, bytes + at, len);
+    n += len;
+  }
+  return XXH3_64bits(stripes, n);
+}
 std::unordered_map<uint64_t, SentRange> g_sent_streams;
 struct StreamSlot {
   uint64_t key = 0;
@@ -706,16 +722,30 @@ StreamData CaptureStream(uint32_t fetch_index, uint32_t guest_base, uint32_t siz
   SentRange& sent = StreamRange(fetch_index, s.key);
   const auto state = memory::Query(guest_base, size, sent.range_cache);
   s.persistent = state.registered;
-  s.version = state.generation;
+  const auto* bytes = REX_KERNEL_MEMORY()->TranslatePhysical<const uint8_t*>(guest_base);
   bool send;
   if (state.registered) {
-    send = sent.frame == UINT64_MAX || sent.version != state.generation;
+    // The title rewrites some registered buffers without Lock (skinned avatar meshes), which leaves the generation
+    // untouched; a changed sample counts as a new version.
+    if (sent.frame != UINT64_MAX && sent.checked != frame) {
+      sent.checked = frame;
+      const uint64_t sample = SampleRange(bytes, size);
+      if (sample != sent.sample) {
+        sent.sample = sample;
+        ++sent.rewrites;
+      }
+    }
+    s.version = state.generation + sent.rewrites;
+    send = sent.frame == UINT64_MAX || sent.version != s.version;
+    if (sent.frame == UINT64_MAX) {
+      sent.checked = frame;
+      sent.sample = SampleRange(bytes, size);
+    }
   } else {
     s.version = uint32_t(frame);
     send = sent.frame != frame;
   }
   if (send) {
-    const auto* bytes = REX_KERNEL_MEMORY()->TranslatePhysical<const uint8_t*>(guest_base);
     if (REXCVAR_GET(gpu_stream_snapshot_pool) && REXCVAR_GET(gpu_parallel_prepare)) {
       static StreamSnapshotPool snapshots;
       s.bytes = snapshots.Copy(bytes, size);
