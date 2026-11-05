@@ -701,7 +701,8 @@ TextureBinding FinishBinding(TextureBinding out, TextureCacheEntry& entry) {
     if (state.registered) upload = state.generation != entry.generation;
     // Owned textures are checked too: a streamer that writes texture memory without Lock/Unlock leaves the
     // generation untouched, and the stale copy shows as a blurred or wrong texture after minutes of play.
-    if (!upload && entry.checked != frame) {
+    // Every fourth frame per texture: a full check reads stripes all over the texture, mostly cache misses.
+    if (!upload && frame >= entry.checked + 4) {
       entry.checked = frame;
       sample = SampleTexture(desc);
       upload = sample != entry.sample;
