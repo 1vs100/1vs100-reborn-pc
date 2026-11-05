@@ -9,6 +9,7 @@
 
 #include <cstdint>
 
+#include <rex/cvar.h>
 #include <rex/hook.h>
 #include <rex/logging.h>
 #include <rex/memory.h>
@@ -20,6 +21,10 @@
 #include "render/gpu.h"
 #include "render/gpu_cmdbuf.h"
 #include "render/gpu_draw.h"
+
+REXCVAR_DEFINE_BOOL(gpu_skip_guest_draw, false, "GPU",
+                    "Skip the title's draw packet building outside command buffer recording; the renderer reads the "
+                    "device state directly");
 
 namespace {
 
@@ -125,6 +130,11 @@ REX_HOOK_RAW(sub_822F3440) {
   a.start = ctx.r5.u32;
   a.base_vertex = int32_t(ctx.r5.u32);
   a.count = ctx.r6.u32;
+  // The pending state stays set and the next Clear, Resolve or recorded draw flushes it.
+  if (REXCVAR_GET(gpu_skip_guest_draw) && !cmdbuf::Recording(a.device)) {
+    draw::Capture(ctx, base, a);
+    return;
+  }
   cmdbuf::NotePending(a.device);
   __imp__sub_822F3440(ctx, base);
   draw::Capture(ctx, base, a);
@@ -145,6 +155,11 @@ REX_HOOK_RAW(sub_822F3830) {
   a.start = ctx.r6.u32;
   a.count = ctx.r7.u32;
   a.indexed = true;
+  // The pending state stays set and the next Clear, Resolve or recorded draw flushes it.
+  if (REXCVAR_GET(gpu_skip_guest_draw) && !cmdbuf::Recording(a.device)) {
+    draw::Capture(ctx, base, a);
+    return;
+  }
   cmdbuf::NotePending(a.device);
   __imp__sub_822F3830(ctx, base);
   draw::Capture(ctx, base, a);
