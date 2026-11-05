@@ -297,12 +297,17 @@ void main(triangle XeClipVertexIn v[3], inout TriangleStream<XeClipVertexOut> st
         [unroll]
         for (uint j = 0; j < 16; j++)
             o.var[j] = v[i].var[j];
-        o.clip03 = float4(dot(v[i].pos, XE_UCP(0)),
-                          dot(v[i].pos, XE_UCP(1)),
-                          dot(v[i].pos, XE_UCP(2)),
-                          dot(v[i].pos, XE_UCP(3)));
-        o.clip45 = float2(dot(v[i].pos, XE_UCP(4)),
-                          dot(v[i].pos, XE_UCP(5)));
+        // The planes are in D3D clip space; a SPIR-V VS has already inverted y for Vulkan.
+        float4 p = v[i].pos;
+#ifdef __spirv__
+        p.y = -p.y;
+#endif
+        o.clip03 = float4(dot(p, XE_UCP(0)),
+                          dot(p, XE_UCP(1)),
+                          dot(p, XE_UCP(2)),
+                          dot(p, XE_UCP(3)));
+        o.clip45 = float2(dot(p, XE_UCP(4)),
+                          dot(p, XE_UCP(5)));
         stream.Append(o);
     }
 }
