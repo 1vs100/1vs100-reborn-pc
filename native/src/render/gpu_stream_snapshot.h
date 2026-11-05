@@ -6,6 +6,8 @@
 #include <thread>
 #include <vector>
 
+#include "render/gpu_stream_copy.h"
+
 namespace onevs100::render {
 
 // Workers allocate and touch destination pages; guest bytes are copied at the draw boundary.
@@ -56,7 +58,7 @@ class StreamSnapshotPool {
       std::lock_guard lock(state->mutex);
       state->slots[index].free = true;
     });
-    if (size) std::memcpy(bytes->data(), source, size);
+    if (size) StreamCopy(bytes->data(), source, size);
     return snapshot;
   }
 
