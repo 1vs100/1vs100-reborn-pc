@@ -57,4 +57,8 @@ void FinishPending();
 // device whose shader cache and blend overrides apply. Inline (Begin/UP) draws are not replayed.
 void Replay(PPCContext& ctx, uint8_t* base, const DrawArgs& a, const guest::D3DDevice* device, const VsSnapshot& vs);
 
+// Guest thread: D3DDevice_GpuBeginShaderConstantF4 reserved `count` float4 registers of a stage from `start` at `data`
+// in the ring, for the title to fill.
+void NoteGpuConstants(uint32_t device, bool pixel, uint32_t start, uint32_t count, uint32_t data);
+
 }  // namespace onevs100::render::draw

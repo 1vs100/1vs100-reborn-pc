@@ -6,6 +6,7 @@
 // line per entry point per second.
 
 #include "onevs100_init.h"
+#include "render/gpu_draw.h"
 
 #include <algorithm>
 #include <atomic>
@@ -298,7 +299,18 @@ REX_HOOK_RAW(sub_822D9AB0) {
   }
 
 ONEVS100_WATCH(sub_822EAD60, kBeginShaderConstantF4)
-ONEVS100_WATCH(sub_822F6D18, kGpuBeginShaderConstantF4)
+// D3DDevice_GpuBeginShaderConstantF4 0x822F6D18 (pDevice, PixelShader, StartRegister, Vector4fCount) reserves a
+// constant load in the ring and returns the data the title fills.
+REX_HOOK_RAW(sub_822F6D18) {
+  if (!onevs100::render::Enabled()) {
+    __imp__sub_822F6D18(ctx, base);
+    return;
+  }
+  Observe(onevs100::render::edge::kGpuBeginShaderConstantF4, ctx);
+  const uint32_t device = ctx.r3.u32, pixel = ctx.r4.u32, start = ctx.r5.u32, count = ctx.r6.u32;
+  __imp__sub_822F6D18(ctx, base);
+  if (ctx.r3.u32) onevs100::render::draw::NoteGpuConstants(device, pixel != 0, start, count, ctx.r3.u32);
+}
 ONEVS100_WATCH(sub_822E3530, kSetTextureFetchConstant)
 ONEVS100_WATCH(sub_822F7030, kGpuSetTextureFetchConstant)
 // D3DDevice_BeginTiling 0x822F5CF0 (pDevice, Flags, Count, pTileRects, pClearColor, ClearZ, ClearStencil).

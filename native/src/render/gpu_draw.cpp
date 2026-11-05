@@ -3,6 +3,7 @@
 // Begin/EndVertices data is written by the game between the two calls, so that record is finished at End.
 
 #include <algorithm>
+#include <bitset>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -135,6 +136,14 @@ struct DeviceState {
   std::array<uint32_t, 4> blend_override{};
   std::array<uint32_t, 4> blend_shadow_at_override{};
   std::array<bool, 4> blend_override_active{};
+  // Float constants the title loads through the ring (GpuBeginShaderConstantF4), per stage. The device shadow never
+  // holds them. The title fills the data after the call returns, so a load is read at the next draw.
+  struct GpuConstantLoad {
+    uint32_t start, count, data;
+  };
+  std::array<std::vector<GpuConstantLoad>, 2> gpu_loads;
+  std::array<std::bitset<256>, 2> gpu_owned;
+  std::array<FloatConstantBlock, 2> gpu_values, gpu_shadow_at;
 };
 
 std::mutex g_mutex;
@@ -367,6 +376,45 @@ void CaptureLiterals(uint32_t header, uint32_t code_base, std::vector<LiteralCon
       literals.push_back({dword, uint32_t(src[i])});
     }
   }
+}
+
+// Copies the ring loads queued since the previous draw, which the title has filled by now, into the owned registers.
+// Every draw takes them, also one that is dropped later, while the ring still holds the data.
+void TakeGpuLoads(DeviceState& ds, size_t stage, const uint32_t* shadow) {
+  auto& owned = ds.gpu_owned[stage];
+  auto& values = ds.gpu_values[stage].words;
+  auto& shadow_at = ds.gpu_shadow_at[stage].words;
+  for (const auto& load : ds.gpu_loads[stage]) {
+    if (!ValidGuest(load.data) || !ValidGuest(load.data + load.count * 16 - 1)) continue;
+    const auto* src = Guest<uint32_t>(load.data);
+    for (uint32_t i = 0; i < load.count && load.start + i < 256; ++i) {
+      const uint32_t reg = load.start + i;
+      std::memcpy(&values[reg * 4], &src[i * 4], 16);
+      std::memcpy(&shadow_at[reg * 4], &shadow[reg * 4], 16);
+      owned.set(reg);
+    }
+  }
+  ds.gpu_loads[stage].clear();
+}
+
+// The shadow copy with the ring-loaded registers over it. A register the title has written in the shadow since the
+// load reads the shadow again.
+const uint32_t* ConstantSource(DeviceState& ds, size_t stage, const uint32_t* shadow) {
+  auto& owned = ds.gpu_owned[stage];
+  auto& values = ds.gpu_values[stage].words;
+  auto& shadow_at = ds.gpu_shadow_at[stage].words;
+  if (owned.none()) return shadow;
+  thread_local FloatConstantBlock merged;
+  std::memcpy(merged.words.data(), shadow, sizeof(merged.words));
+  for (uint32_t reg = 0; reg < 256; ++reg) {
+    if (!owned.test(reg)) continue;
+    if (std::memcmp(&shadow[reg * 4], &shadow_at[reg * 4], 16) != 0) {
+      owned.reset(reg);
+      continue;
+    }
+    std::memcpy(&merged.words[reg * 4], &values[reg * 4], 16);
+  }
+  return merged.words.data();
 }
 
 // ------------------------------------------------------------------------------------------------ state
@@ -1304,6 +1352,8 @@ void FinishDrawState(DrawRecord& r) {
 bool Build(PPCContext& ctx, uint8_t* base, const DrawArgs& a, DrawRecord& r, const D3DDevice* device,
            const VsSnapshot* snap = nullptr) {
   DeviceState& ds = g_devices[a.device];
+  TakeGpuLoads(ds, 0, reinterpret_cast<const uint32_t*>(&device->m_Constants.VertexShaderF[0][0]));
+  TakeGpuLoads(ds, 1, reinterpret_cast<const uint32_t*>(&device->m_Constants.PixelShaderF[0][0]));
 
   // Targets.
   const uint32_t edram_mode = uint32_t(device->m_ControlPacket.EdramModeControl.raw) & 7;
@@ -1395,8 +1445,10 @@ bool Build(PPCContext& ctx, uint8_t* base, const DrawArgs& a, DrawRecord& r, con
   const bool parallel_constants = REXCVAR_GET(gpu_parallel_prepare);
   static_assert(sizeof(k.VertexShaderF) == 256 * 16 && sizeof(k.PixelShaderF) == 256 * 16);
   auto work = AllocateDrawWork();
-  work->vs_constants = ds.float_snapshots.Capture(0, &k.VertexShaderF[0][0]);
-  work->ps_constants = ds.float_snapshots.Capture(1, &k.PixelShaderF[0][0]);
+  work->vs_constants =
+      ds.float_snapshots.Capture(0, ConstantSource(ds, 0, reinterpret_cast<const uint32_t*>(&k.VertexShaderF[0][0])));
+  work->ps_constants =
+      ds.float_snapshots.Capture(1, ConstantSource(ds, 1, reinterpret_cast<const uint32_t*>(&k.PixelShaderF[0][0])));
   work->literals.clear();
   CaptureLiterals(device->vertex_shader + guest::kVsHeader, Load32(device->vertex_shader + guest::kVsCodeBase),
                   work->literals);
@@ -1723,6 +1775,16 @@ void SetBlendOverride(uint32_t device_address, uint32_t index, uint32_t blend) {
   ds.blend_override[index] = blend;
   ds.blend_shadow_at_override[index] = shadow[index];
   ds.blend_override_active[index] = true;
+}
+
+void NoteGpuConstants(uint32_t device, bool pixel, uint32_t start, uint32_t count, uint32_t data) {
+  if (!count || start >= 256) return;
+  static std::atomic<bool> logged[2];
+  if (!logged[pixel ? 1 : 0].exchange(true)) {
+    REXGPU_INFO("[gpu] ring constant load: {} c{} x{}", pixel ? "ps" : "vs", start, count);
+  }
+  std::lock_guard lock(g_mutex);
+  g_devices[device].gpu_loads[pixel ? 1 : 0].push_back({start, count, data});
 }
 
 }  // namespace onevs100::render::draw
