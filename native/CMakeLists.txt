@@ -151,6 +151,12 @@ if(APPLE AND DEFINED REXSDK_DIR AND NOT DEFINED REXGLUE_ROOT)
 endif()
 
 rexglue_setup_target(onevs100 GPU_PLUGINS xenos)
+if(WINDOWS_STORE)
+    # Both consoles' CPUs (Jaguar, Zen 2) have AVX: VEX encodings save the register copies the recompiled vector
+    # code is full of.
+    target_compile_options(onevs100 PRIVATE /clang:-mavx)
+    target_compile_options(onevs100_recomp PRIVATE /clang:-mavx)
+endif()
 
 # The title's own renderer, replacing the xenos plugin when the native_renderer
 # setting is on: D3D12 on Windows and UWP, Vulkan elsewhere.
