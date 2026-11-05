@@ -18,6 +18,7 @@
 #include "online_service.h"
 #include "xma_kick.h"
 #include "avatar_view/avatar_dialog.h"
+#include "guest_memory_ops.h"
 #ifdef _WIN32
 #include "death_marker.h"
 #endif
@@ -151,6 +152,7 @@ class Onevs100App : public rex::ReXApp {
     ApplyGameserverImagePatches(REX_KERNEL_STATE()->memory()->virtual_membase());
   }
   void OnPostSetup() override {
+    onevs100::ConfigureGuestRuntime();
     // The title's texture fetch constants carry types the GPU backend calls
     // invalid; skipping them leaves the scene behind Press Start black. The GPU
     // plugin registers the setting during setup.
