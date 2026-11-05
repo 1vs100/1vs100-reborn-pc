@@ -67,7 +67,7 @@ void RequestResize();
 // Guest thread: appends a record to the frame being built.
 void Submit(Record record);
 
-// Guest thread: hands the frame to the render thread, waiting while two frames are already queued.
+// Guest thread: hands the frame to the render thread, waiting while gpu_queued_frames frames are already queued.
 void EndFrame();
 
 // Folder holding the game's cardigan_bd font, used by the gpu_fps counter drawn at present.

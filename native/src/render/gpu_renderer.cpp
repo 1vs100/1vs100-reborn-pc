@@ -83,6 +83,8 @@ extern std::unique_ptr<RenderInterface> CreateVulkanInterface(RenderWindow sdlWi
 #endif
 }  // namespace plume
 
+REXCVAR_DEFINE_INT32(gpu_queued_frames, 3, "GPU", "Frames the title may queue ahead of the renderer (1-4)");
+
 namespace onevs100::render {
 
 namespace {
@@ -91,7 +93,6 @@ namespace xenos = rex::graphics::xenos;
 namespace reg = rex::graphics::reg;
 
 constexpr uint32_t kFramesInFlight = 2;
-constexpr size_t kMaxQueuedFrames = 2;
 constexpr plume::RenderFormat kSwapChainFormat = plume::RenderFormat::B8G8R8A8_UNORM;
 
 // Shared memory: 128 MB, the clamp compiled into every shader. The low part holds the guest's registered vertex
@@ -100,6 +101,9 @@ constexpr uint64_t kSharedMemorySize = 0x8000000;
 constexpr uint64_t kPersistentSize = 0x4000000;
 constexpr uint64_t kTransientSize = kSharedMemorySize - kPersistentSize;
 static_assert(kFramesInFlight == 2, "the transient area is a two-ended stack");
+// Frames the guest may hand over before it waits for the render thread.
+size_t QueuedFrameLimit() { return size_t(std::clamp(REXCVAR_GET(gpu_queued_frames), 1, 4)); }
+
 // gpu_frame_stats: microseconds per category, reset by each line.
 struct FrameStats {
   std::atomic<uint64_t> busy{0}, idle{0}, fence{0}, present{0}, guest_wait{0}, draws{0}, frames{0};
@@ -2542,12 +2546,12 @@ void RenderThread(Renderer* r) {
 
 void Push(Renderer* r, Packet packet) {
   std::unique_lock lock(r->mutex);
-  if (r->queued_frames >= kMaxQueuedFrames && LogSecond()) {
+  if (r->queued_frames >= QueuedFrameLimit() && LogSecond()) {
     REXGPU_INFO("[gpu] guest blocked: {} frames queued", r->queued_frames);
   }
   {
     StatTimer wait{g_stats.guest_wait};
-    r->guest_cv.wait(lock, [r] { return r->stopping || r->queued_frames < kMaxQueuedFrames; });
+    r->guest_cv.wait(lock, [r] { return r->stopping || r->queued_frames < QueuedFrameLimit(); });
   }
   if (r->stopping) return;
   if (EndsWithSwap(packet)) ++r->queued_frames;
