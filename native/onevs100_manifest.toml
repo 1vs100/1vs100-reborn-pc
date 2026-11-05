@@ -11,4 +11,7 @@ out_directory_path = "generated/default-v5"
 # CRT setjmp/longjmp
 setjmp_address = 0x824B2FA0
 longjmp_address = 0x824B3610
+ctr_as_local = true
+xer_as_local = true
+cr_as_local = true
 includes = ["branch-targets.toml", "boundaries-v3.toml", "switch-fix.toml", "render-hooks.toml"]
