@@ -5,6 +5,10 @@
 // death.
 #include <windows.h>
 
+#include <algorithm>
+#include <array>
+#include <chrono>
+#include <map>
 #include <csignal>
 #include <cstdio>
 #include <cstring>
@@ -70,11 +74,11 @@ void WriteFrame(FILE* file, const wchar_t* tag, uintptr_t address) {
            static_cast<unsigned long long>(address - module_base));
 }
 
-// Uploading this file requests a thread dump.
-std::wstring TriggerPath() {
+// Uploading dump-threads requests a thread dump, profile-threads a 20 s sampling profile.
+std::wstring TriggerPath(const wchar_t* name = L"dump-threads") {
   wchar_t directory[MAX_PATH];
   DeathDirectory(directory, MAX_PATH);
-  return std::wstring(directory) + L"\\dump-threads";
+  return std::wstring(directory) + L"\\" + name;
 }
 
 FILE* OpenFaultLog() {
@@ -85,6 +89,37 @@ FILE* OpenFaultLog() {
   FILE* file = nullptr;
   _wfopen_s(&file, path, L"a");
   return file;
+}
+
+// Host frames of a suspended thread, innermost first; also the nearest frame inside `module` when given. A thread
+// stopped at an arbitrary instruction can hand the unwinder a context it faults on, so the walk is guarded and a
+// fault just ends it. No C++ objects live here: __try needs a frame without destructors.
+int UnwindThread(CONTEXT context, uintptr_t* frames, int max, uintptr_t module, uintptr_t* module_frame) {
+  int count = 0;
+  __try {
+    for (; count < max && context.Rip; ++count) {
+      if (frames) frames[count] = uintptr_t(context.Rip);
+      DWORD64 image_base = 0;
+      auto* entry = RtlLookupFunctionEntry(context.Rip, &image_base, nullptr);
+      if (module && image_base == module) {
+        *module_frame = uintptr_t(context.Rip);
+        return count + 1;
+      }
+      if (!entry) {
+        // Only the innermost frame can be a leaf; elsewhere Rsp is not trustworthy.
+        if (count) return count + 1;
+        context.Rip = *reinterpret_cast<DWORD64*>(context.Rsp);
+        context.Rsp += 8;
+        continue;
+      }
+      void* handler_data = nullptr;
+      DWORD64 establisher = 0;
+      RtlVirtualUnwind(UNW_FLAG_NHANDLER, image_base, context.Rip, entry, &context, &handler_data, &establisher,
+                       nullptr);
+    }
+  } __except (EXCEPTION_EXECUTE_HANDLER) {
+  }
+  return count;
 }
 
 // Every guest thread's registers and host stack, for a guest that stopped presenting. Each thread is suspended only
@@ -115,22 +150,7 @@ void WriteStall(const wchar_t* reason) {
       CONTEXT context{};
       context.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER;
       if (GetThreadContext(handle, &context)) {
-        for (; s.count < 16 && context.Rip; ++s.count) {
-          s.frames[s.count] = uintptr_t(context.Rip);
-          DWORD64 image_base = 0;
-          auto* entry = RtlLookupFunctionEntry(context.Rip, &image_base, nullptr);
-          if (!entry) {
-            // Only the innermost frame can be a leaf; elsewhere Rsp is not trustworthy.
-            if (s.count) break;
-            context.Rip = *reinterpret_cast<DWORD64*>(context.Rsp);
-            context.Rsp += 8;
-            continue;
-          }
-          void* handler_data = nullptr;
-          DWORD64 establisher = 0;
-          RtlVirtualUnwind(UNW_FLAG_NHANDLER, image_base, context.Rip, entry, &context, &handler_data, &establisher,
-                           nullptr);
-        }
+        s.count = UnwindThread(context, s.frames, 16, 0, nullptr);
       }
       ResumeThread(handle);
     }
@@ -142,6 +162,72 @@ void WriteStall(const wchar_t* reason) {
   for (const auto& s : samples) {
     fwprintf(file, L"thread %08X host=%lu %S lr=%08X r1=%08X r3=%08X r31=%08X\n", s.id, s.host, s.name.c_str(), s.lr, s.r1, s.r3, s.r31);
     for (int i = 0; i < s.count; ++i) WriteFrame(file, i ? L"at" : L"pc", s.frames[i]);
+  }
+  fclose(file);
+}
+
+// Samples every guest thread's instruction pointer for a while and writes hit counts per thread and code location,
+// the innermost frame and the nearest frame in the executable (the recompiled guest function).
+void WriteProfile(int seconds) {
+  auto* kernel = rex::system::kernel_state();
+  if (!kernel) return;
+  // The innermost frame and the four nearest frames in the executable (recompiled guest functions and the renderer).
+  using Key = std::array<uintptr_t, 5>;
+  struct Target {
+    HANDLE handle;
+    uint32_t id;
+    std::string name;
+    uint64_t samples = 0;
+    std::map<Key, uint64_t> hits;
+  };
+  std::vector<Target> targets;
+  for (auto& thread : kernel->object_table()->GetObjectsByType<rex::system::XThread>()) {
+    if (!thread->is_guest_thread() || !thread->thread()) continue;
+    targets.push_back({static_cast<HANDLE>(thread->thread()->native_handle()), thread->thread_id(), thread->name()});
+  }
+  const auto exe = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
+  const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(exe);
+  const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS*>(exe + dos->e_lfanew);
+  const uintptr_t exe_end = exe + nt->OptionalHeader.SizeOfImage;
+  const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(seconds);
+  uintptr_t frames[24];
+  while (std::chrono::steady_clock::now() < end) {
+    for (auto& target : targets) {
+      if (SuspendThread(target.handle) == DWORD(-1)) continue;
+      CONTEXT context{};
+      context.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER;
+      int count = 0;
+      if (GetThreadContext(target.handle, &context)) count = UnwindThread(context, frames, 24, 0, nullptr);
+      ResumeThread(target.handle);
+      Key key{};
+      if (count) key[0] = frames[0];
+      for (int i = 0, n = 1; i < count && n < 5; ++i) {
+        if (frames[i] >= exe && frames[i] < exe_end) key[n++] = frames[i];
+      }
+      ++target.samples;
+      ++target.hits[key];
+    }
+    Sleep(2);
+  }
+  wchar_t directory[MAX_PATH];
+  DeathDirectory(directory, MAX_PATH);
+  FILE* file = nullptr;
+  _wfopen_s(&file, (std::wstring(directory) + L"\\native-profile.log").c_str(), L"w");
+  if (!file) return;
+  fwprintf(file, L"profile: %d s, executable base %llX\n", seconds, static_cast<unsigned long long>(exe));
+  for (auto& target : targets) {
+    fwprintf(file, L"thread %08X %S samples=%llu\n", target.id, target.name.c_str(),
+             static_cast<unsigned long long>(target.samples));
+    std::vector<std::pair<uint64_t, Key>> sorted;
+    for (const auto& [key, count] : target.hits) sorted.push_back({count, key});
+    std::sort(sorted.rbegin(), sorted.rend());
+    for (const auto& [count, key] : sorted) {
+      fwprintf(file, L"  %llu", static_cast<unsigned long long>(count));
+      WriteFrame(file, L"", key[0]);
+      fwprintf(file, L"    exe");
+      for (size_t i = 1; i < key.size() && key[i]; ++i) fwprintf(file, L" %llX", static_cast<unsigned long long>(key[i] - exe));
+      fwprintf(file, L"\n");
+    }
   }
   fclose(file);
 }
@@ -248,7 +334,11 @@ struct InstallDeathMarkers {
         still = frames && frames == last ? still + 1 : 0;
         last = frames;
         if (still == 2) WriteStall(L"stall: no guest frame for 10 s");
-        if (DeleteFileW(TriggerPath().c_str())) WriteStall(L"dump requested");
+        if (DeleteFileW(TriggerPath().c_str())) {
+          WriteStall(L"dump requested");
+          DeathMarker("dump written\n");
+        }
+        if (DeleteFileW(TriggerPath(L"profile-threads").c_str())) std::thread(WriteProfile, 20).detach();
       }
     }).detach();
   }
