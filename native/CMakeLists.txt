@@ -293,3 +293,26 @@ endif()
 
 target_include_directories(onevs100 PRIVATE src/avatar_native third_party/1vs100-mm-protocol)
 target_include_directories(onevs100 PRIVATE src/avatar_native/third_party/mspack)
+
+# Dead code in the title's own sources. Unused internal functions, variables and fields warn at compile time.
+# Functions with external linkage that nothing calls only show at link time: a separate build configured with
+# ONEVS100_REPORT_UNCALLED=ON lists every section the linker drops. That binary is for the report only.
+option(ONEVS100_REPORT_UNCALLED "Link with section garbage collection and list the dropped sections" OFF)
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    get_target_property(_onevs100_sources onevs100 SOURCES)
+    set(_onevs100_dead_code_flags -Wunused-function -Wunused-variable -Wunused-const-variable
+        -Wunused-private-field -Wunused-member-function -Wunneeded-internal-declaration -Wunused-template)
+    if(ONEVS100_REPORT_UNCALLED)
+        list(APPEND _onevs100_dead_code_flags -ffunction-sections)
+    endif()
+    foreach(_source IN LISTS _onevs100_sources)
+        cmake_path(ABSOLUTE_PATH _source BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" OUTPUT_VARIABLE _path)
+        string(FIND "${_path}" "${CMAKE_CURRENT_SOURCE_DIR}/src/" _own)
+        if(_own EQUAL 0 AND NOT _path MATCHES "third_?party" AND _path MATCHES "\\.(cpp|cc)$")
+            set_property(SOURCE "${_source}" APPEND PROPERTY COMPILE_OPTIONS ${_onevs100_dead_code_flags})
+        endif()
+    endforeach()
+    if(ONEVS100_REPORT_UNCALLED AND NOT WIN32)
+        target_link_options(onevs100 PRIVATE -Wl,--gc-sections -Wl,--print-gc-sections)
+    endif()
+endif()
