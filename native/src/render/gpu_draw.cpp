@@ -57,6 +57,7 @@
 REXCVAR_DEFINE_BOOL(gpu_draws, true, "GPU", "Render captured draws; off leaves only clears, resolves and present");
 REXCVAR_DEFINE_BOOL(gpu_parallel_prepare, true, "GPU", "Prepare captured draw state, samplers, constants and indices on workers");
 REXCVAR_DECLARE(bool, gpu_frame_stats);
+REXCVAR_DEFINE_INT32(gpu_prepare_workers, 3, "GPU", "Threads that prepare captured draw state for the render thread");
 REXCVAR_DEFINE_BOOL(gpu_stream_snapshot_pool, true, "GPU", "Reuse worker-prepared stream snapshot buffers");
 REXCVAR_DEFINE_BOOL(gpu_replay_cull, true, "GPU", "Apply the recorded cull mode to command-buffer replays; off draws both faces");
 
@@ -546,7 +547,7 @@ std::shared_ptr<DrawConstants> AllocateConstants() {
 PreparationQueue* g_prepare_queue = nullptr;
 
 PreparationQueue& PrepareQueue() {
-  static PreparationQueue queue;
+  static PreparationQueue queue(size_t(std::clamp(REXCVAR_GET(gpu_prepare_workers), 1, 8)));
   g_prepare_queue = &queue;
   return queue;
 }
