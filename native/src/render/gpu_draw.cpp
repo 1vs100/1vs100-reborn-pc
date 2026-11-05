@@ -729,6 +729,10 @@ struct SentRange {
   uint64_t checked = UINT64_MAX;  // frame of the last stripe check
   uint64_t sample = 0;
   uint32_t rewrites = 0;          // content changes the generation missed
+  // Unregistered ranges: the last snapshot and its hash, reused while the bytes stay the same. The key holds the
+  // size, so a snapshot always covers the range.
+  uint64_t content = 0;
+  std::shared_ptr<const std::vector<uint8_t>> snapshot;
 };
 
 // 32 stripes of 128 bytes spread over a range, for the per-frame change check of registered vertex data.
@@ -804,6 +808,14 @@ StreamData CaptureStream(uint32_t fetch_index, uint32_t guest_base, uint32_t siz
   const uint64_t frame = FrameIndex();
   s.key = (uint64_t(guest_base) << 32) | size;
   ForgetEvicted();
+  // Snapshots of ranges no longer drawn are released, so moving buffers do not pin memory.
+  static uint64_t swept = 0;
+  if (frame >= swept + 60) {
+    swept = frame;
+    for (auto& [key, range] : g_sent_streams) {
+      if (range.snapshot && range.frame + 4 < frame) range.snapshot.reset();
+    }
+  }
   SentRange& sent = StreamRange(fetch_index, s.key);
   const auto state = memory::Query(guest_base, size, sent.range_cache);
   s.persistent = state.registered;
@@ -829,13 +841,27 @@ StreamData CaptureStream(uint32_t fetch_index, uint32_t guest_base, uint32_t siz
   } else {
     s.version = uint32_t(frame);
     send = sent.frame != frame;
+    if (send && sent.snapshot) {
+      const uint64_t content = XXH3_64bits(bytes, size);
+      if (content == sent.content) {
+        s.bytes = sent.snapshot;
+        sent.version = s.version;
+        sent.frame = frame;
+        send = false;
+      } else {
+        sent.content = content;
+      }
+    } else if (send) {
+      sent.content = XXH3_64bits(bytes, size);
+    }
   }
   g_stream_count.fetch_add(1, std::memory_order_relaxed);
   if (send) {
-    if (REXCVAR_GET(gpu_stream_snapshot_pool) && REXCVAR_GET(gpu_parallel_prepare)) {
     g_stream_copies.fetch_add(1, std::memory_order_relaxed);
     g_stream_bytes.fetch_add(size, std::memory_order_relaxed);
     SectionClock copy_clock;
+    // An unregistered snapshot may be kept for later frames, so it takes no pool slot.
+    if (state.registered && REXCVAR_GET(gpu_stream_snapshot_pool) && REXCVAR_GET(gpu_parallel_prepare)) {
       static StreamSnapshotPool snapshots;
       s.bytes = snapshots.Copy(bytes, size);
     } else {
@@ -844,6 +870,7 @@ StreamData CaptureStream(uint32_t fetch_index, uint32_t guest_base, uint32_t siz
     copy_clock.Mark(kStreamCopy);
     sent.version = s.version;
     sent.frame = frame;
+    if (!state.registered) sent.snapshot = s.bytes;
   }
   return s;
 }
