@@ -65,6 +65,8 @@ REXCVAR_DEFINE_BOOL(gpu_pipeline_warmup, true, "GPU",
                     "Record every draw pipeline beside the shader pack and compile the recorded set at start-up");
 REXCVAR_DEFINE_INT32(gpu_pipeline_warmup_wait, 120, "GPU",
                      "Seconds the first frame may wait for the recorded pipelines to finish compiling; 0 = no wait");
+REXCVAR_DEFINE_BOOL(gpu_frame_stats, false, "GPU",
+                    "Log once a second where the render thread and the guest spend their time");
 REXCVAR_DEFINE_BOOL(gpu_force_dxbc, false, "GPU",
                     "Use the shader model 5.1 path (DXBC) on D3D12 devices that also take DXIL");
 REXCVAR_DEFINE_BOOL(gpu_async_pipelines, true, "GPU",
@@ -96,6 +98,21 @@ constexpr uint64_t kSharedMemorySize = 0x8000000;
 constexpr uint64_t kPersistentSize = 0x4000000;
 constexpr uint64_t kTransientSize = kSharedMemorySize - kPersistentSize;
 static_assert(kFramesInFlight == 2, "the transient area is a two-ended stack");
+// gpu_frame_stats: microseconds per category, reset by each line.
+struct FrameStats {
+  std::atomic<uint64_t> busy{0}, idle{0}, fence{0}, present{0}, guest_wait{0}, draws{0}, frames{0};
+};
+FrameStats g_stats;
+struct StatTimer {
+  std::atomic<uint64_t>& into;
+  std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+  ~StatTimer() {
+    into.fetch_add(uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(
+                                std::chrono::steady_clock::now() - start).count()),
+                   std::memory_order_relaxed);
+  }
+};
+
 constexpr uint64_t kUploadChunkSize = 32ull << 20;
 
 // Descriptor heap: every slot is prefilled; the directory pack clamps texture indices at 2047, the container at
@@ -966,6 +983,7 @@ bool Backend::AllocateTransient(uint64_t size, uint64_t& offset) {
 void Backend::BeginList() {
   if (list_open_) return;
   if (submitted_[slot_]) {
+    StatTimer timer{g_stats.fence};
     queue_->waitForCommandFence(fences_[slot_].get());
     submitted_[slot_] = false;
     ResetUploads(slot_);
@@ -1378,14 +1396,17 @@ void Backend::Execute(const SwapRecord& r) {
   }
   auto* list = lists_[slot_].get();
   uint32_t index = 0;
-  bool presentable = !swap_framebuffers_.empty() &&
-                     swap_chain_->acquireTexture(acquire_semaphores_[slot_].get(), &index);
-  if (!presentable && !swap_framebuffers_.empty()) {
-    RebuildSwapChain();
-    BeginList();
-    list = lists_[slot_].get();
-    presentable = !swap_framebuffers_.empty() &&
-                  swap_chain_->acquireTexture(acquire_semaphores_[slot_].get(), &index);
+  bool presentable;
+  {
+    StatTimer acquire_timer{g_stats.present};
+    presentable = !swap_framebuffers_.empty() && swap_chain_->acquireTexture(acquire_semaphores_[slot_].get(), &index);
+    if (!presentable && !swap_framebuffers_.empty()) {
+      RebuildSwapChain();
+      BeginList();
+      list = lists_[slot_].get();
+      presentable =
+          !swap_framebuffers_.empty() && swap_chain_->acquireTexture(acquire_semaphores_[slot_].get(), &index);
+    }
   }
   if (presentable) {
     plume::RenderTexture* back = swap_chain_->getTexture(index);
@@ -1453,6 +1474,7 @@ void Backend::Execute(const SwapRecord& r) {
     queue_->executeCommandLists(lists, 1, waits, 1, signals, 1, fences_[slot_].get());
     const int vsync = g_vsync_request.exchange(-1, std::memory_order_acq_rel);
     if (vsync >= 0) swap_chain_->setVsyncEnabled(vsync != 0);
+    StatTimer present_timer{g_stats.present};
     if (!swap_chain_->present(index, signals, 1)) resize_requested_.store(true, std::memory_order_release);
   } else {
     FlushTransitions();
@@ -2162,6 +2184,7 @@ plume::RenderFramebuffer* Backend::DrawFramebuffer(const DrawRecord& r) {
 
 void Backend::Execute(DrawRecord& r) {
   if (!draws_ready_ || !r.constants || !r.count) return;
+  g_stats.draws.fetch_add(1, std::memory_order_relaxed);
   BeginList();
   auto* list = lists_[slot_].get();
   const PackAbi& abi = ShaderPackAbi();
@@ -2603,6 +2626,7 @@ void RenderThread(Renderer* r) {
   for (;;) {
     Packet packet;
     {
+      StatTimer idle{g_stats.idle};
       std::unique_lock lock(r->mutex);
       r->host_cv.wait(lock, [r] { return r->stopping || !r->packets.empty(); });
       if (r->stopping) break;
@@ -2612,7 +2636,21 @@ void RenderThread(Renderer* r) {
     static thread_local size_t shown_pipelines = 0;
     const bool log_now = LogSecond();
     if (log_now) REXGPU_INFO("[gpu] render thread: executing {} records", packet.records.size());
-    r->backend.Execute(packet);
+    {
+      StatTimer busy{g_stats.busy};
+      r->backend.Execute(packet);
+    }
+    if (EndsWithSwap(packet)) g_stats.frames.fetch_add(1, std::memory_order_relaxed);
+    if (log_now && REXCVAR_GET(gpu_frame_stats)) {
+      auto take = [](std::atomic<uint64_t>& v) { return v.exchange(0, std::memory_order_relaxed); };
+      const uint64_t busy = take(g_stats.busy), idle = take(g_stats.idle), fence = take(g_stats.fence);
+      const uint64_t present = take(g_stats.present), guest = take(g_stats.guest_wait);
+      const uint64_t draws = take(g_stats.draws), frames = std::max<uint64_t>(take(g_stats.frames), 1);
+      REXGPU_INFO("[gpu] stats: {} frames, {} draws/frame, render ms/frame busy {:.1f} (fence {:.1f}, present {:.1f}) "
+                  "idle {:.1f}, guest blocked {:.1f}",
+                  frames, draws / frames, busy / 1000.0 / frames, fence / 1000.0 / frames, present / 1000.0 / frames,
+                  idle / 1000.0 / frames, guest / 1000.0 / frames);
+    }
     if (log_now) {
       const size_t pipelines = r->backend.DrawPipelineCount();
       const size_t added = pipelines - shown_pipelines;
@@ -2637,7 +2675,10 @@ void Push(Renderer* r, Packet packet) {
   if (r->queued_frames >= kMaxQueuedFrames && LogSecond()) {
     REXGPU_INFO("[gpu] guest blocked: {} frames queued", r->queued_frames);
   }
-  r->guest_cv.wait(lock, [r] { return r->stopping || r->queued_frames < kMaxQueuedFrames; });
+  {
+    StatTimer wait{g_stats.guest_wait};
+    r->guest_cv.wait(lock, [r] { return r->stopping || r->queued_frames < kMaxQueuedFrames; });
+  }
   if (r->stopping) return;
   if (EndsWithSwap(packet)) ++r->queued_frames;
   r->packets.push_back(std::move(packet));
