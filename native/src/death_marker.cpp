@@ -85,6 +85,24 @@ LONG WINAPI OnFault(EXCEPTION_POINTERS* info) {
            static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr))),
            static_cast<unsigned long>(record->ExceptionCode), static_cast<unsigned long long>(access),
            static_cast<unsigned long long>(pc));
+  // Module and offset of the fault and its callers: on a console there is no debugger to
+  // name a system DLL from its address. The filter runs on the faulting stack.
+  const auto frame = [&](const wchar_t* tag, uintptr_t address) {
+    MEMORY_BASIC_INFORMATION region{};
+    wchar_t module[MAX_PATH] = L"?";
+    uintptr_t module_base = 0;
+    if (VirtualQuery(reinterpret_cast<void*>(address), &region, sizeof(region))) {
+      module_base = reinterpret_cast<uintptr_t>(region.AllocationBase);
+      GetModuleFileNameW(static_cast<HMODULE>(region.AllocationBase), module, MAX_PATH);
+    }
+    const wchar_t* name = wcsrchr(module, L'\\');
+    fwprintf(file, L"  %s %s+%llX\n", tag, name ? name + 1 : module,
+             static_cast<unsigned long long>(address - module_base));
+  };
+  frame(L"pc", pc);
+  void* stack[32];
+  const USHORT count = RtlCaptureStackBackTrace(0, 32, stack, nullptr);
+  for (USHORT i = 0; i < count; ++i) frame(L"at", reinterpret_cast<uintptr_t>(stack[i]));
   fclose(file);
   return EXCEPTION_CONTINUE_SEARCH;
 }
