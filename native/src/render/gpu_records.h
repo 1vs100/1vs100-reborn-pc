@@ -201,8 +201,19 @@ static_assert(offsetof(SystemConstants, ndc_scale) == 128);
 static_assert(offsetof(SystemConstants, alpha_test_reference) == 220);
 static_assert(offsetof(SystemConstants, color_exp_bias) == 240);
 
+// Draw state only the DXBC translator's system constants carry (gpu_dxbc).
+struct DxbcSystemExtras {
+  uint32_t flags = 0;                       // kSysFlag_PrimitivePolygonal / kSysFlag_PrimitiveLine
+  uint32_t texture_swizzled_signs[8] = {};  // 8 bits per fetch constant
+  uint32_t sample_count_log2[2] = {};
+  uint32_t alpha_to_mask = 0;
+  uint32_t user_clip_plane_count = 0;
+  float user_clip_planes[6][4] = {};        // enabled PA_CL_UCP planes, packed
+};
+
 struct DrawConstants {
   SystemConstants system{};
+  DxbcSystemExtras dxbc{};
   std::array<float, 256 * 4> vs_float{};
   std::array<float, 256 * 4> ps_float{};
   std::array<uint32_t, 40> bool_loop{};   // VS bools, PS bools, VS loops, PS loops

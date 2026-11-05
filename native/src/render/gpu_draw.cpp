@@ -25,6 +25,7 @@
 
 #include <rex/cvar.h>
 #include <rex/graphics/format/ucode.h>
+#include <rex/graphics/pipeline/texture/util.h>
 #include <rex/graphics/registers.h>
 #include <rex/graphics/xenos.h>
 #include <rex/hash.h>
@@ -41,6 +42,9 @@
 #include "render/gpu_cmdbuf.h"
 #include "render/gpu_constant_snapshot.h"
 #include "render/gpu_draw.h"
+#if defined(_WIN32)
+#include "render/gpu_dxbc.h"
+#endif
 #include "render/gpu_memory.h"
 #include "render/gpu_prepare.h"
 #include "render/gpu_stream_snapshot.h"
@@ -100,12 +104,27 @@ struct VsInfo {
   std::array<uint32_t, 32 * 4> vfetch{};  // b5 vfetch layout records, filled for fp2-keyed packs
   const ShaderEntry* entry = nullptr;
   std::vector<uint8_t> fetches;  // vertex fetch constants 0-95 the patched microcode reads
+#if defined(_WIN32)
+  const dxbc::GuestShader* guest = nullptr;  // shader model 5.1 path: translated per draw state
+#endif
 };
 
 struct PsInfo {
   uint64_t hash = 0;
   const ShaderEntry* entry = nullptr;
+#if defined(_WIN32)
+  const dxbc::GuestShader* guest = nullptr;
+#endif
 };
+
+// True when the device takes DXBC only: shaders are translated per draw state instead of looked up in the pack.
+bool DxbcPath() {
+#if defined(_WIN32)
+  return dxbc::Active();
+#else
+  return false;
+#endif
+}
 
 struct DeviceState {
   FloatConstantSnapshots float_snapshots;
@@ -266,6 +285,14 @@ const VsInfo* ResolveVs(PPCContext& ctx, uint8_t* base, DeviceState& ds, const D
   const auto* patched = mem->TranslateVirtual<const uint8_t*>(g_scratch);
   VsInfo info;
   info.hash = XXH3_64bits(patched, size);
+#if defined(_WIN32)
+  if (dxbc::Active()) {
+    info.guest = dxbc::Analyze(ShaderStage::kVertex, info.hash,
+                               std::span<const uint32_t>(reinterpret_cast<const uint32_t*>(patched), size / 4));
+    info.fetches = VertexFetchConstants(patched, size);
+    return &(g_vs_cache[key] = std::move(info));
+  }
+#endif
   uint64_t fp2 = 0;
   if (ShaderPackUsesFp2()) {
     const std::span<const uint32_t> words(reinterpret_cast<const uint32_t*>(patched), size / 4);
@@ -297,6 +324,14 @@ const PsInfo* ResolvePs(DeviceState& ds, const D3DDevice* device) {
   if (it != g_ps_cache.end()) return &it->second;
   PsInfo info;
   info.hash = ds.ps_hash;
+#if defined(_WIN32)
+  if (dxbc::Active()) {
+    info.guest = dxbc::Analyze(
+        ShaderStage::kPixel, info.hash,
+        std::span<const uint32_t>(REX_KERNEL_MEMORY()->TranslateVirtual<const uint32_t*>(code), size / 4));
+    return &(g_ps_cache[info.hash] = info);
+  }
+#endif
   uint64_t fp2 = 0;
   if (ShaderPackUsesFp2()) {
     fp2 = xenosrecomp::Fingerprint(
@@ -730,6 +765,7 @@ std::vector<uint32_t> Expand(xenos::PrimitiveType type, const std::vector<uint32
 
 std::atomic<bool> g_warn_ucp_shape{false};
 std::atomic<bool> g_warn_ucp_cull{false};
+std::atomic<bool> g_warn_dxbc_geometry{false};
 std::atomic<bool> g_warn_ucp_scale{false};
 std::atomic<bool> g_warn_blend_color{false};
 
@@ -906,6 +942,33 @@ struct DrawWork : PreparedDrawState {
   uint8_t topology = 0, geometry = 0;
 };
 
+#if defined(_WIN32)
+// The b0 values only the DXBC translator reads, taken from the same device snapshot as the native ones. The texture
+// signs come from the fetch constants in Build.
+template <typename Device>
+void FillDxbcExtras(const Device& device, xenos::PrimitiveType type, DxbcSystemExtras& out) {
+  const bool line = type == xenos::PrimitiveType::kLineList || type == xenos::PrimitiveType::kLineStrip ||
+                    type == xenos::PrimitiveType::kLineLoop;
+  const bool polygonal = !line && type != xenos::PrimitiveType::kPointList;
+  out.flags = (polygonal ? 1u << 4 : 0) | (line ? 1u << 5 : 0);
+  const auto msaa = device.m_DestinationPacket.SurfaceInfo.get().msaa_samples;
+  out.sample_count_log2[0] = msaa >= xenos::MsaaSamples::k4X ? 1 : 0;
+  out.sample_count_log2[1] = msaa >= xenos::MsaaSamples::k2X ? 1 : 0;
+  const auto color_control = device.m_ControlPacket.ColorControl.get();
+  out.alpha_to_mask = color_control.alpha_to_mask_enable ? (color_control.value >> 24) | (1 << 8) : 0;
+  const auto clip = device.m_ControlPacket.ClipControl.get();
+  out.user_clip_plane_count = 0;
+  std::memset(out.user_clip_planes, 0, sizeof(out.user_clip_planes));
+  if (!clip.clip_disable) {
+    for (uint32_t i = 0; i < 6; ++i) {
+      if (!(clip.ucp_ena & (1u << i))) continue;
+      for (uint32_t c = 0; c < 4; ++c) out.user_clip_planes[out.user_clip_plane_count][c] = device.m_ClipPlanes[i][c];
+      ++out.user_clip_plane_count;
+    }
+  }
+}
+#endif
+
 void PrepareDraw(DrawWork& work) {
   const auto* device = &work.device;
   const auto& a = work.args;
@@ -1063,8 +1126,11 @@ void PrepareDraw(DrawWork& work) {
   r.viewport[5] = 1;
   r.depth_clip = !clip.clip_disable;
 
-  // User clip planes go through the pack's clip_planes GS, which takes triangles only.
-  if (clip.ucp_ena && !clip.clip_disable) {
+#if defined(_WIN32)
+  if (DxbcPath()) FillDxbcExtras(*device, a.type, c->dxbc);
+#endif
+  // User clip planes go through the pack's clip_planes GS, which takes triangles only; the DXBC VS clips itself.
+  if (clip.ucp_ena && !clip.clip_disable && !DxbcPath()) {
     const bool triangles = geometry == GeometryExpansion::kNone &&
                            (host_type == xenos::PrimitiveType::kTriangleList ||
                             host_type == xenos::PrimitiveType::kTriangleStrip);
@@ -1221,11 +1287,18 @@ bool Build(PPCContext& ctx, uint8_t* base, const DrawArgs& a, DrawRecord& r, con
 
   // Shaders.
   const VsInfo* vs = ResolveVs(ctx, base, ds, device, a.inline_data ? int(a.stride >> 2) : -1, snap);
-  if (!vs || !vs->entry) return false;
   const PsInfo* ps = ResolvePs(ds, device);
-  if (device->pixel_shader && (!ps || !ps->entry)) return false;
-  r.vs = vs->entry;
-  r.ps = ps ? ps->entry : nullptr;
+  if (!DxbcPath()) {
+    if (!vs || !vs->entry) return false;
+    if (device->pixel_shader && (!ps || !ps->entry)) return false;
+    r.vs = vs->entry;
+    r.ps = ps ? ps->entry : nullptr;
+  }
+#if defined(_WIN32)
+  else if (!vs || !vs->guest || (device->pixel_shader && (!ps || !ps->guest))) {
+    return false;
+  }
+#endif
 
   const auto mode = device->m_ControlPacket.ModeControl.get();
   if (mode.cull_front && mode.cull_back) return true;
@@ -1259,6 +1332,28 @@ bool Build(PPCContext& ctx, uint8_t* base, const DrawArgs& a, DrawRecord& r, con
       }
       return false;
   }
+#if defined(_WIN32)
+  if (DxbcPath()) {
+    if (geometry != GeometryExpansion::kNone) {
+      Once(g_warn_dxbc_geometry, "point and rectangle lists are not drawn on the shader model 5.1 path");
+      return true;
+    }
+    const auto& control = device->m_ControlPacket;
+    dxbc::DrawShaderState state;
+    state.program_cntl = device->m_ProgramPacket.ProgramControl.raw;
+    state.context_misc = device->m_ProgramPacket.ContextMisc.raw;
+    state.interpolator_cntl = device->m_ProgramPacket.InterpolatorControl.raw;
+    state.clip_cntl = control.ClipControl.raw;
+    state.msaa_samples = uint32_t(device->m_DestinationPacket.SurfaceInfo.get().msaa_samples);
+    state.point_list = a.type == xenos::PrimitiveType::kPointList;
+    const auto colorcontrol = control.ColorControl.get();
+    state.coverage_depends_on_alpha = colorcontrol.alpha_test_enable || colorcontrol.alpha_to_mask_enable;
+    const auto shaders = dxbc::Translate(vs->guest, ps ? ps->guest : nullptr, state);
+    if (!shaders.vs) return false;
+    r.vs = shaders.vs;
+    r.ps = shaders.ps;
+  }
+#endif
   s.topology = uint8_t(host_type);
   s.geometry = uint8_t(geometry);
   s.vs_entry = r.vs->id;
@@ -1291,6 +1386,17 @@ bool Build(PPCContext& ctx, uint8_t* base, const DrawArgs& a, DrawRecord& r, con
     for (uint32_t d = 0; d < 6; ++d) c->fetch[g * 6 + d] = k.Fetch[g].dword[d];
   }
   c->vfetch = vs->vfetch;
+#if defined(_WIN32)
+  if (DxbcPath()) {
+    for (uint32_t i = 0; i < 32; ++i) {
+      xenos::xe_gpu_texture_fetch_t f;
+      std::memcpy(&f, &c->fetch[i * 6], sizeof(f));
+      uint32_t& word = c->dxbc.texture_swizzled_signs[i >> 2];
+      const uint32_t shift = (i & 3) * 8;
+      word = (word & ~(0xFFu << shift)) | uint32_t(rex::graphics::texture_util::SwizzleSigns(f)) << shift;
+    }
+  }
+#endif
 
   const float w = float(size_source.width), h = float(size_source.height);
   const auto window = device->m_WindowPacket.WindowOffset.get();
@@ -1337,6 +1443,15 @@ bool Build(PPCContext& ctx, uint8_t* base, const DrawArgs& a, DrawRecord& r, con
       const PackBinding& b = e->bindings[slot];
       if (b.sampler) continue;
       TextureBinding t = BindTexture(device, b, uint8_t(slot));
+#if defined(_WIN32)
+      // The upload already converted signed, biased and gamma components to float, so the translator reads them as
+      // unsigned.
+      const BindingSlotCache& bound = g_binding_cache[b.fetch_constant & 31];
+      if (DxbcPath() && bound.valid && !bound.resolved && bound.entry && bound.entry->guest.expand) {
+        const uint32_t fetch = b.fetch_constant & 31;
+        c->dxbc.texture_swizzled_signs[fetch >> 2] &= ~(0xFFu << ((fetch & 3) * 8));
+      }
+#endif
       t.stage = stage;
       r.textures.push_back(std::move(t));
     }

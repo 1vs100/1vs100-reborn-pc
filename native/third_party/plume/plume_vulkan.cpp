@@ -4241,6 +4241,7 @@ namespace plume {
         description.dedicatedVideoMemory = memoryHeapSize;
 
         // Fill capabilities.
+        capabilities.shaderFormat = RenderShaderFormat::SPIRV;
         capabilities.geometryShader = deviceFeatures.features.geometryShader;
         capabilities.raytracing = rayTracingSupported;
         capabilities.raytracingStateUpdate = false;

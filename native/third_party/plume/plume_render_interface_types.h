@@ -388,7 +388,9 @@ namespace plume {
         UNKNOWN,
         DXIL,
         SPIRV,
-        METAL
+        METAL,
+        // REXGLUE: D3D12 devices below shader model 6 (Xbox One) take DXBC only.
+        DXBC
     };
 
     enum class RenderRaytracingPipelineLibrarySymbolType {
@@ -1800,6 +1802,9 @@ namespace plume {
     };
 
     struct RenderDeviceCapabilities {
+        // REXGLUE: the bytecode this device takes; DXBC on D3D12 devices below shader model 6.
+        RenderShaderFormat shaderFormat = RenderShaderFormat::UNKNOWN;
+
         // Geometry shaders.
         bool geometryShader = false;
 

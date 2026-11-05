@@ -34,6 +34,9 @@
 #include "render/gpu_overlay_pass.h"
 #include "render/gpu_pointer.h"
 #include "render/gpu_shader_pack.h"
+#if defined(_WIN32)
+#include "render/gpu_dxbc.h"
+#endif
 #include "render/gpu_texture_decode.h"
 #include "render/shaders/blit_shaders.h"
 #include "render/shaders/resolve_shaders.h"
@@ -62,6 +65,8 @@ REXCVAR_DEFINE_BOOL(gpu_pipeline_warmup, true, "GPU",
                     "Record every draw pipeline beside the shader pack and compile the recorded set at start-up");
 REXCVAR_DEFINE_INT32(gpu_pipeline_warmup_wait, 120, "GPU",
                      "Seconds the first frame may wait for the recorded pipelines to finish compiling; 0 = no wait");
+REXCVAR_DEFINE_BOOL(gpu_force_dxbc, false, "GPU",
+                    "Use the shader model 5.1 path (DXBC) on D3D12 devices that also take DXIL");
 REXCVAR_DEFINE_BOOL(gpu_async_pipelines, true, "GPU",
                     "Compile frame pipelines ahead on workers and wait before drawing with an unfinished pipeline");
 REXCVAR_DEFINE_BOOL(gpu_vsync, true, "GPU", "Wait for vblank on present; the Swap hook paces to 60 Hz either way");
@@ -100,9 +105,6 @@ constexpr uint32_t kSamplerHeap = 1024;  // one append-only table of exact sampl
 constexpr uint32_t kBlank2D = 0;
 constexpr uint32_t kBlankCube = 2046;
 constexpr uint32_t kBlank3D = 2045;
-
-constexpr plume::RenderShaderFormat kShaderFormat =
-    kHostSpirv ? plume::RenderShaderFormat::SPIRV : plume::RenderShaderFormat::DXIL;
 
 // plume's Vulkan backend has no root descriptors: the draw shaders read every constant block and the shared memory
 // through these device addresses (XePushConstants in rexglue_shader_common.h).
@@ -502,6 +504,10 @@ class Backend {
   uint32_t DescriptorFor(HostResource& resource, uint8_t dimension, const std::array<uint8_t, 4>& swizzle);
   uint32_t AllocateDescriptor();
   plume::RenderShader* Shader(const ShaderEntry* entry, bool trimmed);
+  std::unique_ptr<plume::RenderShader> CreateHostShader(const shaders::HostShaderCode& code, const char* entry) {
+    const auto bytes = code.For(shader_format_);
+    return device_->createShader(bytes.data(), bytes.size(), entry, shader_format_);
+  }
   plume::RenderPipeline* DrawPipeline(const DrawRecord& r, uint32_t samples, bool wait = true);
   void RecordPipeline(const DrawRecord& r, uint32_t samples);
   void WarmPipelines();
@@ -566,6 +572,7 @@ class Backend {
   // Draws.
   bool draws_ready_ = false;
   std::unique_ptr<plume::RenderPipelineLayout> draw_layout_;
+  plume::RenderShaderFormat shader_format_ = plume::RenderShaderFormat::UNKNOWN;
   plume::RenderDescriptorSetBuilder sampler_set_builder_;
   plume::RenderDescriptorSetBuilder texture_set_builder_;
   std::unique_ptr<plume::RenderDescriptorSet> sampler_set_;
@@ -655,7 +662,15 @@ bool Backend::Create(plume::RenderWindow window, uint32_t width, uint32_t height
     REXGPU_ERROR("[gpu] cannot create a device");
     return false;
   }
-  REXGPU_INFO("[gpu] {} on {}", kHostSpirv ? "vulkan" : "d3d12", device_->getDescription().name);
+  shader_format_ = device_->getCapabilities().shaderFormat;
+  if (REXCVAR_GET(gpu_force_dxbc) && shader_format_ == plume::RenderShaderFormat::DXIL) {
+    shader_format_ = plume::RenderShaderFormat::DXBC;
+  }
+#if defined(_WIN32)
+  dxbc::SetActive(shader_format_ == plume::RenderShaderFormat::DXBC);
+#endif
+  REXGPU_INFO("[gpu] {} on {}{}", kHostSpirv ? "vulkan" : "d3d12", device_->getDescription().name,
+              shader_format_ == plume::RenderShaderFormat::DXBC ? ", shader model 5.1" : "");
   REXGPU_INFO("[gpu] native renderer gate={}", onevs100::render::Enabled() ? 1 : 0);
 
   queue_ = device_->createCommandQueue(plume::RenderCommandListType::DIRECT);
@@ -697,10 +712,10 @@ bool Backend::Create(plume::RenderWindow window, uint32_t width, uint32_t height
   layout.end();
   layout_ = layout.create(device_.get());
 
-  vs_ = device_->createShader(shaders::kBlit_vs.data(), shaders::kBlit_vs.size(), "VsMain", kShaderFormat);
-  ps_ = device_->createShader(shaders::kBlit_ps.data(), shaders::kBlit_ps.size(), "PsMain", kShaderFormat);
-  resolve_vs_ = device_->createShader(shaders::kResolve_vs.data(), shaders::kResolve_vs.size(), "VsMain", kShaderFormat);
-  resolve_ps_ = device_->createShader(shaders::kResolve_ps.data(), shaders::kResolve_ps.size(), "PsMain", kShaderFormat);
+  vs_ = CreateHostShader(shaders::kBlit_vs, "VsMain");
+  ps_ = CreateHostShader(shaders::kBlit_ps, "PsMain");
+  resolve_vs_ = CreateHostShader(shaders::kResolve_vs, "VsMain");
+  resolve_ps_ = CreateHostShader(shaders::kResolve_ps, "PsMain");
   if (!layout_ || !vs_ || !ps_ || !resolve_vs_ || !resolve_ps_ || !BlitPipeline(kSwapChainFormat)) {
     REXGPU_ERROR("[gpu] cannot build the blit pipeline");
     return false;
@@ -1686,7 +1701,10 @@ UploadSpan Backend::Upload(uint64_t size, uint64_t align) {
   chunk.size = std::max(kUploadChunkSize, (size + align + 0xFFFF) & ~uint64_t(0xFFFF));
   const plume::RenderBufferFlags flags = plume::RenderBufferFlag::CONSTANT | plume::RenderBufferFlag::INDEX |
                                          plume::RenderBufferFlag::STORAGE | kAddressable;
-  chunk.buffer = device_->createBuffer(plume::RenderBufferDesc::UploadBuffer(chunk.size, flags));
+  // Each chunk gets its own allocation: the Xbox One driver faults placing a second upload buffer in a shared heap.
+  plume::RenderBufferDesc desc = plume::RenderBufferDesc::UploadBuffer(chunk.size, flags);
+  desc.committed = true;
+  chunk.buffer = device_->createBuffer(desc);
   if (!chunk.buffer) return {};
   chunk.mapped = static_cast<uint8_t*>(chunk.buffer->map());
   if (!chunk.mapped) return {};
@@ -1979,7 +1997,7 @@ plume::RenderShader* Backend::Shader(const ShaderEntry* entry, bool trimmed) {
   if (!shader) {
     const auto& bytes = trimmed ? entry->code_trim : entry->code;
     if (bytes.empty()) return nullptr;
-    shader = device_->createShader(bytes.data(), bytes.size(), "main", kShaderFormat);
+    shader = device_->createShader(bytes.data(), bytes.size(), "main", shader_format_);
     if (!shader) REXGPU_ERROR("[gpu] cannot create shader {:016X}", entry->runtime_hash);
   }
   return shader.get();
@@ -2210,7 +2228,15 @@ void Backend::Execute(DrawRecord& r) {
   SystemConstants system = c.system;
   system.pixel_position_scale[0] = float(size_source->desc.width) / float(size_source->width);
   system.pixel_position_scale[1] = float(size_source->desc.height) / float(size_source->height);
-  const UploadSpan b0 = put(&system, abi.system_size, 512);
+  UploadSpan b0 = put(&system, abi.system_size, 512);
+#if defined(_WIN32)
+  if (dxbc::Active()) {
+    alignas(16) uint8_t dxbc_system[1024];
+    const size_t dxbc_size = dxbc::SystemConstantsSize();
+    dxbc::WriteSystemConstants(system, c.dxbc, dxbc_system);
+    b0 = put(dxbc_system, dxbc_size, uint32_t((dxbc_size + 255) & ~size_t(255)));
+  }
+#endif
   auto put_float = [&](const auto& values) {
     const uint64_t key = XXH3_64bits(values.data(), sizeof(values));
     if (REXCVAR_GET(gpu_constant_reuse)) {
@@ -2223,8 +2249,17 @@ void Backend::Execute(DrawRecord& r) {
     if (span.data && REXCVAR_GET(gpu_constant_reuse)) constant_uploads_.emplace(key, ConstantUpload{values.data(), span});
     return span;
   };
-  const UploadSpan b1_vs = put_float(c.vs_float);
-  const UploadSpan b1_ps = put_float(c.ps_float);
+  // The DXBC translator reads only the registers the shader uses, packed in register order.
+  auto put_packed = [&](const std::array<float, 256 * 4>& values, const ShaderEntry* entry) {
+    if (!entry || entry->packed_floats.empty()) return put_float(values);
+    std::array<float, 256 * 4> packed{};
+    for (size_t i = 0; i < entry->packed_floats.size(); ++i) {
+      std::memcpy(&packed[i * 4], &values[size_t(entry->packed_floats[i]) * 4], 16);
+    }
+    return put(packed.data(), uint32_t(entry->packed_floats.size() * 16), 4096);
+  };
+  const UploadSpan b1_vs = put_packed(c.vs_float, r.vs);
+  const UploadSpan b1_ps = put_packed(c.ps_float, r.ps);
   const UploadSpan b2 = put(c.bool_loop.data(), sizeof(c.bool_loop), 256);
   const UploadSpan b3 = put(c.fetch.data(), sizeof(c.fetch), 768);
   const UploadSpan b4_vs = put(indices[0].data(), sizeof(indices[0]), 256);
@@ -2286,12 +2321,12 @@ plume::RenderPipeline* Backend::ResizePipeline(const HostResource& source, uint3
   const uint32_t variant = (source.depth() ? (stencil_mask ? 4u : 2u) : 0u) + (source.samples > 1 ? 1u : 0u);
   auto& shader = resize_shaders_[variant];
   if (!shader) {
-    struct Blob { std::span<const uint8_t> code; const char* entry; };
+    struct Blob { const shaders::HostShaderCode& code; const char* entry; };
     const Blob blobs[] = {{shaders::kResize_color, "ColorMain"},     {shaders::kResize_color_ms, "ColorMsMain"},
                           {shaders::kResize_depth, "DepthMain"},     {shaders::kResize_depth_ms, "DepthMsMain"},
                           {shaders::kResize_stencil, "StencilMain"}, {shaders::kResize_stencil_ms, "StencilMsMain"}};
     const auto& blob = blobs[variant];
-    shader = device_->createShader(blob.code.data(), blob.code.size(), blob.entry, kShaderFormat);
+    shader = CreateHostShader(blob.code, blob.entry);
     if (!shader) return nullptr;
   }
   const uint64_t key = uint64_t(source.format) | (uint64_t(source.samples) << 16) |
@@ -2437,7 +2472,8 @@ static_assert(sizeof(PipelineRecord) == 96);
 }  // namespace
 
 void Backend::RecordPipeline(const DrawRecord& r, uint32_t samples) {
-  if (!REXCVAR_GET(gpu_pipeline_warmup) || !r.vs) return;
+  // The records name pack shaders by guest hash; DXBC translations have no pack entry to warm from.
+  if (!REXCVAR_GET(gpu_pipeline_warmup) || !r.vs || shader_format_ == plume::RenderShaderFormat::DXBC) return;
   // Specialised pixel variants carry per-process ids and no pack hash of their own.
   if (r.state.ps_entry >= 0x80000000u) return;
   const auto path = ShaderPackSidecar("pipelines.bin");
@@ -2468,7 +2504,10 @@ void Backend::RecordPipeline(const DrawRecord& r, uint32_t samples) {
 // Queues every recorded pipeline on the compile workers before the first frame, so the driver's compile cost lands
 // in the loading screens instead of mid-level. A list from another pack is discarded.
 void Backend::WarmPipelines() {
-  if (!REXCVAR_GET(gpu_pipeline_warmup) || !REXCVAR_GET(gpu_async_pipelines)) return;
+  if (!REXCVAR_GET(gpu_pipeline_warmup) || !REXCVAR_GET(gpu_async_pipelines) ||
+      shader_format_ == plume::RenderShaderFormat::DXBC) {
+    return;
+  }
   const auto path = ShaderPackSidecar("pipelines.bin");
   if (path.empty()) return;
   std::ifstream in(path, std::ios::binary);

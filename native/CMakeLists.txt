@@ -258,6 +258,29 @@ elseif(NOT WIN32)
 endif()
 
 if(WIN32)
+    # The SDK's DXBC translator, for D3D12 devices without shader model 6 (Xbox One). It lives in the xenos
+    # plugin, which exports nothing, so the game compiles its own copy.
+    set(_rex_graphics "${REXSDK_DIR}/src/graphics")
+    add_library(onevs100_dxbc STATIC
+        ${_rex_graphics}/pipeline/shader/shader.cpp
+        ${_rex_graphics}/pipeline/shader/translator.cpp
+        ${_rex_graphics}/pipeline/shader/translator_disasm.cpp
+        ${_rex_graphics}/pipeline/shader/dxbc.cpp
+        ${_rex_graphics}/pipeline/shader/dxbc_translator.cpp
+        ${_rex_graphics}/pipeline/shader/dxbc_translator_alu.cpp
+        ${_rex_graphics}/pipeline/shader/dxbc_translator_fetch.cpp
+        ${_rex_graphics}/pipeline/shader/dxbc_translator_memexport.cpp
+        ${_rex_graphics}/pipeline/shader/dxbc_translator_om.cpp
+        ${_rex_graphics}/flags.cpp
+        ${_rex_graphics}/format/ucode.cpp
+        ${_rex_graphics}/util/draw.cpp
+        ${_rex_graphics}/registers.cpp
+        ${_rex_graphics}/pipeline/texture/util.cpp
+        ${REXSDK_DIR}/thirdparty/dxbc/DXBCChecksum.cpp)
+    target_include_directories(onevs100_dxbc PRIVATE "${REXSDK_DIR}" "${REXSDK_DIR}/thirdparty/renderdoc")
+    target_link_libraries(onevs100_dxbc PUBLIC rex::runtime)
+    target_link_libraries(onevs100 PRIVATE onevs100_dxbc)
+    target_sources(onevs100 PRIVATE src/render/gpu_dxbc.cpp)
     target_sources(onevs100 PRIVATE src/audio_xaudio2.cpp)
     target_link_libraries(onevs100 PRIVATE xaudio2)
     target_link_options(onevs100 PRIVATE /MAP:onevs100.map)

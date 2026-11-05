@@ -3061,7 +3061,7 @@ namespace plume {
         assert(data != nullptr);
         assert(size > 0);
         assert(format != RenderShaderFormat::UNKNOWN);
-        assert(format == RenderShaderFormat::DXIL);
+        assert(format == RenderShaderFormat::DXIL || format == RenderShaderFormat::DXBC);
 
         this->device = device;
         this->format = format;
@@ -3168,9 +3168,18 @@ namespace plume {
 
     // D3D12GraphicsPipeline
 
-    // REXGLUE: a failed PSO names its HRESULT, and with REXGLUE_D3D_DEBUG the debug layer's reason, in plume_present_dbg.txt.
+    // REXGLUE: diagnostics go to %LOCALAPPDATA%; the working directory of a UWP package is read-only.
+    static FILE *openDebugLog() {
+        wchar_t path[MAX_PATH];
+        const DWORD length = GetEnvironmentVariableW(L"LOCALAPPDATA", path, MAX_PATH);
+        if (length == 0 || length >= MAX_PATH - 24) return nullptr;
+        wcscat_s(path, L"\\plume_present_dbg.txt");
+        return _wfopen(path, L"a");
+    }
+
+    // REXGLUE: a failed PSO names its HRESULT, and with REXGLUE_D3D_DEBUG the debug layer's reason.
     static void logPipelineFailure(ID3D12Device *d3d, HRESULT res) {
-        FILE *f = fopen("plume_present_dbg.txt", "a");
+        FILE *f = openDebugLog();
         if (f == nullptr) return;
         fprintf(f, "CreateGraphicsPipelineState failed: 0x%lX\n", res);
         ID3D12InfoQueue *queue = nullptr;
@@ -4014,6 +4023,7 @@ namespace plume {
                 adapter = adapterOption;
                 d3d = deviceOption;
                 shaderModel = dataShaderModel.HighestShaderModel;
+                capabilities.shaderFormat = shaderModel >= D3D_SHADER_MODEL_6_0 ? RenderShaderFormat::DXIL : RenderShaderFormat::DXBC;
                 capabilities.geometryShader = true;
                 capabilities.raytracing = rtSupportOption;
                 capabilities.raytracingStateUpdate = rtStateUpdateSupportOption;
@@ -4059,7 +4069,10 @@ namespace plume {
                 return;
             }
             d3d = defaultDevice;
-            shaderModel = D3D_SHADER_MODEL_6_0;
+            D3D12_FEATURE_DATA_SHADER_MODEL fallbackShaderModel = { D3D_SHADER_MODEL_6_0 };
+            shaderModel = SUCCEEDED(d3d->CheckFeatureSupport(D3D12_FEATURE_SHADER_MODEL, &fallbackShaderModel, sizeof(fallbackShaderModel)))
+                ? fallbackShaderModel.HighestShaderModel : D3D_SHADER_MODEL_5_1;
+            capabilities.shaderFormat = shaderModel >= D3D_SHADER_MODEL_6_0 ? RenderShaderFormat::DXIL : RenderShaderFormat::DXBC;
             capabilities.geometryShader = true;
             description.name = "Xbox";
         }
@@ -4572,7 +4585,7 @@ namespace plume {
                     }
                     dxgiFactoryFlags |= DXGI_CREATE_FACTORY_DEBUG;
                     rexDebug->Release();
-                    FILE *df = fopen("plume_present_dbg.txt", "a");
+                    FILE *df = openDebugLog();
                     if (df != nullptr) {
                         fprintf(df, "D3D12 DEBUG LAYER ENABLED (mode %c)\n", dbgEnv[0]);
                         fclose(df);

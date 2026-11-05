@@ -38,6 +38,8 @@ struct ShaderEntry {
   uint32_t vfetch_count = 0;  // X3 layout-table records the VS reads from b5; 0 for the directory pack
   uint16_t written_ovar = 0xFFFF;  // VS: oVar outputs the trimmed variant keeps
   uint16_t read_ivar = 0;          // PS: iVar inputs the signature declares
+  // DXBC: the float registers b1 holds, packed in this order; empty when b1 is the whole register file.
+  std::vector<uint8_t> packed_floats;
   bool has_trim() const { return !code_trim.empty(); }
 };
 
