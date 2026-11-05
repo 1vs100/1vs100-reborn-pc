@@ -986,15 +986,16 @@ void ForgetIndex(uint64_t key) {
 
 // Places the run named by `key` in the record, converting through `convert` (which returns the indices and whether
 // a restart split changed the topology) only when this version has not been converted yet.
-template <typename GetState, typename MakeConvert>
-void PlaceIndices(DrawRecord& r, uint64_t key, GetState get_state, MakeConvert make_convert,
-                  xenos::PrimitiveType type, size_t input_bytes) {
+// An unregistered run is versioned by its bytes, so a run the title leaves unchanged is converted once.
+template <typename GetState, typename ContentVersion, typename MakeConvert>
+void PlaceIndices(DrawRecord& r, uint64_t key, GetState get_state, ContentVersion content_version,
+                  MakeConvert make_convert, xenos::PrimitiveType type, size_t input_bytes) {
   const uint64_t frame = FrameIndex();
   ForgetEvicted();
   if (g_index_runs.size() > 8192) g_index_runs.clear();
   IndexRun& run = g_index_runs[key];
   const auto state = get_state(run.sent.range_cache);
-  const uint32_t version = state.registered ? state.generation : uint32_t(frame);
+  const uint32_t version = state.registered ? state.generation : content_version();
   if ((!run.prepared.valid() && !run.ready) || run.version != version) {
     run.ready.reset();
     run.prepared = {};
@@ -1622,6 +1623,8 @@ bool Build(PPCContext& ctx, uint8_t* base, const DrawArgs& a, DrawRecord& r, con
     PlaceIndices(r, XXH3_64bits(parts, sizeof(parts)) | 1, [&](memory::QueryCache& cached) {
       return memory::Query(address, a.count * (index32 ? 4 : 2), cached);
     }, [&] {
+      return uint32_t(XXH3_64bits(Guest<uint8_t>(address), size_t(a.count) * (index32 ? 4 : 2))) | 1;
+    }, [&] {
       const auto* src = Guest<uint8_t>(address);
       std::vector<uint8_t> snapshot(src, src + size_t(a.count) * (index32 ? 4 : 2));
       return [snapshot = std::move(snapshot), count = a.count, type = a.type, index32, endian, reset] {
@@ -1636,7 +1639,7 @@ bool Build(PPCContext& ctx, uint8_t* base, const DrawArgs& a, DrawRecord& r, con
     r.indexed = true;
     PlaceIndices(r, XXH3_64bits(parts, sizeof(parts)) | 1, [](memory::QueryCache&) {
       return memory::RangeState{true, 1};
-    }, [&] {
+    }, [] { return 1u; }, [&] {
       return [count = a.count, type = a.type] {
         std::vector<uint32_t> seq(count);
         for (uint32_t i = 0; i < count; ++i) seq[i] = i;
