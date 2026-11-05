@@ -42,6 +42,8 @@ set(ONEVS100_SOURCES
     src/avatar_native/local_avatar.cpp
     src/avatar_native/native_assets.cc
     src/avatar_native/xna_avatar_format.cc
+    src/avatar_view/avatar_view.cpp
+    src/avatar_view/avatar_dialog.cpp
     src/avatar_native/third_party/mspack/lzxd.c
     src/avatar_native/third_party/mspack/system.c
     src/avatar_native/third_party/mspack/logging.cc
@@ -76,6 +78,7 @@ if(WINDOWS_STORE)
         src/uwp_onboarding/ui/draw.cpp
         src/uwp_onboarding/ui/focus.cpp
         src/uwp_onboarding/thirdparty/qrcodegen/qrcodegen.cpp
+        src/avatar_view/avatar_server_winrt.cpp
     )
     list(APPEND ONEVS100_SOURCES ${UWP_ONBOARDING_SOURCES})
     # C++/WinRT coroutines need unwind semantics, like the launcher.

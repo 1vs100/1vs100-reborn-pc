@@ -3,6 +3,7 @@
 #include <cstring>
 #include <string_view>
 #include "native_controls.h"
+#include "avatar_view/avatar_view.h"
 #include <algorithm>
 #include <cstdlib>
 #include <string>
@@ -57,6 +58,14 @@ REX_HOOK_RAW(sub_82324730) {
   const auto output = ctx.r5.u32;
   __imp__sub_82324730(ctx, base);
   MergeNativeControls(ctx, base, user, output);
+  if (ctx.r3.u32 == 0 && output) {
+    const auto stick = Stronger(static_cast<int16_t>(REX_LOAD_U16(output + 8)),
+                                static_cast<int16_t>(REX_LOAD_U16(output + 12)));
+    if (avatar_view::FilterPad(user, REX_LOAD_U16(output + 4), stick)) {
+      // The game sees idle pads while the Avatar view has them.
+      for (uint32_t offset = 4; offset < 16; ++offset) REX_STORE_U8(output + offset, 0);
+    }
+  }
   static thread_local uint32_t prior[4] = {0xFFFFFFFF,0xFFFFFFFF,0xFFFFFFFF,0xFFFFFFFF};
   const auto buttons = ctx.r3.u32 == 0 && output ? REX_LOAD_U16(output + 4) : 0;
   const uint32_t state = (ctx.r3.u32 << 16) | buttons;

@@ -17,6 +17,7 @@
 #include "matchmaking_client.h"
 #include "online_service.h"
 #include "xma_kick.h"
+#include "avatar_view/avatar_dialog.h"
 #ifdef _WIN32
 #include "death_marker.h"
 #endif
@@ -159,10 +160,12 @@ class Onevs100App : public rex::ReXApp {
       REXKRNL_WARN("Could not enable {}", kFetchConstants);
     InstallConfiguredContent();
     if (CurrentOnlineService() == OnlineService::Gameserver) StartMatchmakingClient();
+    avatar_view::StartUploadServer();
   }
   // The guest rate shows in the SDK's debug overlay, which both renderers composite.
   void OnCreateDialogs(rex::ui::ImGuiDrawer* drawer) override {
     SetGuestFrameStats(GuestFrameStats);
+    avatar_dialog_ = std::make_unique<avatar_view::AvatarDialog>(drawer, immediate_drawer());
     if (onevs100::render::display::FpsCounter()) {
       fps_overlay_ = std::make_unique<rex::ui::DebugOverlayDialog>(drawer, GuestFrameStats);
     }
@@ -204,6 +207,7 @@ class Onevs100App : public rex::ReXApp {
     onevs100::render::SetOverlayFrameCallback(nullptr);
 #endif
     fps_overlay_.reset();
+    avatar_dialog_.reset();
     rex::audio::StopXmaKicker();
   }
   // void OnConfigurePaths(rex::PathConfig& paths) override {}
@@ -228,6 +232,7 @@ class Onevs100App : public rex::ReXApp {
   }
 
   std::unique_ptr<rex::ui::DebugOverlayDialog> fps_overlay_;
+  std::unique_ptr<avatar_view::AvatarDialog> avatar_dialog_;
 
 #if ONEVS100_NATIVE_GPU
   std::atomic<bool> overlay_queued_{false};
