@@ -101,8 +101,12 @@ void Once(std::atomic<bool>& flag, const char* what) {
 
 // ------------------------------------------------------------------------------------------------ shaders
 
+// Float constant registers a shader reads; all of them unless the translator listed them.
+constexpr std::array<uint64_t, 4> kAllFloats = {~0ull, ~0ull, ~0ull, ~0ull};
+
 struct VsInfo {
   uint64_t hash = 0;
+  std::array<uint64_t, 4> floats = kAllFloats;
   std::array<uint32_t, 32 * 4> vfetch{};  // b5 vfetch layout records, filled for fp2-keyed packs
   const ShaderEntry* entry = nullptr;
   std::vector<uint8_t> fetches;  // vertex fetch constants 0-95 the patched microcode reads
@@ -113,6 +117,7 @@ struct VsInfo {
 
 struct PsInfo {
   uint64_t hash = 0;
+  std::array<uint64_t, 4> floats = kAllFloats;
   const ShaderEntry* entry = nullptr;
 #if defined(_WIN32)
   const dxbc::GuestShader* guest = nullptr;
@@ -300,6 +305,7 @@ const VsInfo* ResolveVs(PPCContext& ctx, uint8_t* base, DeviceState& ds, const D
     info.guest = dxbc::Analyze(ShaderStage::kVertex, info.hash,
                                std::span<const uint32_t>(reinterpret_cast<const uint32_t*>(patched), size / 4));
     info.fetches = VertexFetchConstants(patched, size);
+    if (!dxbc::FloatRegisters(info.guest, info.floats)) info.floats = kAllFloats;
     return &(g_vs_cache[key] = std::move(info));
   }
 #endif
@@ -339,6 +345,7 @@ const PsInfo* ResolvePs(DeviceState& ds, const D3DDevice* device) {
     info.guest = dxbc::Analyze(
         ShaderStage::kPixel, info.hash,
         std::span<const uint32_t>(REX_KERNEL_MEMORY()->TranslateVirtual<const uint32_t*>(code), size / 4));
+    if (!dxbc::FloatRegisters(info.guest, info.floats)) info.floats = kAllFloats;
     return &(g_ps_cache[info.hash] = info);
   }
 #endif
@@ -530,7 +537,8 @@ std::shared_ptr<DrawConstants> AllocateConstants() {
     next = 0;
   }
   DrawConstants* item = &chunk->items[next++];
-  // Build overwrites every array in full; only the system block keeps defaults for fields a draw may not set.
+  // Build and PrepareDraw overwrite every array (the float arrays in the registers the draw's shaders read; the rest
+  // stay stale and unread); only the system block keeps defaults for fields a draw may not set.
   item->system = SystemConstants{};
   return std::shared_ptr<DrawConstants>(chunk, item);
 }
@@ -1088,12 +1096,18 @@ void PrepareDraw(DrawWork& work) {
   r.vs = work.vs;
   r.ps = work.ps;
   auto c = work.constants;
-  for (size_t i = 0; i < 256 * 4; ++i) {
-    const uint32_t vs = __builtin_bswap32(work.vs_constants->words[i]);
-    const uint32_t ps = __builtin_bswap32(work.ps_constants->words[i]);
-    std::memcpy(&c->vs_float[i], &vs, sizeof(vs));
-    std::memcpy(&c->ps_float[i], &ps, sizeof(ps));
-  }
+  // Only the registers the snapshot holds: the others are stale and no shader of this draw reads them.
+  const auto swap = [](const FloatConstantBlock& block, float* to) {
+    FloatConstantSnapshots::ForRuns(block.valid, [&](uint32_t reg, uint32_t count) {
+      for (uint32_t i = reg * 4; i < (reg + count) * 4; ++i) {
+        const uint32_t word = __builtin_bswap32(block.words[i]);
+        std::memcpy(&to[i], &word, sizeof(word));
+      }
+      return true;
+    });
+  };
+  swap(*work.vs_constants, c->vs_float.data());
+  swap(*work.ps_constants, c->ps_float.data());
   for (const auto& literal : work.literals) {
     float* destination = literal.dword < 256 * 4 ? &c->vs_float[literal.dword]
                                                 : &c->ps_float[literal.dword - 256 * 4];
@@ -1479,11 +1493,11 @@ bool Build(PPCContext& ctx, uint8_t* base, const DrawArgs& a, DrawRecord& r, con
   const bool parallel_constants = REXCVAR_GET(gpu_parallel_prepare);
   static_assert(sizeof(k.VertexShaderF) == 256 * 16 && sizeof(k.PixelShaderF) == 256 * 16);
   auto work = AllocateDrawWork();
-  work->vs_constants =
-      ds.float_snapshots.Capture(0, ConstantSource(ds, 0, reinterpret_cast<const uint32_t*>(&k.VertexShaderF[0][0])));
-  work->ps_constants =
-      ds.float_snapshots.Capture(1, ConstantSource(ds, 1, reinterpret_cast<const uint32_t*>(&k.PixelShaderF[0][0])));
   clock.Mark(kConstAlloc);
+  work->vs_constants = ds.float_snapshots.Capture(
+      0, ConstantSource(ds, 0, reinterpret_cast<const uint32_t*>(&k.VertexShaderF[0][0])), vs->floats);
+  work->ps_constants = ds.float_snapshots.Capture(
+      1, ConstantSource(ds, 1, reinterpret_cast<const uint32_t*>(&k.PixelShaderF[0][0])), ps ? ps->floats : std::array<uint64_t, 4>{});
   clock.Mark(kConstFloat);
   work->literals.clear();
   CaptureLiterals(device->vertex_shader + guest::kVsHeader, Load32(device->vertex_shader + guest::kVsCodeBase),

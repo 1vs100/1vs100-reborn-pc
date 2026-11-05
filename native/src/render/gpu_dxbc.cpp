@@ -125,6 +125,14 @@ const GuestShader* Analyze(ShaderStage stage, uint64_t hash, std::span<const uin
   return slot.get();
 }
 
+bool FloatRegisters(const GuestShader* shader, std::array<uint64_t, 4>& out) {
+  if (!shader) return false;
+  const auto& map = shader->shader->constant_register_map();
+  if (map.float_dynamic_addressing) return false;
+  for (size_t i = 0; i < out.size(); ++i) out[i] = map.float_bitmap[i];
+  return true;
+}
+
 DrawShaders Translate(const GuestShader* vs, const GuestShader* ps, const DrawShaderState& state) {
   if (!vs) return {};
   std::lock_guard lock(g_mutex);

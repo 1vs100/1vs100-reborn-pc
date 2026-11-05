@@ -3,6 +3,8 @@
 // spaces 1-3, so its entries run on the same draw layout. Windows only.
 #pragma once
 
+#include <array>
+
 #include <cstdint>
 #include <span>
 
@@ -20,6 +22,9 @@ struct GuestShader;
 
 // Guest thread. `ucode` is big-endian as it sits in guest memory; null when the microcode is unusable.
 const GuestShader* Analyze(ShaderStage stage, uint64_t hash, std::span<const uint32_t> ucode);
+
+// The float constant registers the shader reads, one bit each; false when it addresses them dynamically.
+bool FloatRegisters(const GuestShader* shader, std::array<uint64_t, 4>& out);
 
 // Per-draw inputs to the shader modifications (DxbcShaderTranslator::Modification).
 struct DrawShaderState {
