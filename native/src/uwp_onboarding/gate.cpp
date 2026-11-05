@@ -2,6 +2,7 @@
 // own renderer, torn down before returning so the game can set up its own.
 #include "gate.h"
 #include <SDL3/SDL.h>
+#include <fstream>
 
 #include "app.h"
 #include "ui/draw.h"
@@ -22,11 +23,14 @@ bool EnsureGameFiles(const std::filesystem::path& userRoot, onboarding::Header h
     SDL_Log("onboarding SDL_Init failed: %s", SDL_GetError());
     return false;
   }
+  // The GLES fallback faults inside SDL on Xbox One S; D3D11 is the console's renderer.
+  SDL_SetHint(SDL_HINT_RENDER_DRIVER, "direct3d11");
   SDL_Window* window = nullptr;
   SDL_Renderer* renderer = nullptr;
   if (!SDL_CreateWindowAndRenderer("1 vs 100 Setup", onboarding::ui::kWidth, onboarding::ui::kHeight,
                                    SDL_WINDOW_RESIZABLE, &window, &renderer)) {
-    SDL_Log("onboarding window creation failed: %s", SDL_GetError());
+    // The game log is not open yet.
+    std::ofstream(userRoot / "onboarding-error.txt") << "window creation failed: " << SDL_GetError() << "\n";
     SDL_QuitSubSystem(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD);
     return false;
   }
