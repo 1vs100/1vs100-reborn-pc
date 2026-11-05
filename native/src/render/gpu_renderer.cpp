@@ -2508,6 +2508,17 @@ void RenderThread(Renderer* r) {
                   "idle {:.1f}, guest blocked {:.1f}",
                   frames, draws / frames, busy / 1000.0 / frames, fence / 1000.0 / frames, present / 1000.0 / frames,
                   idle / 1000.0 / frames, guest / 1000.0 / frames);
+      const auto c = draw::TakeCaptureStats();
+      const auto ms = [&](uint64_t us) { return us / 1000.0 / frames; };
+      REXGPU_INFO("[gpu] capture ms/frame: setup {:.1f}, constants {:.1f}, streams {:.1f}, textures {:.1f}, "
+                  "geometry {:.1f}, finish {:.1f}, submit {:.1f}",
+                  ms(c.setup), ms(c.constants), ms(c.streams), ms(c.textures), ms(c.geometry), ms(c.finish),
+                  ms(c.submit));
+      REXGPU_INFO("[gpu] capture detail ms/frame: constants alloc {:.1f}, float {:.1f}, literals {:.1f}, rest {:.1f}; "
+                  "stream copy {:.1f}",
+                  ms(c.const_alloc), ms(c.const_float), ms(c.const_literals), ms(c.constants), ms(c.stream_copy));
+      REXGPU_INFO("[gpu] streams/frame: {} captured, {} copied ({} KB), {} sampled", c.stream_count / frames,
+                  c.stream_copies / frames, c.stream_bytes / 1024 / frames, c.stream_samples / frames);
     }
     if (log_now) {
       const size_t pipelines = r->backend.DrawPipelineCount();

@@ -46,6 +46,14 @@ void FinishPreparation(Packet& packet);
 // Guest thread: submits the draw the runtime just built for these arguments.
 void Capture(PPCContext& ctx, uint8_t* base, const DrawArgs& a);
 
+// gpu_frame_stats: guest-thread capture time per section, in microseconds since the last call.
+struct CaptureStats {
+  uint64_t setup = 0, constants = 0, streams = 0, textures = 0, geometry = 0, finish = 0, submit = 0;
+  uint64_t const_alloc = 0, const_float = 0, const_literals = 0, stream_copy = 0;  // parts of the sections above
+  uint64_t stream_count = 0, stream_copies = 0, stream_bytes = 0, stream_samples = 0;
+};
+CaptureStats TakeCaptureStats();
+
 // Guest thread: Begin*Vertices returned the guest buffer the title fills next;
 // vertex_data and index_data are those guest addresses, 0 when unused.
 void BeginInline(PPCContext& ctx, uint8_t* base, const DrawArgs& a, uint32_t vertex_data,

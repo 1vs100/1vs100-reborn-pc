@@ -56,6 +56,7 @@
 
 REXCVAR_DEFINE_BOOL(gpu_draws, true, "GPU", "Render captured draws; off leaves only clears, resolves and present");
 REXCVAR_DEFINE_BOOL(gpu_parallel_prepare, true, "GPU", "Prepare captured draw state, samplers, constants and indices on workers");
+REXCVAR_DECLARE(bool, gpu_frame_stats);
 REXCVAR_DEFINE_BOOL(gpu_stream_snapshot_pool, true, "GPU", "Reuse worker-prepared stream snapshot buffers");
 REXCVAR_DEFINE_BOOL(gpu_replay_cull, true, "GPU", "Apply the recorded cull mode to command-buffer replays; off draws both faces");
 
@@ -721,7 +722,33 @@ struct SentRange {
 };
 
 // 32 stripes of 128 bytes spread over a range, for the per-frame change check of registered vertex data.
+// gpu_frame_stats: nanoseconds per capture section, summed over all draws.
+enum CaptureSection {
+  kSetup, kConstAlloc, kConstFloat, kConstLiterals, kConstants, kStreams, kStreamCopy, kTextures, kGeometry, kFinish,
+  kSubmit, kSectionCount
+};
+std::atomic<uint64_t> g_capture_ns[kSectionCount];
+class SectionClock {
+ public:
+  SectionClock() : on_(REXCVAR_GET(gpu_frame_stats)), last_(on_ ? std::chrono::steady_clock::now() : last_) {}
+  void Mark(CaptureSection section) {
+    if (!on_) return;
+    const auto now = std::chrono::steady_clock::now();
+    g_capture_ns[section].fetch_add(uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(now - last_).count()),
+                                    std::memory_order_relaxed);
+    last_ = now;
+  }
+
+ private:
+  bool on_;
+  std::chrono::steady_clock::time_point last_;
+};
+
+// gpu_frame_stats: stream counts since the last TakeCaptureStats.
+std::atomic<uint64_t> g_stream_count{0}, g_stream_copies{0}, g_stream_bytes{0}, g_stream_samples{0};
+
 uint64_t SampleRange(const uint8_t* bytes, uint32_t size) {
+  g_stream_samples.fetch_add(1, std::memory_order_relaxed);
   uint8_t stripes[32 * 128];
   size_t n = 0;
   for (uint32_t i = 0; i < 32; ++i) {
@@ -793,13 +820,18 @@ StreamData CaptureStream(uint32_t fetch_index, uint32_t guest_base, uint32_t siz
     s.version = uint32_t(frame);
     send = sent.frame != frame;
   }
+  g_stream_count.fetch_add(1, std::memory_order_relaxed);
   if (send) {
     if (REXCVAR_GET(gpu_stream_snapshot_pool) && REXCVAR_GET(gpu_parallel_prepare)) {
+    g_stream_copies.fetch_add(1, std::memory_order_relaxed);
+    g_stream_bytes.fetch_add(size, std::memory_order_relaxed);
+    SectionClock copy_clock;
       static StreamSnapshotPool snapshots;
       s.bytes = snapshots.Copy(bytes, size);
     } else {
       s.bytes = std::make_shared<const std::vector<uint8_t>>(bytes, bytes + size);
     }
+    copy_clock.Mark(kStreamCopy);
     sent.version = s.version;
     sent.frame = frame;
   }
@@ -1351,6 +1383,7 @@ void FinishDrawState(DrawRecord& r) {
 // the struct to read, normally the one at a.device, or a merged copy when a command buffer replays.
 bool Build(PPCContext& ctx, uint8_t* base, const DrawArgs& a, DrawRecord& r, const D3DDevice* device,
            const VsSnapshot* snap = nullptr) {
+  SectionClock clock;
   DeviceState& ds = g_devices[a.device];
   TakeGpuLoads(ds, 0, reinterpret_cast<const uint32_t*>(&device->m_Constants.VertexShaderF[0][0]));
   TakeGpuLoads(ds, 1, reinterpret_cast<const uint32_t*>(&device->m_Constants.PixelShaderF[0][0]));
@@ -1439,6 +1472,7 @@ bool Build(PPCContext& ctx, uint8_t* base, const DrawArgs& a, DrawRecord& r, con
   s.vs_entry = r.vs->id;
   s.ps_entry = r.ps ? r.ps->id : 0;
 
+  clock.Mark(kSetup);
   // Constants: the shadow is byte-swapped per dword; literals override what the shader defines itself.
   auto c = AllocateConstants();
   const auto& k = device->m_Constants;
@@ -1449,6 +1483,8 @@ bool Build(PPCContext& ctx, uint8_t* base, const DrawArgs& a, DrawRecord& r, con
       ds.float_snapshots.Capture(0, ConstantSource(ds, 0, reinterpret_cast<const uint32_t*>(&k.VertexShaderF[0][0])));
   work->ps_constants =
       ds.float_snapshots.Capture(1, ConstantSource(ds, 1, reinterpret_cast<const uint32_t*>(&k.PixelShaderF[0][0])));
+  clock.Mark(kConstAlloc);
+  clock.Mark(kConstFloat);
   work->literals.clear();
   CaptureLiterals(device->vertex_shader + guest::kVsHeader, Load32(device->vertex_shader + guest::kVsCodeBase),
                   work->literals);
@@ -1456,6 +1492,7 @@ bool Build(PPCContext& ctx, uint8_t* base, const DrawArgs& a, DrawRecord& r, con
     CaptureLiterals(device->pixel_shader + guest::kPsHeader, Load32(device->pixel_shader + guest::kPsCodeBase),
                     work->literals);
   }
+  clock.Mark(kConstLiterals);
   for (uint32_t i = 0; i < 4; ++i) {
     c->bool_loop[i] = k.VertexShaderB[i];
     c->bool_loop[4 + i] = k.PixelShaderB[i];
@@ -1499,6 +1536,7 @@ bool Build(PPCContext& ctx, uint8_t* base, const DrawArgs& a, DrawRecord& r, con
 
   if (r.scissor.right <= r.scissor.left || r.scissor.bottom <= r.scissor.top) return true;
 
+  clock.Mark(kConstants);
   // Vertex data: every fetch constant the patched microcode reads.
   r.streams.reserve(vs->fetches.size());
   for (uint8_t index : vs->fetches) {
@@ -1512,6 +1550,7 @@ bool Build(PPCContext& ctx, uint8_t* base, const DrawArgs& a, DrawRecord& r, con
     r.streams.push_back(CaptureStream(index, guest_base & 0x1FFFFFFF, size));
   }
 
+  clock.Mark(kStreams);
   // Resource ownership and guest reads stay at the commit point; sampler assembly uses the captured fetch words.
   size_t texture_count = 0;
   for (const ShaderEntry* e : {r.vs, r.ps}) {
@@ -1539,6 +1578,7 @@ bool Build(PPCContext& ctx, uint8_t* base, const DrawArgs& a, DrawRecord& r, con
     }
   }
 
+  clock.Mark(kTextures);
   // Geometry.
   r.count = a.count;
   r.indexed = a.indexed;
@@ -1578,6 +1618,7 @@ bool Build(PPCContext& ctx, uint8_t* base, const DrawArgs& a, DrawRecord& r, con
       };
     }, a.type, size_t(a.count) * 32);
   }
+  clock.Mark(kGeometry);
   std::memcpy(&work->device.m_ControlPacket, &device->m_ControlPacket, sizeof(device->m_ControlPacket));
   std::memcpy(&work->device.m_ValuesPacket, &device->m_ValuesPacket, sizeof(device->m_ValuesPacket));
   std::memcpy(&work->device.m_DestinationPacket, &device->m_DestinationPacket, sizeof(device->m_DestinationPacket));
@@ -1604,6 +1645,7 @@ bool Build(PPCContext& ctx, uint8_t* base, const DrawArgs& a, DrawRecord& r, con
   cp.BlendControl3.raw = blends[3];
   r.prepared_state = std::move(work);
   r.constants = std::move(c);
+  clock.Mark(kFinish);
   return true;
 }
 
@@ -1701,7 +1743,11 @@ void Capture(PPCContext& ctx, uint8_t* base, const DrawArgs& a) {
   }
   std::lock_guard lock(g_mutex);
   DrawRecord r;
-  if (Build(ctx, base, a, r, Guest<D3DDevice>(a.device)) && r.constants) Submit(std::move(r));
+  if (Build(ctx, base, a, r, Guest<D3DDevice>(a.device)) && r.constants) {
+    SectionClock clock;
+    Submit(std::move(r));
+    clock.Mark(kSubmit);
+  }
 }
 
 void BeginInline(PPCContext& ctx, uint8_t* base, const DrawArgs& a, uint32_t vertex_data,
@@ -1785,6 +1831,23 @@ void NoteGpuConstants(uint32_t device, bool pixel, uint32_t start, uint32_t coun
   }
   std::lock_guard lock(g_mutex);
   g_devices[device].gpu_loads[pixel ? 1 : 0].push_back({start, count, data});
+}
+
+CaptureStats TakeCaptureStats() {
+  auto take = [](CaptureSection section) {
+    return g_capture_ns[section].exchange(0, std::memory_order_relaxed) / 1000;
+  };
+  CaptureStats out;
+  out.setup = take(kSetup), out.constants = take(kConstants), out.streams = take(kStreams);
+  out.const_alloc = take(kConstAlloc), out.const_float = take(kConstFloat), out.const_literals = take(kConstLiterals);
+  out.stream_copy = take(kStreamCopy);
+  out.textures = take(kTextures), out.geometry = take(kGeometry), out.finish = take(kFinish);
+  out.submit = take(kSubmit);
+  out.stream_count = g_stream_count.exchange(0, std::memory_order_relaxed);
+  out.stream_copies = g_stream_copies.exchange(0, std::memory_order_relaxed);
+  out.stream_bytes = g_stream_bytes.exchange(0, std::memory_order_relaxed);
+  out.stream_samples = g_stream_samples.exchange(0, std::memory_order_relaxed);
+  return out;
 }
 
 }  // namespace onevs100::render::draw
