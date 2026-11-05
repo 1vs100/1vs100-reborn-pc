@@ -387,6 +387,12 @@ class RangeAllocator {
     return false;
   }
   void Free(uint64_t offset, uint64_t size, uint64_t frame) { pending_.push_back({offset, (size + 255) & ~255ull, frame}); }
+  // Free bytes and the largest free block, for the full-pool report.
+  std::pair<uint64_t, uint64_t> FreeSpace() const {
+    uint64_t total = 0, largest = 0;
+    for (const auto& [offset, size] : free_) total += size, largest = std::max(largest, size);
+    return {total, largest};
+  }
   void Retire(uint64_t completed_frame) {
     for (auto it = pending_.begin(); it != pending_.end();) {
       if (it->frame > completed_frame) {
@@ -426,6 +432,7 @@ struct PersistentRange {
   uint64_t offset = 0;
   uint64_t size = 0;
   uint64_t last_frame = 0;  // frame of the last draw that referenced it, for eviction
+  uint64_t written_packet = 0;  // upload packet that last copied into it
 };
 
 std::mutex g_evicted_mutex;
@@ -605,6 +612,7 @@ class Backend {
   std::unordered_map<uint64_t, PersistentRange> persistent_ranges_;
   uint64_t transient_used_[kFramesInFlight] = {};
   std::unordered_map<uint64_t, uint64_t> frame_ranges_;  // unregistered range key -> shared offset, this packet
+  uint64_t upload_packet_ = 0;  // PrepareUploads calls, for PersistentRange::written_packet
   uint64_t frame_counter_ = 0;
   uint32_t next_descriptor_ = 1;
   std::vector<uint32_t> recycled_descriptors_;
@@ -1707,19 +1715,32 @@ bool Backend::Place(StreamData& stream, uint64_t& offset, std::vector<std::pair<
         NoteEvicted(stream.key);
         return false;
       }
-      if (range.size) persistent_.Free(range.offset, range.size, frame_counter_);
-      range = {};
-      range.last_frame = frame_counter_;
-      if (!persistent_.Allocate(stream.size, range.offset) && !EvictPersistent(stream.size, range.offset)) {
-        REXGPU_ERROR("[gpu] persistent shared memory is full ({:#x} bytes wanted)", stream.size);
-        return false;
+      // A new version of the same size overwrites its range: the barrier before the copies orders the write after
+      // every earlier read, and buffers the title rewrites each frame would otherwise churn and fragment the pool.
+      // A second version within one packet needs its own range, since all of the packet's copies land before its
+      // draws.
+      if (range.size != stream.size || range.written_packet == upload_packet_) {
+        if (range.size) persistent_.Free(range.offset, range.size, frame_counter_);
+        range = {};
+        range.last_frame = frame_counter_;
+        if (!persistent_.Allocate(stream.size, range.offset) && !EvictPersistent(stream.size, range.offset)) {
+          REXGPU_ERROR("[gpu] persistent shared memory is full ({:#x} bytes wanted)", stream.size);
+          static bool reported = false;
+          if (!std::exchange(reported, true)) {
+            const auto [free_bytes, largest] = persistent_.FreeSpace();
+            REXGPU_ERROR("[gpu] persistent pool: {:#x} bytes free, largest block {:#x}, {} ranges", free_bytes, largest,
+                         persistent_ranges_.size());
+          }
+          return false;
+        }
+        range.size = stream.size;
       }
-      range.size = stream.size;
-      range.version = stream.version;
       UploadSpan span = Upload(stream.size, 16);
       if (!span.data) {
         return false;
       }
+      range.version = stream.version;
+      range.written_packet = upload_packet_;
       std::memcpy(span.data, stream.bytes->data(), stream.size);
       copies.emplace_back(range.offset, span);
       copy_sizes.push_back(stream.size);
@@ -1776,6 +1797,7 @@ void Backend::PrepareUploads(Packet& packet) {
   std::vector<std::pair<uint64_t, UploadSpan>> copies;  // shared-memory offset, staged bytes
   std::vector<uint64_t> copy_sizes;
   bool any = false;
+  ++upload_packet_;
   frame_ranges_.clear();
   for (auto& record : packet.records) {
     auto* draw = std::get_if<DrawRecord>(&record);
