@@ -218,6 +218,7 @@ REX_HOOK_RAW(sub_822E74D0) {
 // nothing throttles the title, so the frame limit paces it here; a frame that
 // falls a whole period behind restarts the deadline instead of catching up.
 REX_HOOK_RAW(sub_822F50C0) {
+  display::CountFrame();
   draw::FinishPending();
   using Clock = std::chrono::steady_clock;
   const int32_t cap = display::FrameLimit();

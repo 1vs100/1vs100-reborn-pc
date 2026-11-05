@@ -52,7 +52,6 @@ REXCVAR_DEFINE_INT32(gpu_msaa, 0, "GPU",
                      "Host MSAA samples for the game's render targets: 0 = the game's own, 2, 4 or 8; read at device "
                      "creation");
 REXCVAR_DEFINE_STRING(gpu_adapter, "", "GPU", "Adapter name substring; empty picks plume's default adapter");
-REXCVAR_DEFINE_BOOL(gpu_fps, false, "GPU", "Draw the presented frame rate over the frame, in the game's own font");
 REXCVAR_DEFINE_DOUBLE(gpu_pointer_size, 10.0, "GPU", "Mouse pointer height as a percentage of the frame height");
 REXCVAR_DEFINE_STRING(gpu_pointer, "model", "GPU",
                       "Mouse pointer image: selector (the menu's own hand sprite), model (a glove baked from the "
@@ -486,8 +485,6 @@ class Backend {
   plume::RenderPipeline* ResizePipeline(const HostResource& source, uint32_t stencil_mask);
   std::vector<plume::RenderRect> ClipRects(const std::vector<Rect>& rects, const HostResource& target) const;
   plume::RenderDescriptorSet* SamplerSet(const DrawRecord& r, std::array<uint32_t, 32> (&indices)[2]);
-  void UpdateFps();
-  void DrawFps(plume::RenderTexture* back, plume::RenderFramebuffer* framebuffer, uint32_t width, uint32_t height);
   void UpdatePointer();
   void DrawPointer(plume::RenderTexture* target, plume::RenderFramebuffer* framebuffer, uint32_t width, uint32_t height,
                    HostResource* owner);
@@ -624,24 +621,6 @@ class Backend {
   bool compile_stop_ = false;
   void CompileLoop();
   std::map<std::array<uint32_t, 5>, std::unique_ptr<plume::RenderFramebuffer>> draw_framebuffers_;
-
-  // gpu_fps: the counter text rasterized from the game's font whenever the number changes.
-  struct FpsOverlay {
-    struct Glyph {
-      int x = 0, y = 0, w = 0, h = 0, xo = 0, yo = 0, advance = 0;
-    };
-    bool tried = false;
-    bool ok = false;
-    std::unordered_map<uint32_t, Glyph> glyphs;
-    std::vector<uint8_t> atlas;  // glyph coverage, one byte per texel
-    int atlas_w = 0, atlas_h = 0, line = 0;
-    std::string text;
-    HostResource texture;
-    std::chrono::steady_clock::time_point window_start{};
-    uint32_t frames = 0;
-    uint32_t shown = 0;
-    uint32_t windows = 0;  // half-second windows counted, for the periodic log line
-  } fps_;
 
   std::atomic<bool> resize_requested_{false};
 };
@@ -1413,7 +1392,6 @@ void Backend::Execute(const SwapRecord& r) {
     plume::RenderFramebuffer* back_framebuffer = swap_framebuffers_[index].get();
     const uint32_t bw = swap_chain_->getWidth();
     const uint32_t bh = swap_chain_->getHeight();
-    if (onevs100::render::display::FpsCounter()) UpdateFps();
     const bool pointer = g_pointer_visible.load(std::memory_order_acquire) && REXCVAR_GET(gpu_pointer) != "off";
     if (pointer) UpdatePointer();
     FlushTransitions();
@@ -1455,7 +1433,6 @@ void Backend::Execute(const SwapRecord& r) {
              back_framebuffer, kSwapChainFormat, fit, 1.0f, true);
       }
     }
-    if (onevs100::render::display::FpsCounter()) DrawFps(back, back_framebuffer, bw, bh);
     if (pointer && !(front && front->framebuffer)) DrawPointer(back, back_framebuffer, bw, bh, nullptr);
     if (overlay) {
       if (bound_ != back_framebuffer) {
@@ -1490,155 +1467,6 @@ void Backend::Execute(const SwapRecord& r) {
   // A frame's persistent frees are safe once every slot has cycled past it.
   if (frame_counter_ > kFramesInFlight) persistent_.Retire(frame_counter_ - kFramesInFlight - 1);
   ResizeTargets(uint32_t(onevs100::render::display::ResolutionScale()), uint32_t(onevs100::render::display::ShadowScale()));
-}
-
-// Counts presents per half second and, when the number changes, rasterizes "<n> FPS" from cardigan_bd: the .fnt
-// metrics and the DXT5 atlas page the digits and "FPS" live on (page 1), whose alpha is the glyph coverage.
-void Backend::UpdateFps() {
-  auto& f = fps_;
-  const auto now = std::chrono::steady_clock::now();
-  if (f.window_start == std::chrono::steady_clock::time_point{}) f.window_start = now;
-  ++f.frames;
-  const double elapsed = std::chrono::duration<double>(now - f.window_start).count();
-  if (elapsed >= 0.5) {
-    f.shown = uint32_t(f.frames / elapsed + 0.5);
-    f.frames = 0;
-    f.window_start = now;
-    if (++f.windows % 10 == 0) REXGPU_INFO("[gpu] fps {}", f.shown);
-  }
-  if (!f.tried) {
-    std::filesystem::path root;
-    {
-      std::lock_guard lock(g_font_mutex);
-      root = g_font_root;
-    }
-    // The app names the folder once the game data root is known; until then there is nothing to load.
-    if (root.empty()) return;
-    f.tried = true;
-    std::ifstream fnt(root / "cardigan_bd.fnt");
-    std::ifstream dds(root / "cardigan_bd_1.dds", std::ios::binary);
-    if (!fnt || !dds) {
-      REXGPU_WARN("[gpu] gpu_fps: font not found under {}", root.string());
-      return;
-    }
-    std::string line;
-    while (std::getline(fnt, line)) {
-      std::istringstream in(line);
-      std::string tag;
-      in >> tag;
-      std::unordered_map<std::string, int> kv;
-      for (std::string item; in >> item;) {
-        const auto eq = item.find('=');
-        if (eq != std::string::npos && eq + 1 < item.size() && item[eq + 1] != '"') {
-          kv[item.substr(0, eq)] = std::atoi(item.c_str() + eq + 1);
-        }
-      }
-      if (tag == "common") f.line = kv["lineHeight"];
-      if (tag == "char" && kv["page"] == 1) {
-        f.glyphs[uint32_t(kv["id"])] = {kv["x"], kv["y"], kv["width"], kv["height"], kv["xoffset"], kv["yoffset"],
-                                        kv["xadvance"]};
-      }
-      // The space's box is on page 0, so only its advance is used.
-      if (tag == "char" && kv["id"] == 32) f.glyphs[32] = {0, 0, 0, 0, 0, 0, kv["xadvance"]};
-    }
-    std::vector<uint8_t> file((std::istreambuf_iterator<char>(dds)), std::istreambuf_iterator<char>());
-    if (file.size() < 128 || std::memcmp(file.data(), "DDS ", 4) != 0) return;
-    std::memcpy(&f.atlas_h, &file[12], 4);
-    std::memcpy(&f.atlas_w, &file[16], 4);
-    const int bx = f.atlas_w / 4, by = f.atlas_h / 4;
-    if (file.size() < 128 + size_t(bx) * by * 16) return;
-    f.atlas.assign(size_t(f.atlas_w) * f.atlas_h, 0);
-    uint8_t tile[16][4];
-    for (int y = 0; y < by; ++y) {
-      for (int x = 0; x < bx; ++x) {
-        DecodeBlockRGBA(HostFormat::kBC3, &file[128 + (size_t(y) * bx + x) * 16], tile);
-        for (int i = 0; i < 16; ++i) f.atlas[size_t(y * 4 + i / 4) * f.atlas_w + x * 4 + i % 4] = tile[i][3];
-      }
-    }
-    f.ok = true;
-  }
-  const std::string text = std::to_string(f.shown) + " FPS";
-  if (!f.ok || text == f.text) return;
-  f.text = text;
-  // White glyph cores over a black outline: the coverage dilated by a small disk.
-  constexpr int kPad = 4, kRadius = 3;
-  int width = 2 * kPad;
-  for (char c : text) {
-    auto it = f.glyphs.find(uint8_t(c));
-    if (it != f.glyphs.end()) width += it->second.advance;
-  }
-  const int height = f.line + 2 * kPad;
-  std::vector<uint8_t> core(size_t(width) * height, 0), outline(core.size(), 0);
-  int pen = kPad;
-  for (char c : text) {
-    auto it = f.glyphs.find(uint8_t(c));
-    if (it == f.glyphs.end()) continue;
-    const auto& g = it->second;
-    for (int y = 0; y < g.h; ++y) {
-      for (int x = 0; x < g.w; ++x) {
-        const int dx = pen + g.xo + x, dy = kPad + g.yo + y;
-        if (dx < 0 || dy < 0 || dx >= width || dy >= height || g.x + x >= f.atlas_w || g.y + y >= f.atlas_h) continue;
-        auto& d = core[size_t(dy) * width + dx];
-        d = std::max(d, f.atlas[size_t(g.y + y) * f.atlas_w + g.x + x]);
-      }
-    }
-    pen += g.advance;
-  }
-  for (int y = 0; y < height; ++y) {
-    for (int x = 0; x < width; ++x) {
-      uint8_t m = 0;
-      for (int oy = -kRadius; oy <= kRadius; ++oy) {
-        for (int ox = -kRadius; ox <= kRadius; ++ox) {
-          const int sx = x + ox, sy = y + oy;
-          if (ox * ox + oy * oy > kRadius * kRadius || sx < 0 || sy < 0 || sx >= width || sy >= height) continue;
-          m = std::max(m, core[size_t(sy) * width + sx]);
-        }
-      }
-      outline[size_t(y) * width + x] = m;
-    }
-  }
-  if (!f.texture.texture || f.texture.desc.width != uint32_t(width) || f.texture.desc.height != uint32_t(height)) {
-    f.texture = HostResource{};
-    f.texture.desc.width = f.texture.width = uint32_t(width);
-    f.texture.desc.height = f.texture.height = uint32_t(height);
-    f.texture.desc.kind = ResourceKind::kSampledTexture;
-    f.texture.format = plume::RenderFormat::R8G8B8A8_UNORM;
-    f.texture.texture = device_->createTexture(
-        plume::RenderTextureDesc::Texture2D(uint32_t(width), uint32_t(height), 1, f.texture.format));
-    if (!f.texture.texture) return;
-  }
-  const uint32_t pitch = (uint32_t(width) * 4 + 255) & ~255u;
-  UploadSpan span = Upload(uint64_t(pitch) * height, 512);
-  if (!span.data) return;
-  for (int y = 0; y < height; ++y) {
-    for (int x = 0; x < width; ++x) {
-      const uint8_t c = core[size_t(y) * width + x], o = outline[size_t(y) * width + x];
-      uint8_t* p = span.data + size_t(y) * pitch + x * 4;
-      const uint8_t v = o ? uint8_t(std::min(255, c * 255 / o)) : 0;
-      p[0] = p[1] = p[2] = v;
-      p[3] = o;
-    }
-  }
-  Transition(f.texture, plume::RenderTextureLayout::COPY_DEST);
-  FlushTransitions();
-  lists_[slot_]->copyTextureRegion(plume::RenderTextureCopyLocation::Subresource(f.texture.texture.get()),
-                                   plume::RenderTextureCopyLocation::PlacedFootprint(
-                                       span.buffer, f.texture.format, uint32_t(width), uint32_t(height), 1, pitch / 4,
-                                       span.offset));
-  Transition(f.texture, plume::RenderTextureLayout::SHADER_READ);
-}
-
-// Composites the counter into the top right of the back buffer, at half the font's size on a 1440-line output.
-void Backend::DrawFps(plume::RenderTexture* back, plume::RenderFramebuffer* framebuffer, uint32_t width,
-                      uint32_t height) {
-  auto& t = fps_.texture;
-  if (!fps_.ok || !t.texture) return;
-  const float scale = std::max(0.25f, float(height) / 1440.0f);
-  const int32_t w = int32_t(t.desc.width * scale), h = int32_t(t.desc.height * scale);
-  const int32_t margin = int32_t(24 * scale);
-  const plume::RenderRect dest(int32_t(width) - w - margin, margin, int32_t(width) - margin, margin + h);
-  Blit(t, plume::RenderRect(0, 0, int32_t(t.desc.width), int32_t(t.desc.height)), back, framebuffer, kSwapChainFormat,
-       dest, 1.0f, true, true);
 }
 
 // Bakes and uploads the pointer sprite the first time the pointer shows; the assets sit beside the font folder.

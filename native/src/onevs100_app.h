@@ -26,6 +26,9 @@
 #endif
 #if ONEVS100_NATIVE_GPU
 #include "render/gpu.h"
+#include "render/gpu_overlay.h"
+#include <rex/ui/imgui_drawer.h>
+#include <rex/ui/presenter.h>
 #if !defined(_WIN32)
 #include <SDL3/SDL_video.h>
 #endif
@@ -36,7 +39,10 @@
 #include <winrt/windows.ui.core.h>
 #include "uwp_onboarding/gate.h"
 #endif
+#include <chrono>
 #include <cstdlib>
+#include <memory>
+#include "render/display_settings.h"
 const rex::PPCImageInfo& NativeImageConfig();
 
 class Onevs100App : public rex::ReXApp {
@@ -154,7 +160,13 @@ class Onevs100App : public rex::ReXApp {
     InstallConfiguredContent();
     if (CurrentOnlineService() == OnlineService::Gameserver) StartMatchmakingClient();
   }
-  // void OnCreateDialogs(rex::ui::ImGuiDrawer* drawer) override {}
+  // The guest rate shows in the SDK's debug overlay, which both renderers composite.
+  void OnCreateDialogs(rex::ui::ImGuiDrawer* drawer) override {
+    SetGuestFrameStats(GuestFrameStats);
+    if (onevs100::render::display::FpsCounter()) {
+      fps_overlay_ = std::make_unique<rex::ui::DebugOverlayDialog>(drawer, GuestFrameStats);
+    }
+  }
   // std::unique_ptr<rex::ui::ImGuiDialog> CreateAchievementsOverlay() override;
   // std::unique_ptr<rex::ui::AchievementNotificationDialog>
   // CreateAchievementNotificationDialog() override;
@@ -164,16 +176,71 @@ class Onevs100App : public rex::ReXApp {
     }
 #if ONEVS100_NATIVE_GPU
     if (rex::cvar::Query<bool>("native_renderer")) {
+      // One overlay frame queued per present.
+      onevs100::render::SetOverlayFrameCallback([this] {
+        if (overlay_queued_.exchange(true)) return;
+        if (!app_context().CallInUIThread([this] {
+              overlay_queued_ = false;
+              DrawOverlay();
+            })) {
+          overlay_queued_ = false;
+        }
+      });
       StartNativeRenderer();
     }
 #endif
     return true;
   }
+#if ONEVS100_NATIVE_GPU
+  // Reached only with the native renderer: ImGui draws through it.
+  std::unique_ptr<rex::ui::ImmediateDrawer> OnCreateImmediateDrawer() override {
+    return onevs100::render::CreateOverlayDrawer();
+  }
+#endif
 
   void OnPreLaunchModule() override { rex::audio::StartXmaKicker(); }
-  void OnShutdown() override { rex::audio::StopXmaKicker(); }
+  void OnShutdown() override {
+#if ONEVS100_NATIVE_GPU
+    onevs100::render::SetOverlayFrameCallback(nullptr);
+#endif
+    fps_overlay_.reset();
+    rex::audio::StopXmaKicker();
+  }
   // void OnConfigurePaths(rex::PathConfig& paths) override {}
  private:
+  // Swaps per second over half-second windows.
+  static rex::ui::FrameStats GuestFrameStats() {
+    using Clock = std::chrono::steady_clock;
+    static Clock::time_point start = Clock::now();
+    static uint64_t start_frames = 0;
+    static rex::ui::FrameStats stats;
+    const auto now = Clock::now();
+    const uint64_t frames = onevs100::render::display::FrameCount();
+    const double elapsed = std::chrono::duration<double>(now - start).count();
+    if (elapsed >= 0.5 && frames > start_frames) {
+      stats.fps = double(frames - start_frames) / elapsed;
+      stats.frame_time_ms = 1000.0 / stats.fps;
+      start = now;
+      start_frames = frames;
+    }
+    stats.frame_count = frames;
+    return stats;
+  }
+
+  std::unique_ptr<rex::ui::DebugOverlayDialog> fps_overlay_;
+
+#if ONEVS100_NATIVE_GPU
+  std::atomic<bool> overlay_queued_{false};
+
+  void DrawOverlay() {
+    if (!imgui_drawer() || !window()) return;
+    rex::ui::AppUIDrawContext context(window()->GetActualPhysicalWidth(), window()->GetActualPhysicalHeight());
+    onevs100::render::BeginOverlayFrame();
+    imgui_drawer()->Draw(context);
+    onevs100::render::EndOverlayFrame();
+  }
+#endif
+
 #if ONEVS100_NATIVE_GPU
   // The swap chain needs the window handle on the thread that owns the window:
   // a packaged app cannot query its CoreWindow from the render thread.
