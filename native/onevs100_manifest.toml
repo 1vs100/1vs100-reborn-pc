@@ -14,4 +14,5 @@ longjmp_address = 0x824B3610
 ctr_as_local = true
 xer_as_local = true
 cr_as_local = true
+inline_save_restore = true
 includes = ["branch-targets.toml", "boundaries-v3.toml", "switch-fix.toml", "render-hooks.toml"]
