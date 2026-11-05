@@ -84,6 +84,21 @@ Windows only: `ONEVS100_DUALSENSE_HID=1` reads a USB DualSense directly as a bac
 
 Environment overrides: `ONEVS100_PLAYER_DATA`, `ONEVS100_PROFILE_SLOT`, `ONEVS100_PROFILE_XUID`, `ONEVS100_DUALSENSE_HID`, `ONEVS100_MOUSE_PANEL`, and `SDL_VIDEO_DRIVER` on Linux. Gamertag and avatar live in `userdata/profiles/` (`local-name.txt`, `avatar.bin`). The remaining `vulkan_*` / `d3d12_*` / `gpu_*` knobs come from the ReXGlue SDK and keep their tested defaults; the debug-show switches (skins, Host Tool, debug menu) live in `lua/NativeDebug.lua` and the dev launcher's Debug tab.
 [docs/gameserver-mode.md](docs/gameserver-mode.md) has the developer details.
+
+### Performance switches
+
+These run parts of the game as native code or change how frames are handed over. The defaults are the tested setup. If you see glitches, turn one off at a time to find the cause.
+
+| Setting | Default | What it does |
+|---|---|---|
+| `guest_crt_hooks` | `true` | runs the game's memory copy, memory fill, floor and ceil as native code |
+| `guest_lib_hooks` | `true` | runs the game's string compare, matrix multiply and reference counting as native code |
+| `guest_atomic_window_lock` | `false` | takes the global lock around the game's atomic updates, as the original code did |
+| `guest_keep_flush_mode` | `true` | keeps tiny float values flushed to zero all the time instead of switching per code block |
+| `gpu_queued_frames` | `3` | frames the game may finish ahead of the renderer, from 1 to 4 |
+| `gpu_prepare_workers` | `3` | threads that prepare draws for the renderer |
+| `gpu_skip_guest_draw` | `false` | skips the game's own draw packet building; it hides the avatars, so leave it off |
+
 ## Linux notes
 
 - The game window uses SDL's X11 driver. On a Wayland desktop it runs through XWayland. Set `SDL_VIDEO_DRIVER` to override it.
