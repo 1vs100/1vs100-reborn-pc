@@ -8,7 +8,7 @@ REXCVAR_DEFINE_BOOL(native_renderer, false, "GPU",
 namespace onevs100::render {
 
 bool Enabled() {
-  return rex::cvar::Query<bool>("native_renderer");
+  return REXCVAR_GET(native_renderer);
 }
 
 }  // namespace onevs100::render

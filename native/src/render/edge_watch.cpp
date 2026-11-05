@@ -159,6 +159,8 @@ void RegisterTiling(uint32_t device, uint32_t count, uint32_t rects) {
 }  // namespace
 
 void Observe(Slot slot, PPCContext& ctx) {
+  // Every D3D edge call passes here; the clock read in Report is too costly to make without the log.
+  if (!Enabled()) return;
   Count(slot, ctx);
   Report();
 }
