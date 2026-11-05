@@ -1523,12 +1523,22 @@ bool Build(PPCContext& ctx, uint8_t* base, const DrawArgs& a, DrawRecord& r, con
   c->vfetch = vs->vfetch;
 #if defined(_WIN32)
   if (DxbcPath()) {
+    // Fetch constants rarely change between draws; the signs are recomputed only for a slot whose words did.
+    // Build runs under g_mutex.
+    static std::array<std::array<uint32_t, 6>, 32> seen_fetch{};
+    static std::array<uint8_t, 32> seen_signs{};
+    static std::bitset<32> seen_valid;
     for (uint32_t i = 0; i < 32; ++i) {
-      xenos::xe_gpu_texture_fetch_t f;
-      std::memcpy(&f, &c->fetch[i * 6], sizeof(f));
+      if (!seen_valid[i] || std::memcmp(seen_fetch[i].data(), &c->fetch[i * 6], 24) != 0) {
+        xenos::xe_gpu_texture_fetch_t f;
+        std::memcpy(&f, &c->fetch[i * 6], sizeof(f));
+        std::memcpy(seen_fetch[i].data(), &c->fetch[i * 6], 24);
+        seen_signs[i] = uint8_t(rex::graphics::texture_util::SwizzleSigns(f));
+        seen_valid.set(i);
+      }
       uint32_t& word = c->dxbc.texture_swizzled_signs[i >> 2];
       const uint32_t shift = (i & 3) * 8;
-      word = (word & ~(0xFFu << shift)) | uint32_t(rex::graphics::texture_util::SwizzleSigns(f)) << shift;
+      word = (word & ~(0xFFu << shift)) | uint32_t(seen_signs[i]) << shift;
     }
   }
 #endif
