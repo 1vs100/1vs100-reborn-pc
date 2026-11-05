@@ -2498,6 +2498,7 @@ void RenderThread(Renderer* r) {
       StatTimer busy{g_stats.busy};
       r->backend.Execute(packet);
     }
+    draw::Recycle(packet);
     if (EndsWithSwap(packet)) g_stats.frames.fetch_add(1, std::memory_order_relaxed);
     if (log_now && REXCVAR_GET(gpu_frame_stats)) {
       auto take = [](std::atomic<uint64_t>& v) { return v.exchange(0, std::memory_order_relaxed); };

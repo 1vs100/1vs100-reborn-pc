@@ -42,6 +42,9 @@ VsSnapshot SnapshotVs(const guest::D3DDevice* device);
 // Completes owned preparation jobs before the guest publishes a packet to the host.
 void FinishPreparation(Packet& packet);
 
+// Render thread, after executing a packet: hands its draws' stream and texture lists back to capture.
+void Recycle(Packet& packet);
+
 // Builds and submits a draw from `device`, a merged copy of a recorded and a live device struct; a.device names the
 // Guest thread: submits the draw the runtime just built for these arguments.
 void Capture(PPCContext& ctx, uint8_t* base, const DrawArgs& a);

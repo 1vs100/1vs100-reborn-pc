@@ -998,6 +998,27 @@ bool SplitAtRestart(xenos::PrimitiveType type, uint32_t reset, std::vector<uint3
 
 // A converted index run: the little-endian, expanded, restart-split indices of one (buffer, start, count) at one
 // version of that memory, kept so the conversion and the upload happen once per change rather than per frame.
+// Stream and texture lists of executed draws return here from the render thread, so capture reuses their storage
+// instead of allocating per draw against the preparation workers.
+constexpr size_t kMaxRecycled = 4096;
+std::mutex g_recycle_mutex;
+std::vector<std::vector<StreamData>> g_free_streams;
+std::vector<std::vector<TextureBinding>> g_free_textures;
+thread_local std::vector<std::vector<StreamData>> t_free_streams;
+thread_local std::vector<std::vector<TextureBinding>> t_free_textures;
+
+template <typename T>
+std::vector<T> TakeRecycled(std::vector<std::vector<T>>& local, std::vector<std::vector<T>>& shared) {
+  if (local.empty()) {
+    std::lock_guard lock(g_recycle_mutex);
+    local.swap(shared);
+  }
+  if (local.empty()) return {};
+  std::vector<T> v = std::move(local.back());
+  local.pop_back();
+  return v;
+}
+
 struct IndexRun {
   uint32_t version = 0;
   SentRange sent;
@@ -1592,6 +1613,7 @@ bool Build(PPCContext& ctx, uint8_t* base, const DrawArgs& a, DrawRecord& r, con
 
   clock.Mark(kConstants);
   // Vertex data: every fetch constant the patched microcode reads.
+  r.streams = TakeRecycled(t_free_streams, g_free_streams);
   r.streams.reserve(vs->fetches.size());
   for (uint8_t index : vs->fetches) {
     if (a.inline_data && index == guest::kInlineVertexFetch) continue;
@@ -1610,6 +1632,7 @@ bool Build(PPCContext& ctx, uint8_t* base, const DrawArgs& a, DrawRecord& r, con
   for (const ShaderEntry* e : {r.vs, r.ps}) {
     if (e) for (const auto& b : e->bindings) texture_count += !b.sampler;
   }
+  r.textures = TakeRecycled(t_free_textures, g_free_textures);
   r.textures.reserve(texture_count);
   for (const ShaderEntry* e : {r.vs, r.ps}) {
     if (!e) continue;
@@ -1838,6 +1861,30 @@ void BeginInline(PPCContext& ctx, uint8_t* base, const DrawArgs& a, uint32_t ver
 }
 
 void FinishPending() { FinishInline(); }
+
+void Recycle(Packet& packet) {
+  std::vector<std::vector<StreamData>> streams;
+  std::vector<std::vector<TextureBinding>> textures;
+  for (auto& record : packet.records) {
+    auto* draw = std::get_if<DrawRecord>(&record);
+    if (!draw) continue;
+    if (draw->streams.capacity()) {
+      draw->streams.clear();
+      streams.push_back(std::move(draw->streams));
+    }
+    if (draw->textures.capacity()) {
+      draw->textures.clear();
+      textures.push_back(std::move(draw->textures));
+    }
+  }
+  std::lock_guard lock(g_recycle_mutex);
+  for (auto& v : streams) {
+    if (g_free_streams.size() < kMaxRecycled) g_free_streams.push_back(std::move(v));
+  }
+  for (auto& v : textures) {
+    if (g_free_textures.size() < kMaxRecycled) g_free_textures.push_back(std::move(v));
+  }
+}
 
 void FinishPreparation(Packet& packet) {
   std::lock_guard lock(g_mutex);
