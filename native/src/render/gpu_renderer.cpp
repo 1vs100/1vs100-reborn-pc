@@ -1481,10 +1481,14 @@ void Backend::Execute(const SwapRecord& r) {
   slot_ = (slot_ + 1) % kFramesInFlight;
   NotifyOverlayPresented();
   ++frame_counter_;
+  // RenderDoc runs on Windows and Linux; the SDK leaves the API type
+  // incomplete on macOS, so the capture trigger does not compile there.
+#if !REX_PLATFORM_MAC
   if (renderdoc_ && frame_counter_ == uint64_t(REXCVAR_GET(gpu_renderdoc_capture_frame))) {
     renderdoc_->api_1_0_0()->TriggerCapture();
     REXGPU_INFO("[gpu] RenderDoc capture requested at present {}", frame_counter_);
   }
+#endif
   // A frame's persistent frees are safe once every slot has cycled past it.
   if (frame_counter_ > kFramesInFlight) persistent_.Retire(frame_counter_ - kFramesInFlight - 1);
   ResizeTargets(uint32_t(onevs100::render::display::ResolutionScale()), uint32_t(onevs100::render::display::ShadowScale()));

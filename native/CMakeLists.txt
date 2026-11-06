@@ -321,23 +321,26 @@ if(ONEVS100_NATIVE_GPU)
         "bin/x64/dxil.dll" "${XENOS_RECOMP_THIRDPARTY_ROOT}/dxc-bin/bin/x64/dxil.dll"
         "bin/x64/dxc.exe" "${XENOS_RECOMP_THIRDPARTY_ROOT}/dxc-bin/bin/x64/dxc.exe"
         "lib/x64/dxcompiler.lib" "${XENOS_RECOMP_THIRDPARTY_ROOT}/dxc-bin/lib/x64/dxcompiler.lib")
-elseif(NOT EXISTS "${XENOS_RECOMP_THIRDPARTY_ROOT}/dxc-bin/lib/x64/libdxcompiler.so"
-        OR (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64)$"))
-    # Microsoft publishes DXC for Linux x86_64 only.
-    if(NOT (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64)$"))
-        message(FATAL_ERROR "The native renderer needs DXC; no release exists for "
-            "${CMAKE_SYSTEM_NAME} ${CMAKE_SYSTEM_PROCESSOR}")
-    endif()
+  elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64)$")
     onevs100_fetch_dxc("${ONEVS100_DXC_LINUX_URL}" "${ONEVS100_DXC_LINUX_SHA256}"
         "linux_dxc_2024_07_31.x86_64.tar.gz"
         "lib/libdxcompiler.so" "${XENOS_RECOMP_THIRDPARTY_ROOT}/dxc-bin/lib/x64/libdxcompiler.so"
         "lib/libdxil.so" "${XENOS_RECOMP_THIRDPARTY_ROOT}/dxc-bin/lib/x64/libdxil.so"
         "bin/dxc" "${XENOS_RECOMP_THIRDPARTY_ROOT}/dxc-bin/bin/x64/dxc-linux")
+  else()
+    # Microsoft publishes DXC for Windows and Linux x86_64 only. Without it
+    # the renderer links the stub translator and runs from prebuilt shader
+    # packs; runtime translation is unavailable.
+    message(WARNING "The native renderer needs DXC; no release exists for "
+      "${CMAKE_SYSTEM_NAME} ${CMAKE_SYSTEM_PROCESSOR} "
+      "(linking the stub translator instead)")
+    set(_native_gpu_without_dxc TRUE)
   endif()
-else()
+endif()
+if(NOT ONEVS100_NATIVE_GPU OR _native_gpu_without_dxc)
   add_library(onevs100_stub_dxc STATIC src/stub_dxc.c)
   add_library(Microsoft::DirectXShaderCompiler ALIAS onevs100_stub_dxc)
-  message(STATUS "Native renderer off: runtime shader translation unavailable, shader packs required")
+  message(STATUS "Native renderer without DXC: runtime shader translation unavailable, shader packs required")
 endif()
 set(XENOS_RECOMP_BUILD_CLI OFF CACHE BOOL "" FORCE)
 if(ONEVS100_NATIVE_GPU)
@@ -351,8 +354,14 @@ set(ZSTD_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 add_subdirectory("${XENOS_RECOMP_THIRDPARTY_ROOT}" xenosrecomp_thirdparty EXCLUDE_FROM_ALL)
 add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/third_party/xenosrecomp/XenosRecomp" xenosrecomp
     EXCLUDE_FROM_ALL)
-if(NOT ONEVS100_NATIVE_GPU)
+if(NOT ONEVS100_NATIVE_GPU OR _native_gpu_without_dxc)
   target_include_directories(xenosrecomp_core PRIVATE "${XENOS_RECOMP_THIRDPARTY_ROOT}/dxc-bin/inc")
+endif()
+if(APPLE)
+  # libc++ keeps the parallel-algorithm dispatcher in libc++experimental.a, and
+  # the pack builder uses std::execution::par. The driver adds that archive only
+  # when the link step itself carries -fexperimental-library.
+  target_link_libraries(xenosrecomp_core PUBLIC c++experimental)
 endif()
 # Precompiled headers are skipped for the cross toolchain, so the vendored
 # translation units get the shared header force-included instead.
@@ -370,7 +379,7 @@ if(WINDOWS_STORE)
         "LINKER:/DELAYLOAD:dxil.dll")
     target_link_libraries(onevs100 PRIVATE delayimp)
 endif()
-if(ONEVS100_NATIVE_GPU)
+if(ONEVS100_NATIVE_GPU AND NOT _native_gpu_without_dxc)
   if(WINDOWS_STORE)
     add_custom_command(TARGET onevs100 POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
