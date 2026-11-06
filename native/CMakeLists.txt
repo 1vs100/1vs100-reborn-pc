@@ -57,6 +57,7 @@ set(ONEVS100_SOURCES
     src/avatar_view/avatar_view.cpp
     src/avatar_view/avatar_dialog.cpp
     src/exit_probe.cpp
+    src/fatal_dialog.cpp
     src/platform_compat.cpp
     src/round_even.cpp
     src/xma_kick.cpp
@@ -128,6 +129,7 @@ elseif(WIN32)
 else()
     list(APPEND ONEVS100_SOURCES
         src/dialogue_audio_posix.cpp
+        src/fatal_signal_posix.cpp
         src/local_profile_dialog_posix.cpp
         src/native_controls_posix.cpp
         src/native_video_posix.cpp

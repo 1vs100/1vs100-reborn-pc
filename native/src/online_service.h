@@ -12,7 +12,8 @@ struct GameserverAddress {
 };
 
 // Reads settings; false when gameserver_host is unusable. Call once before start.
-bool LoadOnlineService();
+// On false, error holds the reason; it must not be null.
+bool LoadOnlineService(std::string* error);
 OnlineService CurrentOnlineService();
 // Valid only in gameserver mode.
 GameserverAddress CurrentGameserverAddress();

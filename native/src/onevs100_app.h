@@ -19,9 +19,13 @@
 #include "online_service.h"
 #include "xma_kick.h"
 #include "avatar_view/avatar_dialog.h"
+#include "fatal_dialog.h"
+#include "avatar_native/native_provider.h"
 #include "guest_memory_ops.h"
 #ifdef _WIN32
 #include "death_marker.h"
+#else
+#include "fatal_signal_posix.h"
 #endif
 #include <rex/system/kernel_state.h>
 #ifdef _WIN32
@@ -60,7 +64,15 @@ class Onevs100App : public rex::ReXApp {
 
   // Override virtual hooks for customization:
   void OnPreSetup(rex::RuntimeConfig& config) override {
-    if (!LoadOnlineService()) std::exit(1);
+    std::string service_error;
+    if (!LoadOnlineService(&service_error)) {
+      // OnConfigurePaths always runs first, but do not print "Check ."
+      const std::filesystem::path config =
+          config_path_.empty() ? std::filesystem::path("onevs100.toml") : config_path_;
+      fatal_dialog::FatalError("1 vs 100", "Online service failed to start: " + service_error + ". Check " +
+                                               config.string() + ".");
+      std::exit(1);
+    }
     InitializeLocalProfile();
     config.gpu_plugin = "xenos";
 #ifdef _WIN32
@@ -104,10 +116,16 @@ class Onevs100App : public rex::ReXApp {
     // All development saves/cache/config stay beside this isolated build.
 #ifdef _WIN32
     death_marker::SetDirectory(folder);
+#if REX_PLATFORM_WINRT
+    fatal_dialog::SetDirectory(folder);
+#endif
+#else
+    posix_crash::Install(folder);
 #endif
     paths.user_data_root = folder / "userdata";
     paths.cache_root = folder / "cache";
     paths.config_path = folder / "onevs100.toml";
+    config_path_ = paths.config_path;
   }
   std::optional<rex::PathConfig> OnFinalizePaths(const rex::PathConfig& defaults,
                                                  std::function<void(rex::PathConfig)>) override {
@@ -124,18 +142,39 @@ class Onevs100App : public rex::ReXApp {
         // say here what was actually searched and what to do about it.
         const auto scan = ScanContentPackages();
         const auto folder = rex::filesystem::GetExecutableFolder();
+        std::string reason;
+        const std::string at =
+            scan.source.empty() ? (folder / "content").string() : scan.source.string();
         if (!scan.dirExists) {
           REXKRNL_ERROR("onevs100: no game files found: content folder '{}' does not exist",
                         scan.source);
+          reason = "content folder '" + at + "' does not exist";
         } else if (scan.files == 0) {
           REXKRNL_ERROR("onevs100: no game files found: '{}' is empty", scan.source);
+          reason = "'" + scan.source.string() + "' is empty";
         } else {
           REXKRNL_ERROR("onevs100: no game files found: '{}' holds {} file(s), none is the game package",
                         scan.source, scan.files);
+          reason = "'" + scan.source.string() + "' holds " + std::to_string(scan.files) +
+                   " file(s), none is the game package";
         }
-        REXKRNL_ERROR("onevs100: copy the untouched game package plus show/episode packages into '{}' "
-                      "(files directly inside, no subfolders), or unpack default.xex and its media into '{}'",
-                      folder / "content", folder / "assets");
+        // The scan resolves the setting against the user folder on UWP and the
+        // executable folder elsewhere; the hint names that same place.
+#if REX_PLATFORM_WINRT
+        const std::string into =
+            "into '" + at + "' (files directly inside, no subfolders)";
+#else
+        const std::string into = "into '" + at +
+                                 "' (files directly inside, no subfolders), or unpack default.xex and its media into '" +
+                                 (folder / "assets").string() + "'";
+#endif
+        REXKRNL_ERROR("onevs100: copy the untouched game package plus show/episode packages {}", into);
+        fatal_dialog::FatalError("1 vs 100",
+                                 "No game files found: " + reason +
+                                     ". Copy the untouched game package plus show/episode packages " + into + ".");
+#if !REX_PLATFORM_WINRT
+        std::exit(1);
+#endif
       }
     }
     return paths;
@@ -164,11 +203,26 @@ class Onevs100App : public rex::ReXApp {
     InstallConfiguredContent();
     if (CurrentOnlineService() == OnlineService::Gameserver) StartMatchmakingClient();
     avatar_view::StartUploadServer();
+    // Missing pack degrades to stock avatars; warn once and continue. A
+    // pending crash report wins: it must not be overwritten here.
+    if (!NativeAvatarEnabled() && !fatal_dialog::HasPending()) {
+      REXKRNL_WARN("content: no avatar pack found; running without avatars");
+      fatal_dialog::FatalError("1 vs 100",
+                               "No avatar pack found with the game content. The game runs without avatars; add "
+                               "AvatarAssetPack.toc or its package to restore them.");
+    }
   }
   // The guest rate shows in the SDK's debug overlay, which both renderers composite.
   void OnCreateDialogs(rex::ui::ImGuiDrawer* drawer) override {
     SetGuestFrameStats(GuestFrameStats);
     avatar_dialog_ = std::make_unique<avatar_view::AvatarDialog>(drawer, immediate_drawer());
+#if REX_PLATFORM_WINRT
+    // A packaged crash leaves its report for the next launch: no dialog
+    // runs on the faulting thread. The box owns itself and closes on tap.
+    if (auto pending = fatal_dialog::TakePending()) {
+      rex::ui::ImGuiDialog::ShowMessageBox(drawer, "1 vs 100", *pending);
+    }
+#endif
     if (onevs100::render::display::FpsCounter()) {
       fps_overlay_ = std::make_unique<rex::ui::DebugOverlayDialog>(drawer, GuestFrameStats);
     }
@@ -297,5 +351,6 @@ class Onevs100App : public rex::ReXApp {
   }
 #endif
 
+  std::filesystem::path config_path_;
   std::error_code config_seed_error_;
 };

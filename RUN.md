@@ -30,7 +30,8 @@ You can start `onevs100` directly. It reads its settings from `onevs100.toml`. Y
 
 ## If something goes wrong
 
-- `--game_data_root does not exist: .../assets` means the game found no game files. Copy the untouched game package (plus the show and episode packages) directly into the `content` folder next to the executable — files inside, no subfolders — or unpack `default.xex` and its media into an `assets` folder instead. The log above the error says what it saw in `content` (missing, empty, or files but no game package).
+- A missing-files startup failure shows an error dialog naming what it saw in `content` (missing, empty, or files but no game package), then the game exits. `--game_data_root does not exist: .../assets` means the game found no game files. Copy the untouched game package (plus the show and episode packages) directly into the `content` folder next to the executable — files inside, no subfolders — or unpack `default.xex` and its media into an `assets` folder instead.
 - If pressing Launch seems to do nothing, run `onevs100` (`onevs100.exe`) in a terminal next to the launcher and read the log: a missing package or DLL shows up there.
+- A crash shows a dialog naming the crash or log file before the game exits. Attach that file on Discord, or use the launcher's Send logs. A missing avatar pack warns once and the game continues without avatars.
 - If you upgraded from an older build, rename `content_install` to `content` in `onevs100.toml` (and on the command line). The old name is ignored.
 - Something else not working? Ask on [Discord](https://discord.gg/tV3ajhwFTf).

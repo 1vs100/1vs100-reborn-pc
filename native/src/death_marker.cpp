@@ -18,6 +18,8 @@
 #include <vector>
 
 #include "death_marker.h"
+#include "fatal_dialog.h"
+#include <rex/platform.h>
 
 #include <rex/ppc/context.h>
 #include <rex/system/kernel_state.h>
@@ -27,6 +29,7 @@
 #include "render/display_settings.h"
 
 namespace {
+LPTOP_LEVEL_EXCEPTION_FILTER g_previous_fault_filter = nullptr;
 
 std::filesystem::path g_directory;
 
@@ -234,18 +237,27 @@ void WriteProfile(int seconds) {
 
 void OnAbort(int) {
   DeathMarker("abort\n");
+  // Terminate already showed for this crash; share its one dialog.
+  if (fatal_dialog::ClaimFatal())
+    fatal_dialog::FatalError("1 vs 100", "Aborted. See native-fault.log in the user folder.");
   signal(SIGABRT, SIG_DFL);
   raise(SIGABRT);
 }
 
 void OnTerminate() {
   DeathMarker("terminate\n");
+  // Abort fires next for the same crash; share its one dialog.
+  if (fatal_dialog::ClaimFatal())
+    fatal_dialog::FatalError("1 vs 100", "Terminated. See native-fault.log in the user folder.");
   abort();
 }
 
 void OnExit() {
   DeathMarker("exit\n");
 }
+
+// OnFault stays non-blocking and never shows UI. The unhandled dialog
+// lives in crash_capture on desktop and in the pending-marker modal on UWP.
 
 // First-chance fault record. UWP builds exclude the minidump capture, so a
 // guest access violation would otherwise leave no trace; this writes the
@@ -264,6 +276,10 @@ LONG WINAPI OnFault(EXCEPTION_POINTERS* info) {
   FILE* file = nullptr;
   _wfopen_s(&file, path, L"a");
   if (file == nullptr) {
+#if REX_PLATFORM_WINRT
+    fatal_dialog::FatalError("1 vs 100", "Unhandled exception. See native-fault.log in the user folder.");
+#endif
+    if (g_previous_fault_filter != nullptr) return g_previous_fault_filter(info);
     return EXCEPTION_CONTINUE_SEARCH;
   }
   fwprintf(file, L"base=%016llX code=%08lX access=%016llX pc=%016llX\n",
@@ -313,12 +329,18 @@ LONG WINAPI OnFault(EXCEPTION_POINTERS* info) {
   const USHORT count = RtlCaptureStackBackTrace(0, 32, stack, nullptr);
   for (USHORT i = 0; i < count; ++i) frame(L"at", reinterpret_cast<uintptr_t>(stack[i]));
   fclose(file);
+#if REX_PLATFORM_WINRT
+  // No dialog runs on the faulting thread in a package; the next launch
+  // reports through the pending marker instead.
+  fatal_dialog::FatalError("1 vs 100", "Unhandled exception. See native-fault.log in the user folder.");
+#endif
+  if (g_previous_fault_filter != nullptr) return g_previous_fault_filter(info);
   return EXCEPTION_CONTINUE_SEARCH;
 }
 
 struct InstallDeathMarkers {
   InstallDeathMarkers() {
-    SetUnhandledExceptionFilter(OnFault);
+    g_previous_fault_filter = SetUnhandledExceptionFilter(OnFault);
     signal(SIGABRT, OnAbort);
     std::set_terminate(OnTerminate);
     atexit(OnExit);
