@@ -22,7 +22,8 @@ constexpr uint32_t kGameMediaId = 0x20FFDD23;
 constexpr uint32_t kAvatarTitleId = 0xFFFE07DF;
 
 std::vector<std::filesystem::path> ConfiguredPackages() {
-  std::filesystem::path source = REXCVAR_GET(content);
+  // The setting is UTF-8; a plain path() conversion would use the Windows code page.
+  std::filesystem::path source = rex::to_path(REXCVAR_GET(content));
   if (source.empty()) return {};
 #if REX_PLATFORM_WINRT
   // The install folder is read-only; user content lives in LocalState.
@@ -44,7 +45,7 @@ std::vector<std::filesystem::path> ConfiguredPackages() {
 }  // namespace
 
 ContentScan ScanContentPackages() {
-  std::filesystem::path source = REXCVAR_GET(content);
+  std::filesystem::path source = rex::to_path(REXCVAR_GET(content));
   if (source.empty()) return {source, false, 0};
 #if REX_PLATFORM_WINRT
   if (source.is_relative()) source = rex::filesystem::GetUserFolder() / source;
