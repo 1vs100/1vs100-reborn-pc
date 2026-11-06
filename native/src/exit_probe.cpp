@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <string>
 #include <rex/logging/api.h>
+#include <rex/platform.h>
 #include "fatal_dialog.h"
 
 // Player 1's pad state: the runtime's result (SDL/XInput) plus the optional
@@ -102,6 +103,11 @@ REX_HOOK_RAW(sub_82121648) {
   std::string text = fmt::format("Game error {:08X} (caller {:08X})", ctx.r4.u32, uint32_t(ctx.lr));
   if (!g_lua_error.empty()) text += ": " + g_lua_error;
   REXKRNL_ERROR("Guest terminal path: {}", text);
+#if REX_PLATFORM_WINRT
+  text += ". See the log in the user folder.";
+#else
+  text += ". See the log in logs/ beside the executable.";
+#endif
   fatal_dialog::FatalError("1 vs 100", text);
   std::_Exit(1);
 }

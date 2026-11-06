@@ -21,9 +21,10 @@ inline std::string TruncateDetail(const std::string& detail) {
 // Log flushing plus one blocking error dialog. Returns; the caller exits.
 void FatalError(const char* title, const std::string& detail);
 
-// One-shot claim shared by the abort and terminate handlers: the two fire
-// for the same crash, but the user sees one dialog. Warn-and-continue
-// callers do not claim, so a later fatal still shows.
+// One-shot claim shared by the abort and terminate handlers and the abort
+// call sites: the handlers fire for the same crash, but the user sees one
+// dialog. A claimed site shows its specific text; the handler still writes
+// its fault marker but shows nothing more.
 bool ClaimFatal();
 
 // Next-launch crash report. The UWP backend of FatalError leaves the text
@@ -65,8 +66,7 @@ inline std::optional<std::string> TakePending() {
   return text;
 }
 
-// True when a report waits for the next launch. Startup warnings defer to
-// it so a crash report is never overwritten before it is shown.
+// True when a report waits for the next launch.
 inline bool HasPending() {
   if (PendingDirectory().empty()) return false;
   std::error_code error;

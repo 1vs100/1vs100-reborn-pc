@@ -17,7 +17,7 @@ No crash reporting upload. No change to log content or locations. No dialogs for
 - `native/src/death_marker.cpp` (Windows and UWP only) writes `native-fault.log` and `native-death.log` markers. No dialog.
 - Linux and macOS compile neither file, so a fault there is log-only or silent.
 - `guest_call.cpp` and `runtime_export.cpp` call `std::abort()` after logging. No dialog.
-- Startup blockers (`Onevs100App::OnPreSetup` online-service failure, `OnFinalizePaths` missing game files, `content_install.cpp` empty content) log only.
+- Startup blockers (`Onevs100App::OnPreSetup` online-service failure, `OnFinalizePaths` missing game files) log only. `content_install.cpp` registers configured packages with the content manager at startup; an empty content setting logs and returns, and the missing-game case is already covered by `OnFinalizePaths`.
 
 ## Design
 
@@ -48,7 +48,7 @@ POSIX crash capture is a new file `native/src/fatal_signal_posix.cpp`, compiled 
 - Writes a short fault line with async-signal-safe calls only (`open`/`write`/`close`, no allocation, no logging). Dialog text is prebuilt at install, never in the handler.
 - Then best-effort SDL messagebox (stderr fallback), then re-raises into the default disposition so core dumps and debuggers keep working, with `_exit(1)` as fallback.
 
-UWP keeps `death_marker.cpp` as the fault recorder. Desktop Windows keeps `crash_capture.cpp` and adds the dialog call. POSIX gets the signal file above instead of `death_marker.cpp`.
+UWP keeps `death_marker.cpp` as the fault recorder. Desktop Windows keeps `crash_capture.cpp` and adds the dialog call. POSIX gets the signal file above instead of `death_marker.cpp`. Desktop `death_marker::OnFault` stays non-blocking by design: it writes the fault log and chains to the previous filter, and the one desktop dialog comes from `crash_capture.cpp`.
 
 ## Wiring
 
@@ -56,12 +56,13 @@ UWP keeps `death_marker.cpp` as the fault recorder. Desktop Windows keeps `crash
 |---|---|---|
 | `exit_probe.cpp` terminal path | logs, SDL box except UWP, `_Exit(1)` | calls `FatalError` with game error code, caller address, Lua error tail, log path; UWP takes the pending-marker path |
 | `crash_capture.cpp` `CaptureCrash` | writes txt plus dmp | also calls `FatalError` with the txt path |
-| `death_marker.cpp` `OnFault`, `OnAbort`, `OnTerminate` | writes marker or fault log | also calls `FatalError` with the fault log path |
-| `guest_call.cpp` scratch exhaustion, bad arity | `REXKRNL_CRITICAL` plus `abort` | `FatalError` then `abort` |
-| `runtime_export.cpp` missing runtime or export | `REXKRNL_CRITICAL` plus `abort` | `FatalError` then `abort` |
+| `death_marker.cpp` `OnAbort`, `OnTerminate` | writes marker or fault log | also calls `FatalError` with the fault log path (once, via `ClaimFatal`) |
+| `death_marker.cpp` `OnFault` | writes fault log, chains to previous filter | unchanged: the desktop dialog for the same crash comes from `crash_capture.cpp` above; UWP writes the pending marker instead |
+| `guest_call.cpp` scratch exhaustion, bad arity | `REXKRNL_CRITICAL` plus `abort` | `ClaimFatal`, then `FatalError` with the fault log path, then `abort`; the abort handler still writes its marker but shows no second dialog |
+| `runtime_export.cpp` missing runtime or export | `REXKRNL_CRITICAL` plus `abort` | `ClaimFatal`, then `FatalError` with the fault log path, then `abort` |
 | `onevs100_app.h` `OnPreSetup` online-service failure | `std::exit(1)` | `FatalError` with config path, then exit |
 | `onevs100_app.h` `OnFinalizePaths` no game files | `REXKRNL_ERROR` only | `FatalError` with searched folder and fix steps, then exit |
-| `content_install.cpp` no packages | `REXKRNL_ERROR` only | `FatalError` with content path, then return or exit per caller |
+| `content_install.cpp` no packages | `REXKRNL_ERROR` only | unchanged: install-time copy is gone, packages mount at runtime via `RegisterPackage`; the fatal case (no game package) is covered by `OnFinalizePaths` above |
 
 Dialog text is two lines: what failed in plain words, and where the log is. Example: `Game error 1234ABCD. See native-fault.log in userdata. Use Send logs to report it.` Exact paths resolve the same way `death_marker` does (user folder when configured, else executable folder, else `LOCALAPPDATA`).
 

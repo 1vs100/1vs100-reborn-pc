@@ -175,9 +175,7 @@ class Onevs100App : public rex::ReXApp {
         fatal_dialog::FatalError("1 vs 100",
                                  "No game files found: " + reason +
                                      ". Copy the untouched game package plus show/episode packages " + into + ".");
-#if !REX_PLATFORM_WINRT
         std::exit(1);
-#endif
       }
     }
     return paths;
@@ -206,13 +204,10 @@ class Onevs100App : public rex::ReXApp {
     InstallConfiguredContent();
     if (CurrentOnlineService() == OnlineService::Gameserver) StartMatchmakingClient();
     avatar_view::StartUploadServer();
-    // Missing pack degrades to stock avatars; warn once and continue. A
-    // pending crash report wins: it must not be overwritten here.
-    if (!NativeAvatarEnabled() && !fatal_dialog::HasPending()) {
+    // Missing pack degrades to stock avatars; log and continue with no dialog.
+    // Recoverable warnings stay out of the fatal dialog path by design.
+    if (!NativeAvatarEnabled()) {
       REXKRNL_WARN("content: no avatar pack found; running without avatars");
-      fatal_dialog::FatalError("1 vs 100",
-                               "No avatar pack found with the game content. The game runs without avatars; add "
-                               "AvatarAssetPack.toc or its package to restore them.");
     }
   }
   // The guest rate shows in the SDK's debug overlay, which both renderers composite.

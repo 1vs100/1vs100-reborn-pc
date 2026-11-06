@@ -22,7 +22,8 @@ PPCFunc* Resolve(const char* name) {
   }();
   if (!runtime) {
     REXKRNL_CRITICAL("Runtime {} is not loaded", ONEVS100_RUNTIME_DLL);
-    fatal_dialog::FatalError("1 vs 100", "Runtime library is not loaded");
+    if (fatal_dialog::ClaimFatal())
+      fatal_dialog::FatalError("1 vs 100", "Runtime library is not loaded. See native-fault.log in the user folder.");
     std::abort();
   }
   return reinterpret_cast<PPCFunc*>(GetProcAddress(runtime, name));
@@ -31,7 +32,8 @@ PPCFunc* Resolve(const char* name) {
   static const HMODULE runtime = GetModuleHandleA(ONEVS100_RUNTIME_DLL);
   if (!runtime) {
     REXKRNL_CRITICAL("Runtime {} is not loaded", ONEVS100_RUNTIME_DLL);
-    fatal_dialog::FatalError("1 vs 100", "Runtime library is not loaded");
+    if (fatal_dialog::ClaimFatal())
+      fatal_dialog::FatalError("1 vs 100", "Runtime library is not loaded. See native-fault.log in the user folder.");
     std::abort();
   }
   return reinterpret_cast<PPCFunc*>(GetProcAddress(runtime, name));
@@ -46,7 +48,9 @@ PPCFunc* RuntimeExport(const char* name) {
   PPCFunc* const function = Resolve(name);
   if (!function) {
     REXKRNL_CRITICAL("Runtime export {} not found", name);
-    fatal_dialog::FatalError("1 vs 100", std::string("Runtime export not found: ") + name);
+    if (fatal_dialog::ClaimFatal())
+      fatal_dialog::FatalError("1 vs 100", std::string("Runtime export not found: ") + name +
+                                              ". See native-fault.log in the user folder.");
     std::abort();
   }
   return function;
