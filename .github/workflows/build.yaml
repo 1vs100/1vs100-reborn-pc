@@ -60,11 +60,13 @@ env:
   CLANG_VERSION: "22"
   XWIN_VERSION: 0.10.0
   MSVC_MAJOR: "17" # vsdownload.py manifest major; 17 == Visual Studio 2022 line
-  MSVC_VERSION: "14.51.36231"
+  MSVC_VERSION: "17.14" # vsdownload.py selector for the VS 2022 line
+  MSVC_TOOLSET: "14.44" # toolset that selector must resolve to; bump together
+  MSVC_WINE_VERSION: "514f8ea34842cd6d831804d0e9658d3a32870ae1"
+  WINSDK_VERSION_PIN: "10.0.26100.0"
   CMAKE_VERSION: "3.28.3"
   OSXCROSS_VERSION: "27d21e4977c9751d01199c7a226a6faf494c3dd9"
   MACOS_SDK_VERSION: "15.1" # must match the MACOS_SDK_URL tarball; cache key only
-  WINSDK_VERSION_PIN: "10.0.26100.0"
   MSVC_CACHE_VERSION: v2 # bump to force a fresh MSVC download
   CMAKE_BUILD_TYPE: Release
   XWIN_ROOT: ${{ github.workspace }}/xwin-splat
@@ -358,8 +360,8 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ${{ github.workspace }}/msvc
-          key: msvc-${{ env.MSVC_VERSION }}-${{ env.WINSDK_VERSION_PIN }}-${{ env.MSVC_CACHE_VERSION }}
-          restore-keys: msvc-${{ env.MSVC_VERSION }}-${{ env.WINSDK_VERSION_PIN }}-
+          key: msvc-${{ env.MSVC_VERSION }}-${{ env.WINSDK_VERSION_PIN }}-wine${{ env.MSVC_WINE_VERSION }}-${{ env.MSVC_CACHE_VERSION }}
+          restore-keys: msvc-${{ env.MSVC_VERSION }}-${{ env.WINSDK_VERSION_PIN }}-wine${{ env.MSVC_WINE_VERSION }}-
 
       - name: Provision MSVC with msvc-wine
         if: matrix.needs_msvc && steps.msvc-cache.outputs.cache-hit != 'true'
@@ -367,10 +369,11 @@ jobs:
           set -euo pipefail
           sudo apt-get install -y python3 msitools gcab ca-certificates
           command -v msiextract gcab
-          git clone --depth 1 https://github.com/mstorsjo/msvc-wine.git "$RUNNER_TEMP/msvc-wine"
+          git clone https://github.com/mstorsjo/msvc-wine.git "$RUNNER_TEMP/msvc-wine"
+          git -C "$RUNNER_TEMP/msvc-wine" checkout "$MSVC_WINE_VERSION"
           python3 "$RUNNER_TEMP/msvc-wine/vsdownload.py" --accept-license \
             --major "$MSVC_MAJOR" --msvc-version "$MSVC_VERSION" \
-            --sdk-version "$WINSDK_VERSION_PIN" \
+            --sdk-version "${WINSDK_VERSION_PIN%.0}" \
             --dest "$MSVC_ROOT" --architecture x64 \
             --cache "$RUNNER_TEMP/msvc-dl-cache"
           chmod +x "$RUNNER_TEMP/msvc-wine/install.sh"
@@ -391,8 +394,8 @@ jobs:
             echo "MSVC_DETECTED_VERSION=$detected_msvc"
             echo "WINSDK_DETECTED_VERSION=$detected_winsdk"
           } >> "$GITHUB_ENV"
-          if [ "$detected_msvc" != "$MSVC_VERSION" ]; then
-            echo "::error::MSVC $detected_msvc is not the pinned $MSVC_VERSION"
+          if [[ "$detected_msvc" != "$MSVC_TOOLSET".* ]]; then
+            echo "::error::MSVC $detected_msvc is not the pinned toolset $MSVC_TOOLSET.x" >&2
             exit 1
           fi
           if [ "$detected_winsdk" != "$WINSDK_VERSION_PIN" ]; then
@@ -454,8 +457,8 @@ jobs:
         if: matrix.needs_sdl_prefix && steps.sdl-cache.outputs.cache-hit != 'true'
         env:
           MSVC_ROOT: ${{ env.MSVC_ROOT }}
-          MSVC_VERSION: ${{ env.MSVC_VERSION }}
-          WINSDK_VERSION: ${{ env.WINSDK_VERSION_PIN }}
+          MSVC_VERSION: ${{ env.MSVC_DETECTED_VERSION }}
+          WINSDK_VERSION: ${{ env.WINSDK_DETECTED_VERSION }}
           WINEDEBUG: -all
         run: |
           set -euo pipefail
@@ -518,10 +521,13 @@ jobs:
             fi
           done
       - name: Configure
+      - name: Configure
         env:
           OSXCROSS_ROOT: ${{ github.workspace }}/osxcross
           MAC_ARCH: ${{ matrix.mac_arch }}
           MACOS_DEPLOYMENT_TARGET: "14.0"
+          MSVC_VERSION: ${{ env.MSVC_DETECTED_VERSION }}
+          WINSDK_VERSION: ${{ env.WINSDK_DETECTED_VERSION }}
         run: |
           args=(
             -DCMAKE_BUILD_TYPE="$CMAKE_BUILD_TYPE"

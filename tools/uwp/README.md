@@ -10,6 +10,8 @@
 
 The Store build cross-compiles from Linux with clang-cl. It needs an [msvc-wine](https://github.com/mstorsjo/msvc-wine) install in `MSVC_ROOT` for the STL, the Store CRT and its libraries, an [xwin](https://github.com/Jake-Shadle/xwin) splat in `XWIN_ROOT` for the C++/WinRT headers, and a shared SDL3-uwp install prefix built with MSVC.
 
+CI pins the exact MSVC and Windows SDK (`MSVC_VERSION`, `WINSDK_VERSION_PIN` in `build.yaml`) and asserts the install matches. For a local build that must match CI, provision with the same pins: `vsdownload.py --accept-license --major 17 --msvc-version <pin> --sdk-version <pin>`. If your `MSVC_ROOT` holds a different MSVC, point `MSVC_VERSION` at its full version directory instead.
+
 ```
 cmake -S native -B build/uwp -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
