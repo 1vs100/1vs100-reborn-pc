@@ -44,6 +44,6 @@ UWP-only path rules live next to the generic ones. `content/` and avatar content
 
 `tools/package_uwp.sh <build_dir> <out_dir>` builds the signed `.appx` from the CI `uwp` leg output plus `tools/uwp/AppxManifest.xml`. The manifest declares `removableStorage` for the USB pickers and omits `broadFileSystemAccess` (restricted capability, Store blocker, unneeded for picker-granted access). The package intentionally contains no game files.
 
-`makemsix` comes from [microsoft/msix-packaging](https://github.com/microsoft/msix-packaging) built with `MSIX_PACK=on`. Its vendored xerces and SDK sources pin C++14 while current ICU headers need C++17, so raise `CMAKE_CXX_STANDARD` in the top-level and `lib/xerces` CMakeLists before building.
+`makemsix` comes from [microsoft/msix-packaging](https://github.com/microsoft/msix-packaging) built with CMake 3.29 or newer. The `Build makemsix` step in `.github/workflows/build.yaml` has the exact flags.
 
 The signing step needs `osslsigncode`. Without `CERT_PFX` the script creates a self-signed certificate in `~/.local/share/onevs100-uwp-cert` whose subject matches the manifest `Publisher`. The device has to trust that certificate before it installs the package.

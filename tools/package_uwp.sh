@@ -62,8 +62,10 @@ fi
 # Same config as the desktop archives; copied to LocalState on first run.
 cp "$script_dir/../package/onevs100.toml" "$layout/"
 
+# ImageMagick 7 installs magick, ImageMagick 6 (Ubuntu) only convert.
+magick=$(command -v magick || command -v convert) || { echo "ImageMagick not found" >&2; exit 1; }
 logo() {
-  magick -size "$2" xc:'#1a237e' -fill white -gravity center \
+  "$magick" -size "$2" xc:'#1a237e' -fill white -gravity center \
     -pointsize "$3" -annotate 0 '1 vs 100' "$layout/Logos/$1"
 }
 logo StoreLogo.png 50x50 10
@@ -90,7 +92,7 @@ fi
 # Installation fails unless the certificate subject equals Identity/@Publisher.
 publisher=$(sed -n 's/.*<Identity [^>]*Publisher="\([^"]*\)".*/\1/p' "$layout/AppxManifest.xml")
 subject=$(openssl pkcs12 -in "$cert" -passin "pass:$cert_password" -nokeys -clcerts 2>/dev/null \
-  | openssl x509 -noout -subject | sed 's/^subject= *//')
+  | openssl x509 -noout -subject -nameopt utf8,sep_comma_plus_space,dn_rev | sed 's/^subject= *//')
 if [ "$subject" != "$publisher" ]; then
   echo "certificate subject '$subject' does not match manifest Publisher '$publisher'" >&2
   exit 1

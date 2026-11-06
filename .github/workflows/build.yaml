@@ -715,25 +715,31 @@ jobs:
         id: makemsix-cache
         uses: actions/cache@v6
         with:
-          path: ${{ github.workspace }}/msix-packaging-prefix/bin/makemsix
-          key: makemsix-25a65f5c1690930813bcc10cdf1d59fa865f2bb1
+          path: ${{ github.workspace }}/makemsix
+          key: makemsix-25a65f5c1690930813bcc10cdf1d59fa865f2bb1-v2
       - name: Build makemsix
         if: steps.makemsix-cache.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build g++ libssl-dev libxerces-c-dev libicu-dev zlib1g-dev
-          git clone https://github.com/microsoft/msix-packaging.git "$RUNNER_TEMP/msix-packaging"
-          git -C "$RUNNER_TEMP/msix-packaging" checkout 25a65f5c1690930813bcc10cdf1d59fa865f2bb1
+          sudo apt-get install -y ninja-build g++ libssl-dev libxerces-c-dev libicu-dev zlib1g-dev
+          # msix-packaging needs CMake 3.29 or newer.
+          PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --user cmake==3.31.6
+          cmake="$(python3 -m site --user-base)/bin/cmake"
+          git init -q "$RUNNER_TEMP/msix-packaging"
+          git -C "$RUNNER_TEMP/msix-packaging" fetch -q --depth 1 \
+            https://github.com/microsoft/msix-packaging.git 25a65f5c1690930813bcc10cdf1d59fa865f2bb1
+          git -C "$RUNNER_TEMP/msix-packaging" checkout -q FETCH_HEAD
           # The vendored xerces and SDK sources pin C++14 while current ICU
-          # headers need C++17 (see tools/uwp/README.md).
-          cmake -S "$RUNNER_TEMP/msix-packaging" -B "$RUNNER_TEMP/msix-build" -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release -DMSIX_PACK=on \
-            -DCMAKE_CXX_STANDARD=17
-          cmake --build "$RUNNER_TEMP/msix-build" --target makemsix --parallel
-          mkdir -p "$GITHUB_WORKSPACE/msix-packaging-prefix/bin"
-          cp "$RUNNER_TEMP/msix-build/makemsix" "$GITHUB_WORKSPACE/msix-packaging-prefix/bin/"
-          chmod +x "$GITHUB_WORKSPACE/msix-packaging-prefix/bin/makemsix"
+          # headers need C++17. The relative rpath lets makemsix find
+          # libmsix.so after the cache moves it.
+          "$cmake" -S "$RUNNER_TEMP/msix-packaging" -B "$RUNNER_TEMP/msix-build" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DMSIX_PACK=on -DUSE_VALIDATION_PARSER=on \
+            -DCMAKE_CXX_STANDARD=17 -DCMAKE_BUILD_RPATH_USE_ORIGIN=ON
+          "$cmake" --build "$RUNNER_TEMP/msix-build" --target makemsix --parallel
+          mkdir -p makemsix/bin makemsix/lib
+          cp "$RUNNER_TEMP/msix-build/bin/makemsix" makemsix/bin/
+          cp "$RUNNER_TEMP/msix-build/lib/libmsix.so" makemsix/lib/
       - name: Install pack tools
         run: |
           set -euo pipefail
@@ -749,7 +755,7 @@ jobs:
             echo "$CERT_PFX_B64" | base64 -d > "$RUNNER_TEMP/cert.pfx"
             export CERT_PFX="$RUNNER_TEMP/cert.pfx"
           fi
-          MAKEMSIX="$GITHUB_WORKSPACE/msix-packaging-prefix/bin/makemsix" \
+          MAKEMSIX="$GITHUB_WORKSPACE/makemsix/bin/makemsix" \
             tools/package_uwp.sh staged out/uwp
           ls -la out/uwp
           if grep -q "__VERSION__" out/uwp/layout/AppxManifest.xml; then
