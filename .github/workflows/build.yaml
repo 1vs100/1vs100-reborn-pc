@@ -7,7 +7,8 @@
 # the generated sources from the cache, then builds a platform matrix
 # (linux / windows / uwp / linux-arm64 / mac-arm64 / mac-amd64).
 # `package-*` repacks the build artifacts into tar.xz (linux),
-# zip + Inno Setup installer (windows) and per-arch .app zips (mac).
+# zip + Inno Setup installer (windows), per-arch .app zips (mac) and a
+# signed .appx (uwp).
 # Every compile goes through ccache,
 # one cache per toolchain, so an unchanged SDK is not recompiled.
 #
@@ -251,6 +252,8 @@ jobs:
               build/uwp/onevs100.exe
               build/uwp/rexruntime.dll
               build/uwp/rexgpu-xenos.dll
+              build/uwp/dxcompiler.dll
+              build/uwp/dxil.dll
               build/uwp/SDL3.dll
               build/uwp/content/.keep
               build/uwp/onevs100.toml
@@ -686,5 +689,71 @@ jobs:
         with:
           name: ${{ matrix.out }}-package
           path: out/*.zip
+          retention-days: 14
+          if-no-files-found: error
+
+  package-uwp:
+    name: package uwp appx
+    needs: [build]
+    runs-on: ubuntu-24.04
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - name: Check out packaging scripts
+        uses: actions/checkout@v7
+      - name: Download build artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: onevs100-uwp-amd64
+          path: staged
+      - name: Restore makemsix
+        id: makemsix-cache
+        uses: actions/cache@v6
+        with:
+          path: ${{ github.workspace }}/msix-packaging-prefix/bin/makemsix
+          key: makemsix-25a65f5c1690930813bcc10cdf1d59fa865f2bb1
+      - name: Build makemsix
+        if: steps.makemsix-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build g++ libssl-dev libxerces-c-dev libicu-dev zlib1g-dev
+          git clone https://github.com/microsoft/msix-packaging.git "$RUNNER_TEMP/msix-packaging"
+          git -C "$RUNNER_TEMP/msix-packaging" checkout 25a65f5c1690930813bcc10cdf1d59fa865f2bb1
+          # The vendored xerces and SDK sources pin C++14 while current ICU
+          # headers need C++17 (see tools/uwp/README.md).
+          cmake -S "$RUNNER_TEMP/msix-packaging" -B "$RUNNER_TEMP/msix-build" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DMSIX_PACK=on \
+            -DCMAKE_CXX_STANDARD=17
+          cmake --build "$RUNNER_TEMP/msix-build" --target makemsix --parallel
+          mkdir -p "$GITHUB_WORKSPACE/msix-packaging-prefix/bin"
+          cp "$RUNNER_TEMP/msix-build/makemsix" "$GITHUB_WORKSPACE/msix-packaging-prefix/bin/"
+          chmod +x "$GITHUB_WORKSPACE/msix-packaging-prefix/bin/makemsix"
+      - name: Install pack tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y osslsigncode openssl imagemagick
+      - name: Pack and sign appx
+        env:
+          CERT_PFX_B64: ${{ secrets.CERT_PFX_B64 }}
+          CERT_PASSWORD: ${{ secrets.CERT_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -n "${CERT_PFX_B64:-}" ]; then
+            echo "$CERT_PFX_B64" | base64 -d > "$RUNNER_TEMP/cert.pfx"
+            export CERT_PFX="$RUNNER_TEMP/cert.pfx"
+          fi
+          MAKEMSIX="$GITHUB_WORKSPACE/msix-packaging-prefix/bin/makemsix" \
+            tools/package_uwp.sh staged out/uwp
+          ls -la out/uwp
+          if grep -q "__VERSION__" out/uwp/layout/AppxManifest.xml; then
+            echo "version stamp leaked into package" >&2
+            exit 1
+          fi
+      - name: Upload package
+        uses: actions/upload-artifact@v7
+        with:
+          name: onevs100-uwp-package
+          path: out/uwp/onevs100.appx
           retention-days: 14
           if-no-files-found: error
