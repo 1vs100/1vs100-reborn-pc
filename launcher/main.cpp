@@ -40,6 +40,7 @@ constexpr const char* kWebsiteUrl = "https://1vs100.fans";
 constexpr const char* kDocsUrl = "https://docs.1vs100.fans";
 constexpr const char* kGithubUrl = "https://github.com/1vs100";
 constexpr const char* kAvatarEditorUrl = "https://360sona.com";
+constexpr const char* kSonaGamertagUrl = "https://360sona.com/sona/v1/gamertag/";
 constexpr uint32_t kPreviewWidth = 240, kPreviewHeight = 320;
 constexpr float kTurnStep = 3.14159265f / 12.0f;  // 15 degrees per arrow press
 // Keys the launcher edits through its own controls; the advanced list leaves them out.
@@ -128,6 +129,39 @@ bool ValidGamertag(std::string_view name) {
   for (unsigned char c : name)
     if (!GamertagChar(c)) return false;
   return true;
+}
+
+// An Xbox gamertag as typed, without surrounding spaces.
+class XboxGamertag {
+ public:
+  static std::optional<XboxGamertag> Parse(std::string_view text) {
+    while (!text.empty() && text.front() == ' ') text.remove_prefix(1);
+    while (!text.empty() && text.back() == ' ') text.remove_suffix(1);
+    if (text.empty()) return std::nullopt;
+    return XboxGamertag(std::string(text));
+  }
+  const std::string& text() const { return text_; }
+
+ private:
+  explicit XboxGamertag(std::string text) : text_(std::move(text)) {}
+  std::string text_;
+};
+
+// The avatar manifest for a gamertag, as a .bin download.
+std::string SonaManifestUrl(const XboxGamertag& gamertag) {
+  static constexpr char kHex[] = "0123456789ABCDEF";
+  std::string url = kSonaGamertagUrl;
+  for (unsigned char c : gamertag.text()) {
+    if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_' ||
+        c == '.' || c == '~') {
+      url += static_cast<char>(c);
+    } else {
+      url += '%';
+      url += kHex[c >> 4];
+      url += kHex[c & 0xF];
+    }
+  }
+  return url + "?client=1vs100rb&format=bin";
 }
 
 bool ValidHost(std::string_view host) {
@@ -716,6 +750,7 @@ struct App {
   SDL_Texture* preview = nullptr;
   std::vector<uint8_t> previewPixels;
   std::array<char, 8192> code{};
+  std::array<char, 128> xboxGamertag{};
   void Report(const Error& error) { status = {Describe(error), true}; }
   void Report(std::string text) { status = {std::move(text), false}; }
   void ReportError(std::string text) { status = {std::move(text), true}; }
@@ -1054,7 +1089,7 @@ void DrawAvatarTab(App& app) {
       "Create an account at 360sona.com and sign in.",
       "In the editor, click My Sonas, select your avatar and click Import / Export.",
       "Copy the 360sona avatar text and paste it below. Or click Save the description (.bin) and open that "
-      "file here.",
+      "file here. Or enter your Xbox gamertag below, press Download and open the saved file.",
       "Check the preview, then press Launch.",
   };
   for (size_t i = 0; i < std::size(kSteps); ++i) {
@@ -1083,9 +1118,29 @@ void DrawAvatarTab(App& app) {
   ImGui::SameLine();
   ImGui::BeginDisabled(!ready || !app.dialog_event);
   if (ImGui::Button("Open file...")) {
-    static const SDL_DialogFileFilter filters[] = {{"Avatar manifest or sona code", "bin;txt"}};
+    // The browser may save a gamertag download without the .bin extension.
+    static const SDL_DialogFileFilter filters[] = {{"Avatar manifest or sona code", "bin;txt"}, {"All files", "*"}};
     open_request.app = &app;
-    SDL_ShowOpenFileDialog(OnFileChosen, &open_request, app.window, filters, 1, nullptr, false);
+    SDL_ShowOpenFileDialog(OnFileChosen, &open_request, app.window, filters, 2, nullptr, false);
+  }
+  ImGui::EndDisabled();
+
+  ImGui::Dummy(ImVec2(0, 4));
+  SectionLabel("XBOX GAMERTAG");
+  const float download_width = ImGui::CalcTextSize("Download").x + style.FramePadding.x * 2;
+  ImGui::SetNextItemWidth(left_width - download_width - style.ItemSpacing.x);
+  ImGui::InputTextWithHint("##xboxgamertag", "Your Xbox gamertag", app.xboxGamertag.data(), app.xboxGamertag.size());
+  ImGui::SameLine();
+  const auto xbox_gamertag = XboxGamertag::Parse(app.xboxGamertag.data());
+  ImGui::BeginDisabled(!xbox_gamertag);
+  if (ImGui::Button("Download")) {
+    if (SDL_OpenURL(SonaManifestUrl(*xbox_gamertag).c_str())) {
+      app.Report("Save the file from the browser, then open it with Open file...");
+    } else {
+      const char* sdl_error = SDL_GetError();
+      app.ReportError(std::string("Cannot open the browser.") +
+                      ((sdl_error && *sdl_error) ? std::string(" ") + sdl_error : std::string()));
+    }
   }
   ImGui::EndDisabled();
 
