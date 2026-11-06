@@ -1,5 +1,6 @@
 #include "onevs100_init.h"
 #include <rex/hook.h>
+#include <fmt/std.h>
 #include <rex/system/xmemory.h>
 #include <rex/memory/utils.h>
 #include "local_profile.h"
@@ -89,10 +90,10 @@ static void VideoCommand(const std::string& text) {
   const auto file = rex::filesystem::GetExecutableFolder() / "assets" / "media" / "movies" / (name + ".mp4");
   std::error_code error;
   if (name.empty() || !std::filesystem::exists(file, error)) {
-    REXKRNL_INFO("Intro video not found: {}", file.string());
+    REXKRNL_INFO("Intro video not found: {}", file);
     return;
   }
-  REXKRNL_INFO("Intro video playing: {}", file.string());
+  REXKRNL_INFO("Intro video playing: {}", file);
   NativeVideoPlay(file);
 }
 extern "C" REX_FUNC(native_debug_log) {

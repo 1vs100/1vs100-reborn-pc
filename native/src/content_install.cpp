@@ -6,6 +6,7 @@
 #include <rex/filesystem.h>
 #include <rex/filesystem/devices/stfs_container_device.h>
 #include <rex/logging.h>
+#include <fmt/std.h>
 #include <rex/platform.h>
 #include <rex/system/kernel_state.h>
 #include <system_error>
@@ -78,7 +79,7 @@ std::optional<std::filesystem::path> FindGamePackage() {
     if (!header || header->metadata.execution_info.title_id != kGameTitleId) continue;
     games.push_back({package, header->metadata.content_type,
                      header->metadata.execution_info.media_id});
-    REXKRNL_INFO("content: candidate {} (type {:08X}, media {:08X})", package.filename().string(),
+    REXKRNL_INFO("content: candidate {} (type {:08X}, media {:08X})", package.filename(),
                  static_cast<uint32_t>(games.back().type), games.back().mediaId);
   }
   if (games.empty()) return std::nullopt;
@@ -86,7 +87,7 @@ std::optional<std::filesystem::path> FindGamePackage() {
     if (game.mediaId == kGameMediaId) {
       if (games.size() > 1)
         REXKRNL_INFO("content: {} title matches, using media match {}", games.size(),
-                     game.path.filename().string());
+                     game.path.filename());
       return game.path;
     }
   }
@@ -94,12 +95,12 @@ std::optional<std::filesystem::path> FindGamePackage() {
     if (game.type == XContentType::kXbox360Title || game.type == XContentType::kInstalledGame ||
         game.type == XContentType::kGamesOnDemand) {
       REXKRNL_WARN("content: no media {:08X} match, using game container {}", kGameMediaId,
-                   game.path.filename().string());
+                   game.path.filename());
       return game.path;
     }
   }
   REXKRNL_WARN("content: {} title matches, none is a game container; using {}", games.size(),
-               games.front().path.filename().string());
+               games.front().path.filename());
   return games.front().path;
 }
 
@@ -131,9 +132,9 @@ void InstallConfiguredContent() {
     if (!rex::filesystem::StfsContainerDevice::ReadPackageHeader(package)) continue;
     const auto result = content->RegisterPackage(package);
     if (result) {
-      REXKRNL_ERROR("content: {} failed ({:08X})", package.string(), result);
+      REXKRNL_ERROR("content: {} failed ({:08X})", package, result);
     } else {
-      REXKRNL_INFO("content: {} registered", package.filename().string());
+      REXKRNL_INFO("content: {} registered", package.filename());
       ++registered;
     }
   }

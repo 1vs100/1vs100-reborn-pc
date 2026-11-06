@@ -28,6 +28,7 @@
 #include <rex/graphics/xenos.h>
 #include <rex/hash.h>
 #include <rex/logging.h>
+#include <fmt/std.h>
 
 #include "render/gpu.h"
 #include "render/display_settings.h"
@@ -1504,7 +1505,7 @@ void Backend::UpdatePointer() {
                           ? BakePointerSprite(root.parent_path(), 256, float(REXCVAR_GET(gpu_pointer_angle)), p.sprite)
                           : LoadSelectorSprite(root.parent_path(), float(REXCVAR_GET(gpu_pointer_angle)), p.sprite);
   if (!loaded) {
-    REXGPU_WARN("[gpu] pointer: hand assets not found under {}", root.parent_path().string());
+    REXGPU_WARN("[gpu] pointer: hand assets not found under {}", root.parent_path());
     return;
   }
   const uint32_t width = p.sprite.width, height = p.sprite.height;

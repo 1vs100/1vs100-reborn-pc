@@ -12,6 +12,7 @@
 #include <thread>
 
 #include <fmt/format.h>
+#include <fmt/std.h>
 #include <rex/platform.h>
 
 #include "../avatar_native/local_avatar.h"
@@ -228,7 +229,7 @@ std::vector<uint8_t> PreviewPng() {
 #if !REX_PLATFORM_WINRT
 void StartUploadServer() {}
 std::string UploadHint() {
-  return fmt::format("Copy avatarmanifest.bin to {}", local_avatar::SavePath().string());
+  return fmt::format("Copy avatarmanifest.bin to {}", local_avatar::SavePath());
 }
 std::string UploadUrl() { return {}; }
 #endif

@@ -32,6 +32,7 @@
 #include <rex/graphics/format/ucode.h>
 #include <rex/hash.h>
 #include <rex/logging.h>
+#include <fmt/std.h>
 
 REXCVAR_DEFINE_STRING(gpu_shader_pack, "auto", "GPU",
                       "Shader pack: a .pack container, a directory holding manifest.csv, or auto (out/shaderpack/onevs100.pack, "
@@ -181,7 +182,7 @@ class DirectorySource : public Source {
     }
     // Directory pack ABI (pre-X3): b0 is 256 bytes, no b5, and the shaders clamp texture indices at 2047.
     abi = PackAbi{};
-    name = "directory pack " + dir.string();
+    name = fmt::format("directory pack {}", dir);
     return !rows_.empty();
   }
 
@@ -260,10 +261,10 @@ void FillEntry(ShaderEntry& e, std::span<const uint8_t> reflection) {
 class ContainerSource : public Source {
  public:
   bool Open(const fs::path& path) {
-    name = "container " + path.string();
+    name = fmt::format("container {}", path);
     std::string error;
     if (!pack_.OpenFile(path, &error)) {
-      REXGPU_ERROR("[gpu] shader pack {} refused: {}", path.string(), error);
+      REXGPU_ERROR("[gpu] shader pack {} refused: {}", path, error);
       return false;
     }
     abi.system_size = pack_.header().b0_size;

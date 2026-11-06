@@ -4,6 +4,7 @@
 #include <rex/filesystem/devices/host_path_device.h>
 #include <rex/hook.h>
 #include <rex/logging.h>
+#include <fmt/std.h>
 #include <rex/memory/utils.h>
 #include <rex/system/kernel_state.h>
 #include <array>
@@ -42,7 +43,7 @@ bool MountCacheDevice() {
     if (!error && !std::filesystem::exists(folder / "backing.bin")) std::ofstream(folder / "backing.bin");
     auto device = std::make_unique<rex::filesystem::HostPathDevice>(kMountPath, folder, false);
     if (error || !device->Initialize() || !REX_KERNEL_FS()->RegisterDevice(std::move(device))) {
-      REXKRNL_ERROR("Gameserver mode: Massive cache folder {} unavailable", folder.string());
+      REXKRNL_ERROR("Gameserver mode: Massive cache folder {} unavailable", folder);
       return false;
     }
     return true;

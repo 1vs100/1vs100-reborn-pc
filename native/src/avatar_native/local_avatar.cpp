@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 #include <rex/logging.h>
+#include <fmt/std.h>
 
 namespace av = xe::kernel::xna::avatar;
 
@@ -25,7 +26,8 @@ std::vector<uint8_t> ReadAll(const std::filesystem::path& path) {
 bool WriteAll(const std::filesystem::path& path, const uint8_t* data, size_t size) {
   std::error_code error;
   std::filesystem::create_directories(path.parent_path(), error);
-  const auto temporary = path.string() + ".tmp";
+  auto temporary = path;
+  temporary += ".tmp";
   {
     std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
     file.write(reinterpret_cast<const char*>(data), std::streamsize(size));
@@ -42,7 +44,7 @@ bool Load(const av::Catalog* catalog, av::Description* out) {
   if ((bytes.size() != av::kDescriptionBytes && bytes.size() != av::kManifestBytes) ||
       !av::ParseAnyDescription(catalog, bytes.data(), bytes.size(), out)) {
     if (!bytes.empty()) {
-      REXKRNL_WARN("Avatar: ignoring {} ({} bytes, unreadable)", SavePath().string(), bytes.size());
+      REXKRNL_WARN("Avatar: ignoring {} ({} bytes, unreadable)", SavePath(), bytes.size());
     }
     return false;
   }

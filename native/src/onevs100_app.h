@@ -8,6 +8,7 @@
 #include <rex/cvar.h>
 #include <rex/filesystem.h>
 #include <rex/logging.h>
+#include <fmt/std.h>
 #include <rex/platform.h>
 #include <functional>
 #include <optional>
@@ -125,16 +126,16 @@ class Onevs100App : public rex::ReXApp {
         const auto folder = rex::filesystem::GetExecutableFolder();
         if (!scan.dirExists) {
           REXKRNL_ERROR("onevs100: no game files found: content folder '{}' does not exist",
-                        scan.source.string());
+                        scan.source);
         } else if (scan.files == 0) {
-          REXKRNL_ERROR("onevs100: no game files found: '{}' is empty", scan.source.string());
+          REXKRNL_ERROR("onevs100: no game files found: '{}' is empty", scan.source);
         } else {
           REXKRNL_ERROR("onevs100: no game files found: '{}' holds {} file(s), none is the game package",
-                        scan.source.string(), scan.files);
+                        scan.source, scan.files);
         }
         REXKRNL_ERROR("onevs100: copy the untouched game package plus show/episode packages into '{}' "
                       "(files directly inside, no subfolders), or unpack default.xex and its media into '{}'",
-                      (folder / "content").string(), (folder / "assets").string());
+                      folder / "content", folder / "assets");
       }
     }
     return paths;
