@@ -25,6 +25,16 @@ out_dir=$(realpath -m "$2")
 script_dir=$(dirname "$(realpath "$0")")
 makemsix=${MAKEMSIX:-makemsix}
 
+version_file="$script_dir/../VERSION"
+if [ ! -f "$version_file" ]; then
+  echo "missing $version_file" >&2
+  exit 1
+fi
+version=$(tr -d '[:space:]' < "$version_file")
+if ! [[ "$version" =~ ^[0-9]+(\.[0-9]+){3}$ ]]; then
+  echo "bad version $version, want four numeric parts" >&2
+  exit 1
+fi
 for f in onevs100.exe rexruntime.dll rexgpu-xenos.dll; do
   if [ ! -f "$build_dir/$f" ]; then
     echo "missing $build_dir/$f" >&2
@@ -35,6 +45,12 @@ done
 layout="$out_dir/layout"
 rm -rf "$layout"
 mkdir -p "$layout/Logos"
+cp "$script_dir/uwp/AppxManifest.xml" "$layout/AppxManifest.xml"
+sed -i "s/__VERSION__/$version/" "$layout/AppxManifest.xml"
+if grep -q "__VERSION__" "$layout/AppxManifest.xml"; then
+  echo "version stamp leaked into AppxManifest.xml" >&2
+  exit 1
+fi
 
 cp "$build_dir"/onevs100.exe "$build_dir"/rexruntime.dll "$build_dir"/rexgpu-xenos.dll \
   "$build_dir"/SDL3.dll "$layout/"
@@ -43,7 +59,6 @@ cp "$build_dir"/onevs100.exe "$build_dir"/rexruntime.dll "$build_dir"/rexgpu-xen
 if [ -f "$build_dir/dxcompiler.dll" ]; then
   cp "$build_dir"/dxcompiler.dll "$build_dir"/dxil.dll "$layout/"
 fi
-cp "$script_dir/uwp/AppxManifest.xml" "$layout/"
 # Same config as the desktop archives; copied to LocalState on first run.
 cp "$script_dir/../package/onevs100.toml" "$layout/"
 
