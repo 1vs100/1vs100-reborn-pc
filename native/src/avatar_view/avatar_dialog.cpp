@@ -6,7 +6,9 @@
 #include <rex/platform.h>
 
 #if REX_PLATFORM_WINRT
-#include "qrcodegen.hpp"
+#include <cstddef>
+
+#include <onboarding/qr.h>
 #endif
 
 namespace avatar_view {
@@ -14,17 +16,19 @@ namespace {
 
 #if REX_PLATFORM_WINRT
 void DrawQr(const std::string& text, float side) {
-  const auto qr = qrcodegen::QrCode::encodeText(text.c_str(), qrcodegen::QrCode::Ecc::MEDIUM);
-  const int modules = qr.getSize() + 4;  // two-module quiet zone
-  const float cell = side / float(modules);
-  const ImVec2 origin = ImGui::GetCursorScreenPos();
-  ImDrawList* list = ImGui::GetWindowDrawList();
-  list->AddRectFilled(origin, ImVec2(origin.x + side, origin.y + side), IM_COL32_WHITE);
-  for (int y = 0; y < qr.getSize(); ++y) {
-    for (int x = 0; x < qr.getSize(); ++x) {
-      if (!qr.getModule(x, y)) continue;
-      const ImVec2 a(origin.x + (x + 2) * cell, origin.y + (y + 2) * cell);
-      list->AddRectFilled(a, ImVec2(a.x + cell, a.y + cell), IM_COL32_BLACK);
+  const onboarding::QrMatrix qr = onboarding::EncodeQr(text);
+  if (qr.modules > 0) {
+    const int modules = qr.modules + 4;  // two-module quiet zone
+    const float cell = side / float(modules);
+    const ImVec2 origin = ImGui::GetCursorScreenPos();
+    ImDrawList* list = ImGui::GetWindowDrawList();
+    list->AddRectFilled(origin, ImVec2(origin.x + side, origin.y + side), IM_COL32_WHITE);
+    for (int y = 0; y < qr.modules; ++y) {
+      for (int x = 0; x < qr.modules; ++x) {
+        if (!qr.bits[static_cast<std::size_t>(y) * qr.modules + x]) continue;
+        const ImVec2 a(origin.x + (x + 2) * cell, origin.y + (y + 2) * cell);
+        list->AddRectFilled(a, ImVec2(a.x + cell, a.y + cell), IM_COL32_BLACK);
+      }
     }
   }
   ImGui::Dummy(ImVec2(side, side));
