@@ -120,7 +120,7 @@ These run parts of the game as native code or change how frames are handed over.
 
 You need:
 
-- Windows 10/11 with Visual Studio 18 (C++ workload, CMake, Ninja) and LLVM/clang 23, or Linux with clang 22, CMake 3.25+ and Ninja.
+- Windows 10/11 with Visual Studio 18 (C++ workload, CMake, Ninja) and LLVM/clang 22.1.8, or Linux with clang 22.1.8, CMake 3.28.3 (`pip install cmake==3.28.3`) and Ninja. Releases build in the `tools/ci-image` Ubuntu 24.04 container, which holds this toolchain and the system/wine build deps (ccache, the MSVC install, the xwin splat and the SDL3-uwp prefix are still provisioned per build); run it through Podman so your checkout matches CI.
 - The [ReXGlue SDK](https://github.com/1vs100/rexglue-sdk) arrives as a pinned submodule in `rexglue-sdk/`. Pass it with `-DREXSDK_DIR=$PWD/rexglue-sdk`; a prebuilt SDK package does not work, the in-place content support needs the newer source.
 
 Steps:
@@ -132,14 +132,16 @@ Steps:
    ```
     cmake -S native -B build -G Ninja -DCMAKE_BUILD_TYPE=Release ^
       -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl ^
-      -DREXSDK_DIR=$PWD/rexglue-sdk
+      -DREXSDK_DIR=$PWD/rexglue-sdk ^
+      -DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON
    cmake --build build --target onevs100
    ```
    On Linux:
    ```
     cmake -S native -B build/linux -G Ninja -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
-      -DREXSDK_DIR=$PWD/rexglue-sdk
+      -DREXSDK_DIR=$PWD/rexglue-sdk \
+      -DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON
    cmake --build build/linux --target onevs100
    ```
 5. Development launcher (Windows): `tools\dev-launcher\build_launcher.cmd` (set `LLVM_BIN` or put clang-cl on PATH).

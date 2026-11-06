@@ -1,0 +1,35 @@
+name: ci-image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - tools/ci-image/**
+      - .github/actions/setup-clang/**
+      - .github/workflows/ci-image.yaml
+  workflow_dispatch:
+  schedule:
+    - cron: '0 6 * * 1'
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/1vs100/1vs100-pc-ci
+
+jobs:
+  build:
+    name: build and push CI image
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out the Dockerfile
+        uses: actions/checkout@v7
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+      - name: Build and push
+        run: |
+          set -euo pipefail
+          docker build -t "$IMAGE:v1" -t "$IMAGE:sha-${GITHUB_SHA::8}" tools/ci-image
+          docker push "$IMAGE:v1"
+          docker push "$IMAGE:sha-${GITHUB_SHA::8}"
