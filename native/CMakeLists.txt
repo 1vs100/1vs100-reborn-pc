@@ -206,23 +206,82 @@ endif()
 enable_language(C)
 set(XENOS_RECOMP_THIRDPARTY_ROOT
     "${CMAKE_CURRENT_SOURCE_DIR}/third_party/xenosrecomp/thirdparty")
-if(NOT WIN32 AND NOT EXISTS "${XENOS_RECOMP_THIRDPARTY_ROOT}/dxc-bin/lib/x64/libdxcompiler.so")
+set(ONEVS100_DXC_TAG "v1.8.2407")
+set(ONEVS100_DXC_LINUX_URL "https://github.com/microsoft/DirectXShaderCompiler/releases/download/${ONEVS100_DXC_TAG}/linux_dxc_2024_07_31.x86_64.tar.gz")
+set(ONEVS100_DXC_LINUX_SHA256 "b58725ac191df0686994fb9d54d27ee8dd3f180b023d562733112a499ea1195c")
+set(ONEVS100_DXC_WIN_URL "https://github.com/microsoft/DirectXShaderCompiler/releases/download/${ONEVS100_DXC_TAG}/dxc_2024_07_31.zip")
+set(ONEVS100_DXC_WIN_SHA256 "e2627f004f0f9424d8c71ea1314d04f38c5a5096884ae9217f1f18bd320267b5")
+
+# Fetches a pinned DXC archive at configure time and copies files from it.
+# The URL and hash pin the bytes. The archive is staged under the build dir.
+# Remaining arguments are <extract-relative source, absolute destination>
+# pairs. Skips download and extract when the stamp matches and every
+# destination exists. Destinations must be git-ignored.
+function(onevs100_fetch_dxc _url _sha256 _archive_name)
+    set(_archive "${CMAKE_CURRENT_BINARY_DIR}/${_archive_name}")
+    set(_stamp "${_archive}.stamp")
+    set(_extract "${_archive}.extract")
+    set(_srcs "")
+    set(_dsts "")
+    set(_take_src TRUE)
+    foreach(_a IN LISTS ARGN)
+        if(_take_src)
+            list(APPEND _srcs "${_a}")
+            set(_take_src FALSE)
+        else()
+            list(APPEND _dsts "${_a}")
+            set(_take_src TRUE)
+        endif()
+    endforeach()
+    set(_skip TRUE)
+    if(EXISTS "${_stamp}")
+        file(READ "${_stamp}" _have)
+        string(STRIP "${_have}" _have)
+        if(_have STREQUAL "${_url} ${_sha256}")
+            foreach(_src _dst IN ZIP_LISTS _srcs _dsts)
+                if(NOT EXISTS "${_dst}")
+                    set(_skip FALSE)
+                endif()
+            endforeach()
+        else()
+            set(_skip FALSE)
+        endif()
+    else()
+        set(_skip FALSE)
+    endif()
+    if(_skip)
+        return()
+    endif()
+    file(DOWNLOAD "${_url}" "${_archive}" EXPECTED_HASH SHA256=${_sha256})
+    file(REMOVE_RECURSE "${_extract}")
+    file(ARCHIVE_EXTRACT INPUT "${_archive}" DESTINATION "${_extract}")
+    foreach(_src _dst IN ZIP_LISTS _srcs _dsts)
+        get_filename_component(_dst_dir "${_dst}" DIRECTORY)
+        file(MAKE_DIRECTORY "${_dst_dir}")
+        file(COPY_FILE "${_extract}/${_src}" "${_dst}")
+    endforeach()
+    file(WRITE "${_stamp}" "${_url} ${_sha256}")
+endfunction()
+
+if(WIN32)
+    onevs100_fetch_dxc("${ONEVS100_DXC_WIN_URL}" "${ONEVS100_DXC_WIN_SHA256}"
+        "windows_dxc_2024_07_31.zip"
+        "bin/x64/dxcompiler.dll" "${XENOS_RECOMP_THIRDPARTY_ROOT}/dxc-bin/bin/x64/dxcompiler.dll"
+        "bin/x64/dxil.dll" "${XENOS_RECOMP_THIRDPARTY_ROOT}/dxc-bin/bin/x64/dxil.dll"
+        "bin/x64/dxc.exe" "${XENOS_RECOMP_THIRDPARTY_ROOT}/dxc-bin/bin/x64/dxc.exe"
+        "lib/x64/dxcompiler.lib" "${XENOS_RECOMP_THIRDPARTY_ROOT}/dxc-bin/lib/x64/dxcompiler.lib")
+elseif(NOT EXISTS "${XENOS_RECOMP_THIRDPARTY_ROOT}/dxc-bin/lib/x64/libdxcompiler.so"
+        OR (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64)$"))
     # Microsoft publishes DXC for Linux x86_64 only.
     if(NOT (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64)$"))
         message(FATAL_ERROR "The native renderer needs DXC; no release exists for "
             "${CMAKE_SYSTEM_NAME} ${CMAKE_SYSTEM_PROCESSOR}")
     endif()
-    # The same DXC release as the Windows binaries, fetched once.
-    set(_dxc_archive "${CMAKE_CURRENT_BINARY_DIR}/linux_dxc_2024_07_31.x86_64.tar.gz")
-    file(DOWNLOAD
-        "https://github.com/microsoft/DirectXShaderCompiler/releases/download/v1.8.2407/linux_dxc_2024_07_31.x86_64.tar.gz"
-        "${_dxc_archive}"
-        EXPECTED_HASH SHA256=b58725ac191df0686994fb9d54d27ee8dd3f180b023d562733112a499ea1195c)
-    set(_dxc_extract "${CMAKE_CURRENT_BINARY_DIR}/dxc-linux")
-    file(ARCHIVE_EXTRACT INPUT "${_dxc_archive}" DESTINATION "${_dxc_extract}")
-    file(COPY "${_dxc_extract}/lib/libdxcompiler.so" "${_dxc_extract}/lib/libdxil.so"
-        DESTINATION "${XENOS_RECOMP_THIRDPARTY_ROOT}/dxc-bin/lib/x64")
-    file(COPY_FILE "${_dxc_extract}/bin/dxc" "${XENOS_RECOMP_THIRDPARTY_ROOT}/dxc-bin/bin/x64/dxc-linux")
+    onevs100_fetch_dxc("${ONEVS100_DXC_LINUX_URL}" "${ONEVS100_DXC_LINUX_SHA256}"
+        "linux_dxc_2024_07_31.x86_64.tar.gz"
+        "lib/libdxcompiler.so" "${XENOS_RECOMP_THIRDPARTY_ROOT}/dxc-bin/lib/x64/libdxcompiler.so"
+        "lib/libdxil.so" "${XENOS_RECOMP_THIRDPARTY_ROOT}/dxc-bin/lib/x64/libdxil.so"
+        "bin/dxc" "${XENOS_RECOMP_THIRDPARTY_ROOT}/dxc-bin/bin/x64/dxc-linux")
 endif()
 set(XENOS_RECOMP_BUILD_CLI OFF CACHE BOOL "" FORCE)
 set(XENOS_RECOMP_DXIL ${WIN32} CACHE BOOL "" FORCE)
