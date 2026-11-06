@@ -14,7 +14,7 @@ param([ValidateSet('Offline','LocalHost','LocalJoin','Gameserver')][string]$Mode
       [switch]$NoMenuBlur,[switch]$DualSenseDirect,[switch]$MousePanel,
       [ValidateSet('ExtendedPlay','Live')][string]$ShowMode='ExtendedPlay',
       [ValidateRange(1,10000)][int]$BotCount=99,
-      # Launcher Debug tab (original development switches; see NativeDebug.lua).
+      # Launcher Debug tab (original development switches, written into staged globals.lua as NATIVE_*).
       [ValidateSet('Off','Sprint')][string]$Sponsor='Off',
       [ValidateSet('Standard','Holiday','TheBigGame','XboxLIVE','ColinCorp','Sprint')][string]$Skin='Standard',
       [ValidateSet('Off','Host','Producer')][string]$HostTool='Off',
@@ -140,8 +140,8 @@ if ($Mode -ne 'Gameserver') {
     $title=((&{ if($ShowMode -eq 'Live' -and $LiveTitle){$LiveTitle}else{$ShowTitle} }) -replace '[^A-Za-z0-9 !?.,-]','')
     if($title.Length -gt 24) { $title=$title.Substring(0,24) }
     if($title) { WriteLua $path ([IO.File]::ReadAllText($path)+"`r`nNATIVE_SHOW_TITLE = `"$title`" -- launcher show title`r`n") }
-    # Launcher Debug tab: switches read when the game's Lua loads (globals.lua runs
-    # first; NativeDebug.lua applies the NATIVE_* ones).
+    # Launcher Debug tab: switches written into staged globals.lua as NATIVE_*
+    # (globals.lua runs first when the game's Lua loads).
     $skinNames=@{Standard='';Holiday='Holiday';TheBigGame='TheBigGame';XboxLIVE='XboxLIVE';ColinCorp='ColinCorp';Sprint='Sprint'}
     $debugLua="`r`n-- launcher Debug tab`r`n"
     $debugLua+="NATIVE_SPONSORSHIP = $(if($Sponsor -eq 'Sprint'){'true'}else{'false'})`r`n"
