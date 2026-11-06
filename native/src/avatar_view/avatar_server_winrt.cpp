@@ -21,7 +21,7 @@
 
 #include <rex/logging.h>
 
-#include "net/lan_address.h"
+#include "onboarding_host/lan_address.h"
 
 namespace avatar_view {
 namespace {

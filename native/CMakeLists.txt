@@ -123,6 +123,10 @@ endif()
 if(WINDOWS_STORE)
     add_executable(onevs100 WIN32 ${ONEVS100_SOURCES})
     target_link_libraries(onevs100 PRIVATE ws2_32 bcrypt onboarding_ui::onboarding_ui)
+    # The public onboarding/*.h headers include core/*, which lives in the
+    # submodule's src/. The submodule's own demo adds the same dir.
+    target_include_directories(onevs100 PRIVATE
+        third_party/deployment-onboarding-ui/src)
     if(DEFINED REXGLUE_SDL3_UWP_PREFIX)
         target_include_directories(onevs100 PRIVATE "${REXGLUE_SDL3_UWP_PREFIX}/include")
     endif()
