@@ -5,12 +5,12 @@ keep their original licenses.
 
 ## UWP first-run onboarding (MIT)
 
-`native/src/uwp_onboarding/` is adapted from sdl-uwp-onboarding by tuxuser
-(UWP-only build): browser-upload / USB-picker file acquisition with a hash
-manifest. Full license: `native/src/uwp_onboarding/LICENSE.upstream`.
-Adaptations for this repository: four-field manifest (`<sha256> <size>
-<kind> <path>`), user-folder store root, embeddable gate that returns to the
-caller instead of running its own main loop.
+The first-run file setup view lives in its own repository,
+[1vs100/deployment-onboarding-ui](https://github.com/1vs100/deployment-onboarding-ui),
+and is checked out here at `native/third_party/deployment-onboarding-ui`. It is
+adapted from sdl-uwp-onboarding by tuxuser: browser-upload and USB-picker file
+acquisition with a hash manifest. Its own notices, including the upstream MIT
+license, are in that repository.
 
 ## Nexia / Xenia Avatar format code (BSD 3-Clause)
 

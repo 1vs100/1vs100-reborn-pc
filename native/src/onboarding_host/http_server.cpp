@@ -13,7 +13,7 @@
 #include <winrt/windows.foundation.h>
 #include <winrt/windows.storage.streams.h>
 
-#include "web_page.h"
+#include "onboarding/web.h"
 
 namespace onboarding {
 namespace {
@@ -160,28 +160,6 @@ class Connection {
   DataWriter writer_;
 };
 
-std::string JsonString(std::string_view text) {
-  std::string out = "\"";
-  for (char c : text) {
-    switch (c) {
-      case '"': out += "\\\""; break;
-      case '\\': out += "\\\\"; break;
-      case '\n': out += "\\n"; break;
-      case '\r': out += "\\r"; break;
-      case '\t': out += "\\t"; break;
-      default:
-        if (static_cast<unsigned char>(c) < 0x20) {
-          char escaped[8];
-          std::snprintf(escaped, sizeof(escaped), "\\u%04x", c);
-          out += escaped;
-        } else {
-          out += c;
-        }
-    }
-  }
-  return out + "\"";
-}
-
 }  // namespace
 
 bool UrlDecode(std::string_view in, std::string* out) {
@@ -206,27 +184,6 @@ bool UrlDecode(std::string_view in, std::string* out) {
     }
   }
   return true;
-}
-
-std::string StatusJson(const Snapshot& snapshot) {
-  std::string json = "{\"files\":[";
-  for (size_t i = 0; i < snapshot.files.size(); ++i) {
-    const FileView& file = snapshot.files[i];
-    if (i) json += ',';
-    json += "{\"path\":" + JsonString(file.entry->path) +
-            ",\"size\":" + std::to_string(file.entry->size) +
-            ",\"state\":" + JsonString(StatusName(file.status)) +
-            ",\"done\":" + std::to_string(file.done) +
-            ",\"alternative\":" + (file.entry->alternative() ? "true" : "false") +
-            ",\"covered\":" + (file.covered ? "true" : "false") + "}";
-  }
-  json += "],\"ready\":" + std::to_string(snapshot.ready_count) +
-          ",\"count\":" + std::to_string(snapshot.needed_count) +
-          ",\"bytes_ready\":" + std::to_string(snapshot.ready_bytes) +
-          ",\"bytes_total\":" + std::to_string(snapshot.total_bytes) +
-          ",\"checking\":" + (snapshot.checking ? "true" : "false") +
-          ",\"error\":" + JsonString(snapshot.error) + "}";
-  return json;
 }
 
 HttpServer::HttpServer(FileStore& store, Catalog& catalog) : store_(store), catalog_(catalog) {}
@@ -269,8 +226,7 @@ void HttpServer::HandleConnection(StreamSocket socket) {
     if (size_t query = target.find('?'); query != std::string_view::npos) target = target.substr(0, query);
 
     if (request->method == "GET" && (target == "/" || target == "/index.html")) {
-      connection.Send(200, "OK", "text/html; charset=utf-8",
-                      std::string_view(reinterpret_cast<const char*>(kWebPage), sizeof(kWebPage)));
+      connection.Send(200, "OK", "text/html; charset=utf-8", WebPage());
       return;
     }
     if (request->method == "GET" && target == "/status") {

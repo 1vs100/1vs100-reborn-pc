@@ -4,7 +4,7 @@
 #include <winrt/windows.foundation.collections.h>
 #include <winrt/windows.storage.h>
 
-#include "file_store.h"
+#include "onboarding/files.h"
 
 namespace onboarding {
 

@@ -40,7 +40,8 @@
 #include <winrt/windows.applicationmodel.h>
 #include <winrt/windows.graphics.display.h>
 #include <winrt/windows.ui.core.h>
-#include "uwp_onboarding/gate.h"
+#include "onboarding/gate.h"
+#include "onboarding_host/platform.h"
 #endif
 #include <chrono>
 #include <cstdlib>
@@ -96,10 +97,12 @@ class Onevs100App : public rex::ReXApp {
     // already verifies; if the user quits, the game reports the missing
     // files through the usual path below.
     auto version = winrt::Windows::ApplicationModel::Package::Current().Id().Version();
-    uwp_onboarding::EnsureGameFiles(
-        folder, {"1 vs 100", "v2.0.1149",
-                 std::to_string(version.Major) + "." + std::to_string(version.Minor) + "." +
-                     std::to_string(version.Build) + "." + std::to_string(version.Revision)});
+    onboarding::EnsureGameFiles(
+        folder,
+        {"1 vs 100", "v2.0.1149",
+         std::to_string(version.Major) + "." + std::to_string(version.Minor) + "." +
+             std::to_string(version.Build) + "." + std::to_string(version.Revision)},
+        onboarding::MakeWinrtPlatform());
 #endif
     // All development saves/cache/config stay beside this isolated build.
 #ifdef _WIN32
