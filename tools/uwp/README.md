@@ -21,7 +21,7 @@ cmake -S native -B build/uwp -G Ninja \
 cmake --build build/uwp --target onevs100 --parallel
 ```
 
-The prefix is an install tree with `bin/SDL3.dll` and `lib/SDL3.lib` at its root. CI unpacks the `SDL3_UWP_PREFIX_URL` secret into `sdl3-uwp-prefix/`.
+The prefix is an install tree with `bin/SDL3.dll` and `lib/SDL3.lib` at its root. CI compiles it from `rexglue-sdk/thirdparty/sdl3-uwp` with this toolchain under Wine and caches `sdl3-uwp-prefix/`.
 
 ## Manifest
 

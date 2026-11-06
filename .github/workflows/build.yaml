@@ -19,10 +19,10 @@
 #   XEX_SHA256          (required) expected SHA-256 of default.xex; the
 #                       download is verified against it and it is part of
 #                       the codegen cache key.
-#   SDL3_UWP_PREFIX_URL (required for the uwp leg) URL of a zip holding a
-#                       shared SDL3-uwp install prefix built with MSVC
-#                       (bin/SDL3.dll, lib/SDL3.lib, ... at the zip root).
-#   SDL3_UWP_AUTH       (optional) `Authorization` header for that URL.
+#   CERT_PFX_B64        (optional) base64 of the code-signing certificate for
+#                       the UWP appx; when unset the package is signed with a
+#                       throwaway test certificate.
+#   CERT_PASSWORD       (optional) password of that certificate.
 #
 # Fork pull requests cannot read secrets, so the secret-dependent jobs skip
 # themselves there instead of failing.
@@ -31,8 +31,8 @@
 # - Precompiled headers are disabled in CI because ccache cannot reuse them.
 # - The Windows legs cross-compile from Linux with clang-cl. The desktop leg
 #   needs only an xwin splat; the Store leg additionally needs an MSVC
-#   install (headers/libs only, provided by mstorsjo/msvc-wine) and the
-#   prebuilt SDL3-uwp prefix above.
+#   install (headers/libs only, provided by mstorsjo/msvc-wine); SDL3-uwp
+#   is compiled from the SDK submodule with that MSVC under Wine.
 
 name: build
 
@@ -385,6 +385,7 @@ jobs:
           {
             echo "MSVC_DETECTED_VERSION=$detected_msvc"
             echo "WINSDK_DETECTED_VERSION=$detected_winsdk"
+          } >> "$GITHUB_ENV"
           if [ "$detected_msvc" != "$MSVC_VERSION" ]; then
             echo "::error::MSVC $detected_msvc is not the pinned $MSVC_VERSION"
             exit 1
@@ -429,27 +430,39 @@ jobs:
             fi
           done
 
-      - name: Download SDL3-uwp prefix
+      - name: Restore SDL3-uwp prefix
         if: matrix.needs_sdl_prefix
-        env:
-          SDL3_UWP_PREFIX_URL: ${{ secrets.SDL3_UWP_PREFIX_URL }}
-          SDL3_UWP_AUTH: ${{ secrets.SDL3_UWP_AUTH }}
+        id: sdl-cache
+        uses: actions/cache@v6
+        with:
+          path: ${{ github.workspace }}/sdl3-uwp-prefix
+          key: sdl3-uwp-${{ needs.codegen-key.outputs.sdk_sha }}-msvc${{ env.MSVC_VERSION }}-sdk${{ env.WINSDK_VERSION_PIN }}
+      - name: Install Wine and .NET
+        if: matrix.needs_sdl_prefix && steps.sdl-cache.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
-          if [ -z "$SDL3_UWP_PREFIX_URL" ]; then
-            echo "::error::SDL3_UWP_PREFIX_URL secret is not set"
-            exit 1
-          fi
-          auth=()
-          if [ -n "$SDL3_UWP_AUTH" ]; then
-            auth=(-H "Authorization: $SDL3_UWP_AUTH")
-          fi
-          curl -fsSL "${auth[@]}" -o "$RUNNER_TEMP/sdl3-uwp-prefix.zip" "$SDL3_UWP_PREFIX_URL"
-          mkdir -p "$GITHUB_WORKSPACE/sdl3-uwp-prefix"
-          unzip -q -o "$RUNNER_TEMP/sdl3-uwp-prefix.zip" -d "$GITHUB_WORKSPACE/sdl3-uwp-prefix"
+          sudo apt-get update
+          sudo apt-get install -y wine64 winetricks cabextract
+          export WINEDEBUG=-all
+          winetricks -q dotnet48
+      - name: Compile SDL3-uwp with MSVC
+        if: matrix.needs_sdl_prefix && steps.sdl-cache.outputs.cache-hit != 'true'
+        env:
+          MSVC_ROOT: ${{ env.MSVC_ROOT }}
+          MSVC_VERSION: ${{ env.MSVC_VERSION }}
+          WINSDK_VERSION: ${{ env.WINSDK_VERSION_PIN }}
+          WINEDEBUG: -all
+        run: |
+          set -euo pipefail
+          cmake -S rexglue-sdk/thirdparty/sdl3-uwp -B sdl3-uwp-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE="$GITHUB_WORKSPACE/tools/uwp/msvc-toolchain.cmake" \
+            -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/sdl3-uwp-prefix"
+          cmake --build sdl3-uwp-build --parallel
+          cmake --install sdl3-uwp-build
           if [ ! -f "$GITHUB_WORKSPACE/sdl3-uwp-prefix/bin/SDL3.dll" ] || \
              [ ! -f "$GITHUB_WORKSPACE/sdl3-uwp-prefix/lib/SDL3.lib" ]; then
-            echo "::error::SDL3-uwp prefix must unzip to <prefix>/ with bin/SDL3.dll and lib/SDL3.lib (zip the prefix contents, not a wrapper folder)"
+            echo "::error::SDL3-uwp prefix must hold bin/SDL3.dll and lib/SDL3.lib at its root" >&2
             exit 1
           fi
 
