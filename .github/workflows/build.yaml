@@ -225,6 +225,8 @@ jobs:
               build/linux/onevs100
               build/linux/librexruntime.so
               build/linux/librexgpu-xenos.so
+              build/linux/libdxcompiler.so
+              build/linux/libdxil.so
               build/linux/content/.keep
               build/linux/onevs100.toml
               build/linux/RUN.md
