@@ -8,11 +8,12 @@
 
 ## Building
 
-The Store build cross-compiles from Linux with clang-cl. It needs an [msvc-wine](https://github.com/mstorsjo/msvc-wine) install in `MSVC_ROOT` for the STL, the Store CRT and its libraries, an [xwin](https://github.com/Jake-Shadle/xwin) splat in `XWIN_ROOT` for the C++/WinRT headers, and a shared SDL3-uwp install prefix built with MSVC.
+The Store build cross-compiles from Linux with clang-cl. It needs an [msvc-wine](https://github.com/mstorsjo/msvc-wine) install in `MSVC_ROOT` for the STL, the Store CRT and its libraries, an [xwin](https://github.com/Jake-Shadle/xwin) splat in `XWIN_ROOT` for the C++/WinRT headers, and a shared SDL3-uwp install prefix. SDL3-uwp contains C++/CX, which only MSVC compiles, so [1vs100/SDL3-uwp](https://github.com/1vs100/SDL3-uwp) builds it on Windows and publishes it as a release.
 
 CI pins the exact MSVC and Windows SDK (`MSVC_VERSION`, `WINSDK_VERSION_PIN` in `build.yaml`) and asserts the install matches. For a local build that must match CI, provision with the same pins: `vsdownload.py --accept-license --major 17 --msvc-version <pin> --sdk-version <pin>`. If your `MSVC_ROOT` holds a different MSVC, point `MSVC_VERSION` at its full version directory instead.
 
 ```
+tools/uwp/fetch_sdl3_uwp.sh build/sdl3-uwp-prefix
 cmake -S native -B build/uwp -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
@@ -23,7 +24,7 @@ cmake -S native -B build/uwp -G Ninja \
 cmake --build build/uwp --target onevs100 --parallel
 ```
 
-The prefix is an install tree with `bin/SDL3.dll` and `lib/SDL3.lib` at its root. CI compiles it from `rexglue-sdk/thirdparty/sdl3-uwp` with this toolchain under Wine and caches `sdl3-uwp-prefix/`.
+`tools/uwp/sdl3-uwp-prefix.txt` names the release and its SHA-256. The fetch script refuses a release that does not match the SDL3-uwp commit pinned in `rexglue-sdk`, so bump both together.
 
 ## Manifest
 

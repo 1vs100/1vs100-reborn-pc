@@ -16,12 +16,10 @@ ENV LLVM_RELEASE=22.1.8
 ENV CMAKE_VERSION=3.28.3
 ENV XWIN_VERSION=0.10.0
 
-RUN dpkg --add-architecture i386 && apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl git sudo gcc g++ \
     python3 python3-pip pkg-config \
     ninja-build nasm unzip xz-utils file \
-    # wine32: the .NET installer stub is 32-bit, even for a 64-bit prefix.
-    wine64 wine32 winetricks cabextract \
     msitools gcab \
     libx11-dev libx11-xcb-dev libxext-dev libxcursor-dev libxrandr-dev \
     libxfixes-dev libxi-dev libxinerama-dev libxss-dev libxkbcommon-dev \
@@ -71,5 +69,3 @@ RUN set -eux; \
     install -m 755 "/tmp/$name/xwin" /usr/local/bin/xwin; \
     rm -rf "/tmp/$name" "/tmp/$name.tar.gz"; \
     xwin --version
-
-ENV WINEDEBUG=-all
