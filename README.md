@@ -37,7 +37,7 @@ content = "/path/to/packages"
 `gameserver_host` is the server's host name or IPv4 address. `content` names the game package, a show or episode package file, or a folder of them. It defaults to `content/` next to the executable. The game uses them in place at startup, never extracted. To run two copies on one PC, give each its own `guest_bind_address`, for example `127.0.0.1` and `127.0.0.2`.
 5. Run the game:
 ```
-cd build/linux
+cd build/linux-amd64
 ./onevs100
 ```
 Every setting in `onevs100.toml` also works as a command line flag, for example `--online_service=gameserver --gameserver_host=1vs100.example.org`.
@@ -138,11 +138,11 @@ Steps:
    ```
    On Linux:
    ```
-    cmake -S native -B build/linux -G Ninja -DCMAKE_BUILD_TYPE=Release \
+    cmake -S native -B build/linux-amd64 -G Ninja -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
       -DREXSDK_DIR=$PWD/rexglue-sdk \
       -DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON
-   cmake --build build/linux --target onevs100
+   cmake --build build/linux-amd64 --target onevs100
    ```
 5. Development launcher (Windows): `tools\dev-launcher\build_launcher.cmd` (set `LLVM_BIN` or put clang-cl on PATH).
 6. For debug options, copy the files from `lua/` into the game's `lua` folder.

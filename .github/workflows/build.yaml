@@ -5,7 +5,7 @@
 # commit, the XEX hash and the codegen config files. `codegen` runs
 # `rexglue codegen` only when no cache entry has that key. `build` restores
 # the generated sources from the cache, then builds a platform matrix
-# (linux / windows / uwp / linux-arm64 / mac-arm64 / mac-amd64).
+# (linux-amd64 / windows / uwp / linux-arm64 / mac-arm64 / mac-amd64).
 # `package-*` repacks the build artifacts into tar.xz (linux),
 # zip + Inno Setup installer (windows), per-arch .app zips (mac) and a
 # signed .appx (uwp).
@@ -133,7 +133,7 @@ jobs:
       - name: Install build tools
         if: steps.lookup.outputs.cache-hit != 'true'
         # The rexglue codegen tool builds from the Linux desktop SDK tree, so
-        # this job needs the same SDL system dependencies as the linux leg.
+        # this job needs the same SDL system dependencies as the linux-amd64 leg.
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build nasm pkg-config python3 python3-pip \
@@ -218,22 +218,22 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: linux
+          - platform: linux-amd64
             runner: ubuntu-24.04
             timeout: 180
-            build_dir: build/linux
+            build_dir: build/linux-amd64
             artifact: onevs100-linux-amd64
             files: |
-              build/linux/onevs100
-              build/linux/librexruntime.so
-              build/linux/librexgpu-xenos.so
-              build/linux/libdxcompiler.so
-              build/linux/libdxil.so
-              build/linux/content/.keep
-              build/linux/onevs100.toml
-              build/linux/RUN.md
-              build/linux/manifest.txt
-              build/linux/launcher
+              build/linux-amd64/onevs100
+              build/linux-amd64/librexruntime.so
+              build/linux-amd64/librexgpu-xenos.so
+              build/linux-amd64/libdxcompiler.so
+              build/linux-amd64/libdxil.so
+              build/linux-amd64/content/.keep
+              build/linux-amd64/onevs100.toml
+              build/linux-amd64/RUN.md
+              build/linux-amd64/manifest.txt
+              build/linux-amd64/launcher
           - platform: windows
             runner: ubuntu-24.04
             timeout: 240
@@ -328,7 +328,7 @@ jobs:
           else
             sudo apt-get update
             sudo apt-get install -y ninja-build nasm pkg-config python3 python3-pip curl unzip git
-            if [ "${{ matrix.platform }}" = "linux" ] || [ "${{ matrix.platform }}" = "linux-arm64" ]; then
+            if [ "${{ matrix.platform }}" = "linux-amd64" ] || [ "${{ matrix.platform }}" = "linux-arm64" ]; then
               sudo apt-get install -y libx11-dev libx11-xcb-dev libxext-dev \
                 libxcursor-dev libxrandr-dev libxfixes-dev libxi-dev libxinerama-dev \
                 libxss-dev libxkbcommon-dev libxtst-dev libxdamage-dev \
