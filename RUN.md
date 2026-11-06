@@ -8,7 +8,7 @@
 ## Start playing
 
 1. Copy your untouched Xbox 360 packages into the `content` folder: the game package, plus the show and episode packages. They are used as they are, never unpacked.
-2. Extract the archive into a writable folder: `onevs100-linux-*.tar.xz` on Linux, `1vs100-win-*.zip` or the installer on Windows, `onevs100-mac-*.zip` on macOS. First run creates `userdata/` next to the executables, so a read-only location fails. Requires macOS 14 or newer.
+2. Extract the archive into a writable folder: `onevs100-linux-*.tar.xz` on Linux, `1vs100-win-*.zip` or the installer on Windows, `onevs100-mac-*.zip` on macOS. First run creates `userdata/` next to the executables, so a read-only location fails. Requires macOS 15 or newer.
 3. On macOS move `1vs100.app` out of Downloads (for example `~/Applications`), then clear quarantine once: `xattr -dr com.apple.quarantine 1vs100.app`. On Linux the tar preserves exec bits, so no `chmod` is needed.
 4. Open launcher (launcher.exe on Windows, launcher inside 1vs100.app on macOS).
 5. On the Player tab, enter your gamertag and choose your avatar file.

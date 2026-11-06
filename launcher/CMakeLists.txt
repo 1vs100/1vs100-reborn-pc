@@ -1,6 +1,17 @@
 cmake_minimum_required(VERSION 3.25)
 project(onevs100_launcher LANGUAGES C CXX)
 
+# Oldest macOS the .app claims; tools/mac/minimum_os.txt holds the one copy.
+if(APPLE AND NOT CMAKE_OSX_DEPLOYMENT_TARGET)
+  file(READ "${CMAKE_CURRENT_SOURCE_DIR}/../tools/mac/minimum_os.txt" _min_macos)
+  string(STRIP "${_min_macos}" _min_macos)
+  if(NOT _min_macos MATCHES "^[0-9]+\\.[0-9]+$")
+    message(FATAL_ERROR "Bad version in tools/mac/minimum_os.txt: '${_min_macos}'")
+  endif()
+  # project() caches an empty target from the platform module, so plain CACHE
+  # would not take; the guard above already keeps a user-set value.
+  set(CMAKE_OSX_DEPLOYMENT_TARGET "${_min_macos}" CACHE STRING "Oldest supported macOS" FORCE)
+endif()
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 

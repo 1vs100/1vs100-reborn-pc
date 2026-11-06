@@ -283,7 +283,7 @@ jobs:
               build/linux-arm64/manifest.txt
               build/linux-arm64/launcher
           - platform: mac-arm64
-            runner: macos-14
+            runner: macos-15
             timeout: 240
             build_dir: build/mac-arm64
             artifact: onevs100-mac-arm64
@@ -688,7 +688,7 @@ jobs:
       matrix:
         include:
           - artifact: onevs100-mac-arm64
-            runner: macos-14
+            runner: macos-15
             out: onevs100-mac-arm64
           - artifact: onevs100-mac-amd64
             runner: macos-15-intel

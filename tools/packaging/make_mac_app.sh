@@ -50,6 +50,13 @@ if [ -e "$build_dir/userdata" ]; then
 fi
 
 script_dir=$(dirname "$(realpath "$0")")
+
+minimum_os=$(tr -d '[:space:]' < "$script_dir/../mac/minimum_os.txt")
+if ! [[ "$minimum_os" =~ ^[0-9]+\.[0-9]+$ ]]; then
+  echo "bad minimum_os.txt: '$minimum_os'" >&2
+  exit 1
+fi
+
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
 app="$stage/1vs100.app/Contents/MacOS"
@@ -88,7 +95,8 @@ else
     fi
   done
 fi
-sed "s/__VERSION__/$version/g" "$script_dir/mac/Info.plist.template" > "$stage/1vs100.app/Contents/Info.plist"
+sed -e "s/__VERSION__/$version/g" -e "s/__MIN_MACOS__/$minimum_os/g" \
+  "$script_dir/mac/Info.plist.template" > "$stage/1vs100.app/Contents/Info.plist"
 chmod +x "$app/onevs100" "$app/launcher"
 if ! codesign --force -s - "$app"/*.dylib 2>/dev/null; then
   echo "warning: dylib codesign failed" >&2
