@@ -13,14 +13,22 @@ if(APPLE)
     enable_language(OBJC OBJCXX)
 endif()
 
-string(COMPARE EQUAL ${CMAKE_SYSTEM_NAME} "Linux" IS_LINUX)
 
 # Project options
 include(CMakeDependentOption)
-cmake_dependent_option(PLUME_SDL_VULKAN_ENABLED "Enable SDL Vulkan integration" OFF IS_LINUX OFF)
+# [rexglue vendored change] also available on Apple: the Cocoa window path
+# needs plume_apple.mm, which this trim drops, so SDL creates the surface.
+cmake_dependent_option(PLUME_SDL_VULKAN_ENABLED "Enable SDL Vulkan integration" OFF "NOT WIN32" OFF)
 cmake_dependent_option(PLUME_D3D12_AGILITY_SDK_ENABLED "Enable D3D12 Agility SDK" OFF WIN32 OFF)
 cmake_dependent_option(PLUME_APPLE_RETINA_ENABLED "Enable Apple Retina display support" ON APPLE ON)
 option(PLUME_BUILD_EXAMPLES "Build example applications" OFF)
+
+# The Metal backend needs both of these; VENDOR.md lists what the trim drops.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/plume_metal.cpp" AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/plume_apple.mm")
+    set(_plume_metal 1)
+else()
+    set(_plume_metal 0)
+endif()
 
 # Windows-specific definitions
 if(WIN32)
@@ -37,7 +45,7 @@ if(PLUME_D3D12_AGILITY_SDK_ENABLED)
 endif()
 
 # Print status messages
-message(STATUS "Plume - Building with backends: Vulkan=1 Metal=${APPLE} D3D12=${WIN32}")
+message(STATUS "Plume - Building with backends: Vulkan=1 Metal=${_plume_metal} D3D12=${WIN32}")
 message(STATUS "Plume - SDL Vulkan integration: ${PLUME_SDL_VULKAN_ENABLED}")
 message(STATUS "Plume - D3D12 Agility SDK: ${PLUME_D3D12_AGILITY_SDK_ENABLED}")
 message(STATUS "Plume - Building examples: ${PLUME_BUILD_EXAMPLES}")
@@ -52,14 +60,21 @@ if(NOT WIN32)
     )
 endif()
 
-# Platform-specific files
+# Platform-specific files. The Metal sources are vendored out (see VENDOR.md).
 if(APPLE)
-    list(APPEND PLUME_SOURCES
-        plume_metal.cpp
-        plume_metal.h
-        plume_apple.mm
-        plume_apple.h
-    )
+    if(NOT _plume_metal AND NOT PLUME_SDL_VULKAN_ENABLED)
+        # Without the Metal path, SDL is the only way to make a Metal surface,
+        # and the alternative needs plume_apple.mm to link.
+        message(FATAL_ERROR "plume on Apple needs PLUME_SDL_VULKAN_ENABLED when the Metal sources are absent")
+    endif()
+    if(_plume_metal)
+        list(APPEND PLUME_SOURCES
+            plume_metal.cpp
+            plume_metal.h
+            plume_apple.mm
+            plume_apple.h
+        )
+    endif()
 elseif(WIN32)
     list(APPEND PLUME_SOURCES
         plume_d3d12.cpp

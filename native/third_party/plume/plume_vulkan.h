@@ -226,7 +226,9 @@ namespace plume {
         VkSwapchainKHR vk = VK_NULL_HANDLE;
         VulkanCommandQueue *commandQueue = nullptr;
         VkSurfaceKHR surface = VK_NULL_HANDLE;
-#if defined(__APPLE__)
+        // The Cocoa wrapper backs only the native Metal surface path, and the
+        // SDL surface path has no plume_apple.mm to link it from.
+#if defined(__APPLE__) && !defined(PLUME_SDL_VULKAN_ENABLED)
         std::unique_ptr<CocoaWindow> windowWrapper;
 #endif
         uint64_t presentCount = 0;

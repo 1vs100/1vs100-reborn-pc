@@ -53,3 +53,10 @@ Local patch: the SDL Vulkan path (`PLUME_SDL_VULKAN_ENABLED`) targets SDL3: it l
 `SDL3::Headers`, includes `<SDL3/SDL_vulkan.h>`, and uses the SDL3 signatures of
 `SDL_Vulkan_CreateSurface` and `SDL_Vulkan_GetInstanceExtensions`. Linux builds use it, so
 the window system (Wayland or X11) is SDL's choice.
+
+Local patch: the SDL Vulkan option is offered on Apple as well, not just Linux. The Cocoa
+path calls `CocoaWindow`, whose implementation (`plume_apple.mm`) this trim drops, so a
+macOS build has to let SDL create the surface instead. `VulkanSwapChain::windowWrapper` is
+declared only when the SDL path is off, which keeps that dropped file out of the link.
+Configuring Apple with neither the Metal sources nor the SDL path stops with an error
+instead of failing at link.
