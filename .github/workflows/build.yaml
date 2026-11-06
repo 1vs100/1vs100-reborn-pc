@@ -521,7 +521,6 @@ jobs:
             fi
           done
       - name: Configure
-      - name: Configure
         env:
           OSXCROSS_ROOT: ${{ github.workspace }}/osxcross
           MAC_ARCH: ${{ matrix.mac_arch }}
