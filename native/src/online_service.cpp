@@ -35,29 +35,33 @@ bool ResolveIpv4(const std::string& host, GameserverAddress& out) {
 }
 }  // namespace
 
-bool LoadOnlineService() {
+bool LoadOnlineService(std::string* error) {
   const std::string mode = REXCVAR_GET(online_service);
   if (mode != "gameserver") {
-    REXKRNL_ERROR("online_service \"{}\" is not gameserver", mode);
+    *error = "online_service \"" + mode + "\" is not gameserver";
+    REXKRNL_ERROR("{}", *error);
     return false;
   }
 #ifdef _WIN32
   // Host sockets are used before the title starts Winsock, and from host threads.
   WSADATA winsock{};
-  if (const int error = WSAStartup(MAKEWORD(2, 2), &winsock); error != 0) {
-    REXKRNL_ERROR("Gameserver mode: WSAStartup failed with error {}", error);
+  if (const int wsa = WSAStartup(MAKEWORD(2, 2), &winsock); wsa != 0) {
+    *error = "Gameserver mode: WSAStartup failed with error " + std::to_string(wsa);
+    REXKRNL_ERROR("{}", *error);
     return false;
   }
 #endif
   const std::string host = REXCVAR_GET(gameserver_host);
   if (host.empty() || !ResolveIpv4(host, address)) {
-    REXKRNL_ERROR("gameserver_host \"{}\" does not resolve to an IPv4 address", host);
+    *error = "gameserver_host \"" + host + "\" does not resolve to an IPv4 address";
+    REXKRNL_ERROR("{}", *error);
     return false;
   }
   if (const std::string bind = REXCVAR_GET(guest_bind_address); !bind.empty()) {
     in_addr parsed{};
     if (inet_pton(AF_INET, bind.c_str(), &parsed) != 1) {
-      REXKRNL_ERROR("guest_bind_address \"{}\" is not an IPv4 address", bind);
+      *error = "guest_bind_address \"" + bind + "\" is not an IPv4 address";
+      REXKRNL_ERROR("{}", *error);
       return false;
     }
     bindAddress = GuestBindAddress{ntohl(parsed.s_addr)};

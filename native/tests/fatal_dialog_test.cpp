@@ -32,20 +32,25 @@ int main() {
   std::error_code error;
   std::filesystem::create_directories(dir, error);
   fatal_dialog::SetDirectory(dir);
-  if (fatal_dialog::TakePending().has_value()) {
+  if (fatal_dialog::TakePending().has_value() || fatal_dialog::HasPending()) {
     std::printf("FAIL: marker present before any crash\n");
     return 1;
   }
   {
     std::ofstream out(dir / fatal_dialog::PendingFileName(), std::ios::binary);
     out << short_text;
+    out.close();
+    if (!fatal_dialog::HasPending()) {
+      std::printf("FAIL: marker not seen while present\n");
+      return 1;
+    }
   }
   const auto pending = fatal_dialog::TakePending();
   if (!pending.has_value() || *pending != short_text) {
     std::printf("FAIL: marker text lost\n");
     return 1;
   }
-  if (fatal_dialog::TakePending().has_value()) {
+  if (fatal_dialog::TakePending().has_value() || fatal_dialog::HasPending()) {
     std::printf("FAIL: marker read twice\n");
     return 1;
   }
@@ -64,7 +69,7 @@ int main() {
     std::printf("FAIL: oversized marker reported\n");
     return 1;
   }
-  if (std::filesystem::exists(dir / fatal_dialog::PendingFileName(), error)) {
+  if (std::filesystem::exists(dir / fatal_dialog::PendingFileName(), error) || fatal_dialog::HasPending()) {
     std::printf("FAIL: bad marker left behind\n");
     return 1;
   }

@@ -13,11 +13,18 @@
 
 namespace fatal_dialog {
 
+bool ClaimFatal() {
+  static bool claimed = false;
+  if (claimed) return false;
+  claimed = true;
+  return true;
+}
+
 void FatalError(const char* title, const std::string& detail) {
-  // Terminate lands here and then aborts into OnAbort; show once per process.
-  static bool shown = false;
-  if (shown) return;
-  shown = true;
+  // Re-entrant faults during the dialog itself must not cascade.
+  static bool open = false;
+  if (open) return;
+  open = true;
   rex::FlushLogging();
   const std::string text = TruncateDetail(detail);
   const char* heading = (title != nullptr && *title != '\0') ? title : "1 vs 100";
@@ -36,6 +43,7 @@ void FatalError(const char* title, const std::string& detail) {
     std::fputc('\n', stderr);
   }
 #endif
+  open = false;
 }
 
 }  // namespace fatal_dialog

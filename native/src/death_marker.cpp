@@ -237,14 +237,18 @@ void WriteProfile(int seconds) {
 
 void OnAbort(int) {
   DeathMarker("abort\n");
-  fatal_dialog::FatalError("1 vs 100", "Aborted. See native-fault.log in the user folder.");
+  // Terminate already showed for this crash; share its one dialog.
+  if (fatal_dialog::ClaimFatal())
+    fatal_dialog::FatalError("1 vs 100", "Aborted. See native-fault.log in the user folder.");
   signal(SIGABRT, SIG_DFL);
   raise(SIGABRT);
 }
 
 void OnTerminate() {
   DeathMarker("terminate\n");
-  fatal_dialog::FatalError("1 vs 100", "Terminated. See native-fault.log in the user folder.");
+  // Abort fires next for the same crash; share its one dialog.
+  if (fatal_dialog::ClaimFatal())
+    fatal_dialog::FatalError("1 vs 100", "Terminated. See native-fault.log in the user folder.");
   abort();
 }
 
