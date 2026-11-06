@@ -14,7 +14,9 @@ native/generated/*
 *.pack
 
 # Builds and packages
+# Build scratch dirs, except the vendored zstd build files CMake needs.
 build/
+!native/third_party/xenosrecomp/thirdparty/zstd/build/
 native-avatar-build/
 dist/
 *.exe
