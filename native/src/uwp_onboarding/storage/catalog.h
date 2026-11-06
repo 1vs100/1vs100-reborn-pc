@@ -29,10 +29,14 @@ struct FileView {
   FileStatus status;
   // Bytes received or hashed so far in the current operation.
   uint64_t done;
+  // An alternative that another verified alternative makes unnecessary.
+  bool covered;
 };
 
 struct Snapshot {
   std::vector<FileView> files;
+  // Files the game needs: every entry, with all alternatives counted once.
+  size_t needed_count = 0;
   size_t ready_count = 0;
   uint64_t ready_bytes = 0;
   uint64_t total_bytes = 0;
@@ -42,7 +46,7 @@ struct Snapshot {
   std::string error;
 
   bool busy() const { return checking || current.has_value(); }
-  bool all_ready() const { return ready_count == files.size(); }
+  bool all_ready() const { return ready_count == needed_count; }
 };
 
 class Catalog {

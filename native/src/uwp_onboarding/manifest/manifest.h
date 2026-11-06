@@ -20,6 +20,9 @@ struct ManifestEntry {
   // episode, avatar. Verified like everything else; the game content
   // itself cannot be identified by hash at runtime.
   std::string kind;
+  // The game reads the avatar pack table from the bare .toc or from the
+  // package holding it, so one verified avatar entry covers all of them.
+  bool alternative() const { return kind == "avatar"; }
   // Relative path with '/' separators.
   std::string path;
 };

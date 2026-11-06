@@ -47,7 +47,7 @@ void ImportCandidates(FileStore& store, Catalog& catalog, const std::vector<Cand
   size_t failures = 0;
   std::string last_failure;
   for (const auto& [index, file] : work) {
-    if (catalog.Take().files[index].status == FileStatus::kOk) continue;
+    if (const FileView view = catalog.Take().files[index]; view.status == FileStatus::kOk || view.covered) continue;
     const ManifestEntry& entry = manifest.entries()[index];
     IInputStream stream{nullptr};
     try {

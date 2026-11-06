@@ -177,11 +177,13 @@ void App::RenderProgress(SDL_Renderer* renderer, const Snapshot& snapshot, float
   double overall;
   if (snapshot.checking) {
     // Files already decided count fully; the one being hashed counts so far.
-    uint64_t checked = 0;
+    // Every file present is hashed, alternatives included, so they all count here.
+    uint64_t checked = 0, all = 0;
     for (const auto& file : snapshot.files) {
+      all += file.entry->size;
       if (file.status != FileStatus::kUnchecked && file.status != FileStatus::kVerifying) checked += file.entry->size;
     }
-    overall = snapshot.total_bytes ? double(checked + in_flight) / snapshot.total_bytes : 1;
+    overall = all ? double(checked + in_flight) / all : 1;
   } else {
     overall = snapshot.total_bytes ? double(snapshot.ready_bytes + in_flight) / snapshot.total_bytes : 1;
   }
@@ -232,13 +234,13 @@ void App::RenderGetFiles(SDL_Renderer* renderer, const Snapshot& snapshot) {
                           : "Or insert a USB drive to copy the files from it.");
 
   Text(renderer, 400, kTop + 390, 3, colors::kText,
-       std::to_string(snapshot.ready_count) + " of " + std::to_string(snapshot.files.size()) + " files ready");
+       std::to_string(snapshot.ready_count) + " of " + std::to_string(snapshot.needed_count) + " files ready");
   Text(renderer, 400, kTop + 422, 2, colors::kMuted,
        FormatBytes(snapshot.ready_bytes) + " of " + FormatBytes(snapshot.total_bytes));
 
   std::vector<const FileView*> missing;
   for (const auto& file : snapshot.files) {
-    if (file.status != FileStatus::kOk) missing.push_back(&file);
+    if (file.status != FileStatus::kOk && !file.covered) missing.push_back(&file);
   }
   float y = kTop + 452;
   if (!missing.empty()) {
@@ -247,7 +249,9 @@ void App::RenderGetFiles(SDL_Renderer* renderer, const Snapshot& snapshot) {
       y += 20;
       bool bad = missing[i]->status == FileStatus::kInvalid;
       Text(renderer, 400, y, 2, bad ? colors::kBad : colors::kText,
-           Shorten(missing[i]->entry->path, 40) + (bad ? "  (invalid)" : ""));
+           Shorten(missing[i]->entry->path, 40) + (bad                                  ? "  (invalid)"
+                                                   : missing[i]->entry->alternative() ? "  (or the other avatar file)"
+                                                                                      : ""));
     }
     if (missing.size() > kMissingLines) {
       y += 20;

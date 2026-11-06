@@ -216,10 +216,12 @@ std::string StatusJson(const Snapshot& snapshot) {
     json += "{\"path\":" + JsonString(file.entry->path) +
             ",\"size\":" + std::to_string(file.entry->size) +
             ",\"state\":" + JsonString(StatusName(file.status)) +
-            ",\"done\":" + std::to_string(file.done) + "}";
+            ",\"done\":" + std::to_string(file.done) +
+            ",\"alternative\":" + (file.entry->alternative() ? "true" : "false") +
+            ",\"covered\":" + (file.covered ? "true" : "false") + "}";
   }
   json += "],\"ready\":" + std::to_string(snapshot.ready_count) +
-          ",\"count\":" + std::to_string(snapshot.files.size()) +
+          ",\"count\":" + std::to_string(snapshot.needed_count) +
           ",\"bytes_ready\":" + std::to_string(snapshot.ready_bytes) +
           ",\"bytes_total\":" + std::to_string(snapshot.total_bytes) +
           ",\"checking\":" + (snapshot.checking ? "true" : "false") +

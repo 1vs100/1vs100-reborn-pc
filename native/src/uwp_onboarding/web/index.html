@@ -96,9 +96,9 @@ function render() {
   const list = document.getElementById("missing");
   list.innerHTML = "";
   for (const f of status.files) {
-    if (f.state === "ok") continue;
+    if (f.state === "ok" || f.covered) continue;
     const li = document.createElement("li");
-    li.textContent = `${f.path} (${fmt(f.size)}) - ${f.state}`;
+    li.textContent = `${f.path} (${fmt(f.size)}) - ${f.state}` + (f.alternative ? " (or the other avatar file)" : "");
     if (f.state === "bad-hash") li.className = "bad";
     list.appendChild(li);
   }
@@ -163,7 +163,7 @@ async function handle(items) {
   for (const { file, path } of items) {
     const entry = matchPath(path);
     if (!entry) { log(`${path}: not a needed file, skipped`); continue; }
-    if (entry.state === "ok" || seen.has(entry.path)) continue;
+    if (entry.state === "ok" || entry.covered || seen.has(entry.path)) continue;
     if (file.size !== entry.size) {
       log(`${path}: size ${file.size} does not match ${entry.size}, skipped`, "bad");
       continue;
