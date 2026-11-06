@@ -449,8 +449,10 @@ jobs:
         if: matrix.needs_sdl_prefix && steps.sdl-cache.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
+          sudo dpkg --add-architecture i386
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends wine64 winetricks cabextract
+          # wine32: the .NET installer stub is 32-bit, even for a 64-bit prefix.
+          sudo apt-get install -y --no-install-recommends wine64 wine32 winetricks cabextract
           export WINEDEBUG=-all
           winetricks -q dotnet48
       - name: Compile SDL3-uwp with MSVC
