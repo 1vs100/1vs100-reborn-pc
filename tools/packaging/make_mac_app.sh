@@ -110,5 +110,10 @@ if ! codesign --force -s - "$app/onevs100" "$app/launcher" 2>/dev/null; then
 fi
 codesign --force -s - "$stage/1vs100.app" 2>/dev/null || true
 rm -f "$out_file"
-ditto -c -k --sequesterRsrc --keepParent "$stage/1vs100.app" "$out_file"
+if command -v ditto >/dev/null 2>&1; then
+  ditto -c -k --sequesterRsrc --keepParent "$stage/1vs100.app" "$out_file"
+else
+  # Linux pack path (osxcross legs): plain zip, symlinks preserved.
+  (cd "$stage" && zip -qr -y "$out_file" 1vs100.app)
+fi
 echo "$out_file"
