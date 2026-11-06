@@ -1118,10 +1118,9 @@ void DrawAvatarTab(App& app) {
   ImGui::SameLine();
   ImGui::BeginDisabled(!ready || !app.dialog_event);
   if (ImGui::Button("Open file...")) {
-    // The browser may save a gamertag download without the .bin extension.
-    static const SDL_DialogFileFilter filters[] = {{"Avatar manifest or sona code", "bin;txt"}, {"All files", "*"}};
+    static const SDL_DialogFileFilter filters[] = {{"Avatar manifest or sona code", "bin;txt"}};
     open_request.app = &app;
-    SDL_ShowOpenFileDialog(OnFileChosen, &open_request, app.window, filters, 2, nullptr, false);
+    SDL_ShowOpenFileDialog(OnFileChosen, &open_request, app.window, filters, 1, nullptr, false);
   }
   ImGui::EndDisabled();
 
