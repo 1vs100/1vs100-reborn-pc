@@ -574,6 +574,11 @@ const ShaderEntry* TranslateMiss(ShaderStage stage, uint64_t fp2, std::span<cons
     FillEntry(*e, cached.Reflection(pe));
     *source = "cache";
   } else {
+#if !ONEVS100_NATIVE_GPU
+    REXGPU_ERROR("[gpu] no runtime translation on this build; fp2={:016X} needs a shader pack", fp2);
+    g_fallback[key] = nullptr;
+    return nullptr;
+#else
     // Container-less: the translator derives the float file and export mask from the microcode itself.
     xenosrecomp::TranslateInput in;
     in.stage = xstage;
@@ -611,6 +616,7 @@ const ShaderEntry* TranslateMiss(ShaderStage stage, uint64_t fp2, std::span<cons
       // The inputs a pack rebuild needs to cover this shader.
       xenosrecomp::CacheWriteMiss(dir, xstage, XXH3_64bits(ucode.data(), ucode.size_bytes()), ucode, {}, &error);
     }
+#endif
     *source = "translated";
   }
   auto* out = e.get();

@@ -192,8 +192,21 @@ target_include_directories(onevs100 PRIVATE src)
 target_compile_definitions(onevs100 PRIVATE
     "ONEVS100_SOURCE_DIR=\"${CMAKE_SOURCE_DIR}\"")
 target_include_directories(onevs100 PRIVATE third_party/glm "${REXSDK_DIR}/thirdparty/renderdoc")
+# Microsoft publishes DXC for Windows and Linux x86_64 only. Elsewhere the
+# native renderer is off by default: the game links a DxcCreateInstance stub
+# that fails translation cleanly, and runs from prebuilt shader packs.
+if(WIN32 OR (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64)$"))
+    set(_native_gpu_default ON)
+else()
+    set(_native_gpu_default OFF)
+endif()
+option(ONEVS100_NATIVE_GPU "Build the native renderer (needs a DXC release for this platform)" ${_native_gpu_default})
 # The app shell only offers native_renderer when the renderer is compiled in.
-target_compile_definitions(onevs100 PRIVATE ONEVS100_NATIVE_GPU=1)
+if(ONEVS100_NATIVE_GPU)
+    target_compile_definitions(onevs100 PRIVATE ONEVS100_NATIVE_GPU=1)
+else()
+    target_compile_definitions(onevs100 PRIVATE ONEVS100_NATIVE_GPU=0)
+endif()
 if(WINDOWS_STORE)
     # A package that statically imports d3d12.dll is refused at activation;
     # the SDK load-libraries it on UWP for the same reason.
@@ -300,7 +313,8 @@ endfunction()
 # llvm-readobj --coff-imports); the shader translator loads them with
 # LoadLibraryW and falls back without them. The .lib below is a build input
 # only, so the zip and installer ship no DXC DLLs.
-if(WIN32)
+if(ONEVS100_NATIVE_GPU)
+  if(WIN32)
     onevs100_fetch_dxc("${ONEVS100_DXC_WIN_URL}" "${ONEVS100_DXC_WIN_SHA256}"
         "windows_dxc_2024_07_31.zip"
         "bin/x64/dxcompiler.dll" "${XENOS_RECOMP_THIRDPARTY_ROOT}/dxc-bin/bin/x64/dxcompiler.dll"
@@ -319,15 +333,27 @@ elseif(NOT EXISTS "${XENOS_RECOMP_THIRDPARTY_ROOT}/dxc-bin/lib/x64/libdxcompiler
         "lib/libdxcompiler.so" "${XENOS_RECOMP_THIRDPARTY_ROOT}/dxc-bin/lib/x64/libdxcompiler.so"
         "lib/libdxil.so" "${XENOS_RECOMP_THIRDPARTY_ROOT}/dxc-bin/lib/x64/libdxil.so"
         "bin/dxc" "${XENOS_RECOMP_THIRDPARTY_ROOT}/dxc-bin/bin/x64/dxc-linux")
+  endif()
+else()
+  add_library(onevs100_stub_dxc STATIC src/stub_dxc.c)
+  add_library(Microsoft::DirectXShaderCompiler ALIAS onevs100_stub_dxc)
+  message(STATUS "Native renderer off: runtime shader translation unavailable, shader packs required")
 endif()
 set(XENOS_RECOMP_BUILD_CLI OFF CACHE BOOL "" FORCE)
-set(XENOS_RECOMP_DXIL ${WIN32} CACHE BOOL "" FORCE)
+if(ONEVS100_NATIVE_GPU)
+  set(XENOS_RECOMP_DXIL ${WIN32} CACHE BOOL "" FORCE)
+else()
+  set(XENOS_RECOMP_DXIL OFF CACHE BOOL "" FORCE)
+endif()
 set(ZSTD_BUILD_PROGRAMS OFF CACHE BOOL "" FORCE)
 set(ZSTD_BUILD_SHARED OFF CACHE BOOL "" FORCE)
 set(ZSTD_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 add_subdirectory("${XENOS_RECOMP_THIRDPARTY_ROOT}" xenosrecomp_thirdparty EXCLUDE_FROM_ALL)
 add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/third_party/xenosrecomp/XenosRecomp" xenosrecomp
     EXCLUDE_FROM_ALL)
+if(NOT ONEVS100_NATIVE_GPU)
+  target_include_directories(xenosrecomp_core PRIVATE "${XENOS_RECOMP_THIRDPARTY_ROOT}/dxc-bin/inc")
+endif()
 # Precompiled headers are skipped for the cross toolchain, so the vendored
 # translation units get the shared header force-included instead.
 if(MSVC OR CMAKE_CXX_SIMULATE_ID STREQUAL "MSVC")
@@ -344,7 +370,8 @@ if(WINDOWS_STORE)
         "LINKER:/DELAYLOAD:dxil.dll")
     target_link_libraries(onevs100 PRIVATE delayimp)
 endif()
-if(WINDOWS_STORE)
+if(ONEVS100_NATIVE_GPU)
+  if(WINDOWS_STORE)
     add_custom_command(TARGET onevs100 POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${XENOS_RECOMP_THIRDPARTY_ROOT}/dxc-bin/bin/x64/dxcompiler.dll"
@@ -357,6 +384,7 @@ elseif(NOT WIN32)
             "${XENOS_RECOMP_THIRDPARTY_ROOT}/dxc-bin/lib/x64/libdxcompiler.so"
             "${XENOS_RECOMP_THIRDPARTY_ROOT}/dxc-bin/lib/x64/libdxil.so"
             "$<TARGET_FILE_DIR:onevs100>")
+endif()
 endif()
 
 if(WIN32)
