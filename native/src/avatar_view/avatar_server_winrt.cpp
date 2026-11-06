@@ -1,7 +1,7 @@
 // LAN page for replacing the Avatar from a phone or PC:
 //   GET  /            upload page
 //   GET  /avatar.png  current Avatar
-//   PUT  /avatar      request body is avatarmanifest.bin
+//   PUT  /avatar      request body is avatarmanifest.bin or a sona code
 // One request per connection, no TLS, reachable on the local network only.
 #include "avatar_view.h"
 
@@ -35,7 +35,7 @@ using winrt::Windows::Storage::Streams::InputStreamOptions;
 
 constexpr uint16_t kPort = 8081;
 constexpr size_t kMaxHeaderBytes = 8 * 1024;
-constexpr size_t kMaxBodyBytes = 4 * 1024;  // a manifest is 1000 bytes
+constexpr size_t kMaxBodyBytes = 8 * 1024;  // a manifest is 1000 bytes, a sona code under 2 KB
 constexpr uint64_t kMaxDrainBytes = 16 * 1024 * 1024;
 constexpr std::chrono::seconds kDeadline{15};
 constexpr int kMaxConnections = 8;
@@ -43,25 +43,49 @@ constexpr int kMaxConnections = 8;
 constexpr char kPage[] = R"(<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>1 vs 100 Avatar</title>
-<style>body{font-family:sans-serif;background:#12151c;color:#eee;max-width:32em;margin:2em auto;padding:0 1em}
-img{display:block;background:#262930;width:288px;height:384px;margin:1em 0}button,input{font-size:1em}</style></head>
+<style>body{font-family:sans-serif;background:#12151c;color:#eee;max-width:34em;margin:2em auto;padding:0 1em}
+a{color:#b28cff}img{display:block;background:#262930;width:288px;height:384px;margin:1em 0}
+button,input{font-size:1em}textarea{width:100%;height:9em;font-family:monospace;font-size:.8em;
+background:#1c1f28;color:#eee;border:1px solid #444;box-sizing:border-box}ol{padding-left:1.3em}
+li{margin:.4em 0}.result{min-height:1.3em}</style></head>
 <body><h1>Your Avatar</h1>
+<p>This page changes the avatar the game shows for you.</p>
+<ol>
+<li>Create an account at <a href="https://360sona.com" target="_blank" rel="noopener">360sona.com</a> and sign in.</li>
+<li>In the editor, click <b>My Sonas</b>, select your avatar and click <b>Import / Export</b>.</li>
+<li>Copy the <b>360sona avatar</b> text, paste it below and press <b>Use code</b>.
+Or click <b>Save the description (.bin)</b> and upload that file under Avatar file.</li>
+</ol>
+<p>The preview shows your avatar once it is saved. The game uses it the next time it loads your avatar.</p>
 <img id="preview" src="/avatar.png" alt="Avatar">
-<p>Pick the <code>avatarmanifest.bin</code> exported from your Xbox 360 profile.</p>
-<input type="file" id="file"> <button id="send">Upload</button>
-<p id="result"></p>
+<h2>Sona code</h2>
+<textarea id="code" placeholder="360sona avatar v1&#10;# Paste this whole thing ...&#10;AAAA..."></textarea>
+<p><button id="sendCode">Use code</button></p>
+<p class="result" id="codeResult"></p>
+<h2>Avatar file</h2>
+<input type="file" id="file"> <button id="sendFile">Upload</button>
+<p class="result" id="fileResult"></p>
 <script>
-document.getElementById('send').onclick = async () => {
-  const file = document.getElementById('file').files[0];
-  const result = document.getElementById('result');
-  if (!file) { result.textContent = 'Pick a file first.'; return; }
+async function send(body, result) {
   try {
-    const response = await fetch('/avatar', {method: 'PUT', body: file});
+    const response = await fetch('/avatar', {method: 'PUT', body: body});
     result.textContent = await response.text();
   } catch (error) {
     result.textContent = 'The console did not answer: ' + error;
   }
   document.getElementById('preview').src = '/avatar.png?' + Date.now();
+}
+document.getElementById('sendCode').onclick = () => {
+  const code = document.getElementById('code').value.trim();
+  const result = document.getElementById('codeResult');
+  if (!code) { result.textContent = 'Paste a sona code first.'; return; }
+  send(code, result);
+};
+document.getElementById('sendFile').onclick = () => {
+  const file = document.getElementById('file').files[0];
+  const result = document.getElementById('fileResult');
+  if (!file) { result.textContent = 'Pick a file first.'; return; }
+  send(file, result);
 };
 </script></body></html>
 )";
@@ -166,7 +190,7 @@ void Handle(StreamSocket socket) {
         if (!connection.ReadMore(&chunk, deadline)) break;
         drained += chunk.size();
       }
-      connection.Send(413, "Payload Too Large", "text/plain", "Not an avatar manifest: the file is too large.");
+      connection.Send(413, "Payload Too Large", "text/plain", "That is too large for an avatar file or sona code.");
       return;
     }
     std::string body = data.substr(header_end + 4);

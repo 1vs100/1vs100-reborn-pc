@@ -7,6 +7,8 @@
 #include <condition_variable>
 #include <cstdlib>
 #include <mutex>
+#include <optional>
+#include <string_view>
 #include <thread>
 
 #include <fmt/format.h>
@@ -171,15 +173,24 @@ std::vector<std::string> StatusLines() {
 StoreResult Store(const uint8_t* bytes, size_t size) {
   std::lock_guard<std::mutex> store_lock(g.store_mutex);
   StoreResult result;
+  // A sona code is the same bytes as text.
+  std::optional<std::vector<uint8_t>> decoded;
+  if (size != a::kManifestBytes && size != a::kDescriptionBytes) {
+    decoded = a::DecodeAvatarText(std::string_view(reinterpret_cast<const char*>(bytes), size));
+    if (decoded) {
+      bytes = decoded->data();
+      size = decoded->size();
+    }
+  }
   auto* catalog = xe::kernel::xna::XnaAvatarCatalog();
   if (!catalog || !catalog->loaded()) {
     result.message = "The avatar asset pack is not installed yet.";
   } else if (size != a::kManifestBytes && size != a::kDescriptionBytes) {
-    result.message = fmt::format("Not an avatar manifest: {} bytes, expected {}.", size, a::kManifestBytes);
+    result.message = "That is neither an avatar file nor a complete sona code.";
   } else {
     a::Description description;
     if (!a::ParseAnyDescription(catalog, bytes, size, &description)) {
-      result.message = "Not an avatar manifest.";
+      result.message = "That is not an avatar.";
     } else {
       // Marketplace items this console lacks become similar standard items, as for party members.
       const size_t similar = a::SubstituteMissingItems(*catalog, &description);
