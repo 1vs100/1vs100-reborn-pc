@@ -102,14 +102,18 @@ std::optional<std::filesystem::path> FindGamePackage() {
   return games.front().path;
 }
 
-std::optional<std::filesystem::path> FindAvatarPack() {
+std::vector<std::filesystem::path> FindAvatarPacks() {
+  std::vector<std::filesystem::path> packs;
   for (const auto& file : ConfiguredPackages()) {
-    if (file.filename() == "AvatarAssetPack.toc") return file;
+    if (file.filename() == "AvatarAssetPack.toc") {
+      packs.push_back(file);
+      continue;
+    }
     auto header = rex::filesystem::StfsContainerDevice::ReadPackageHeader(file);
-    if (header && header->metadata.execution_info.title_id == kAvatarTitleId) return file;
+    if (header && header->metadata.execution_info.title_id == kAvatarTitleId) packs.push_back(file);
   }
-  REXKRNL_ERROR("content: no AvatarAssetPack.toc or avatar package in {}", REXCVAR_GET(content));
-  return std::nullopt;
+  if (packs.empty()) REXKRNL_ERROR("content: no AvatarAssetPack.toc or avatar package in {}", REXCVAR_GET(content));
+  return packs;
 }
 
 void InstallConfiguredContent() {

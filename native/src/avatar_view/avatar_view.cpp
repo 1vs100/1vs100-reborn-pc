@@ -69,14 +69,9 @@ bool Render(uint64_t avatar, float yaw, Frame* frame, std::string* source) {
     g.built = avatar;
   }
   *source = g.stored ? "Your stored avatar." : "No avatar stored yet: this is the default one.";
-  a::Matrix local[a::kMaxJoints];
-  a::BindPose(g.scene.skeleton, local);
-  // The first preset clip is the standing idle; a still from it reads better than the bind pose.
-  const auto idle = catalog->LoadClip(uint32_t(a::PresetClip(0)));
-  if (idle) a::SamplePose(*idle, g.scene.skeleton, 0.5f, local);
   frame->width = kWidth;
   frame->height = kHeight;
-  a::RenderPreview(g.scene, local, nullptr, a::Expression{}, kWidth, kHeight, yaw, &frame->rgba);
+  a::RenderIdle(*catalog, g.scene, kWidth, kHeight, yaw, &frame->rgba);
   return true;
 }
 

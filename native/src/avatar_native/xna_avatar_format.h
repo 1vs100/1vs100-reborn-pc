@@ -17,14 +17,22 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <random>
+#include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace xe {
 namespace kernel {
 namespace xna {
 namespace avatar {
+
+// Receives this library's warnings. Without one they go to stderr.
+using WarningSink = void (*)(const std::string& message);
+void SetWarningSink(WarningSink sink);
+void Warn(const std::string& message);
 
 constexpr uint32_t kBoneCount = 71;
 constexpr uint32_t kMaxJoints = 72;
@@ -418,8 +426,12 @@ int32_t FeatureEntry(const Description& description, uint32_t feature);
 int32_t HeadFeatureForUsage(uint32_t usage);
 int32_t FindAnimation(const Catalog& catalog, const uint8_t* asset_id);
 
-// pack: AvatarAssetPack.toc or the STFS package holding it.
-Catalog* SharedCatalog(const std::filesystem::path& pack);
+// The first of `packs` that holds a pack table that parses. Each is an
+// AvatarAssetPack.toc or the STFS package holding it.
+std::unique_ptr<Catalog> LoadPackCatalog(std::span<const std::filesystem::path> packs);
+// LoadPackCatalog once per process, plus the closet items; retried at most
+// every five seconds after a failure.
+Catalog* SharedCatalog(std::span<const std::filesystem::path> packs);
 // Native PC build: marketplace and award items imported for the Avatar Editor
 // (ONEVS100_AVATAR_CLOSET: <guid>.bin + closet_index.tsv). Each becomes an
 // installed entry through Catalog::AddAsset. SharedCatalog loads the folder
@@ -448,6 +460,9 @@ bool ParseManifest(const Catalog* catalog, const uint8_t* bytes, size_t size,
                    Description* out);
 bool ParseAnyDescription(const Catalog* catalog, const uint8_t* bytes,
                          size_t size, Description* out);
+// Avatar bytes written as text: base64, alone or with a title line and `#`
+// comment lines around it, as 360sona exports it.
+std::optional<std::vector<uint8_t>> DecodeAvatarText(std::string_view text);
 // A received Avatar (another player's manifest) may wear marketplace items this
 // PC does not have; ParseManifest leaves their slots to the console default.
 // This puts a standard item of the same kind in each (same category, else the
@@ -550,6 +565,9 @@ void RenderPreview(const Scene& scene, const Matrix* local,
                    const Matrix* carried_local, const Expression& expression,
                    uint32_t width, uint32_t height, float yaw,
                    std::vector<uint8_t>* rgba);
+// The Avatar standing idle, seen from `yaw` radians.
+void RenderIdle(Catalog& catalog, const Scene& scene, uint32_t width,
+                uint32_t height, float yaw, std::vector<uint8_t>* rgba);
 std::vector<uint8_t> EncodePng(uint32_t width, uint32_t height,
                                const std::vector<uint8_t>& rgba);
 

@@ -20,15 +20,20 @@ static_assert(xe::kernel::NativeAvatarHostOffset(0xFDD6E000u)==rex::memory::deta
 using xe::kernel::NativeAvatarGuest;
 namespace a=xe::kernel::xna::avatar;
 namespace xa=xe::kernel::xam;
-std::optional<std::filesystem::path> NativeAvatarPack() {
-  static const std::optional<std::filesystem::path> pack = FindAvatarPack();
-  return pack;
+const std::vector<std::filesystem::path>& NativeAvatarPacks() {
+  static const std::vector<std::filesystem::path> packs = FindAvatarPacks();
+  return packs;
 }
-bool NativeAvatarEnabled() { return NativeAvatarPack().has_value(); }
+bool NativeAvatarEnabled() { return !NativeAvatarPacks().empty(); }
 namespace xe::kernel::xna {
 avatar::Catalog* XnaAvatarCatalog() {
-  const auto pack = NativeAvatarPack();
-  return pack ? avatar::SharedCatalog(*pack) : nullptr;
+  static const bool log_warnings = [] {
+    avatar::SetWarningSink([](const std::string& message) { REXKRNL_WARN("{}", message); });
+    return true;
+  }();
+  (void)log_warnings;
+  const auto& packs = NativeAvatarPacks();
+  return packs.empty() ? nullptr : avatar::SharedCatalog(packs);
 }
 }
 namespace {

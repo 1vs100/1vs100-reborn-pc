@@ -1,6 +1,8 @@
-#include <rex/logging.h>
-
 #include <cstdarg>
+#include <cstdio>
+#include <string>
+
+#include "../../xna_avatar_format.h"
 
 extern "C" void xenia_log(const char* fmt, ...) {
   char buffer[128];
@@ -8,5 +10,5 @@ extern "C" void xenia_log(const char* fmt, ...) {
   va_start(args, fmt);
   vsnprintf(buffer, sizeof(buffer), fmt, args);
   va_end(args);
-  REXKRNL_WARN("mspack: {}", buffer);
+  xe::kernel::xna::avatar::Warn(std::string("mspack: ") + buffer);
 }

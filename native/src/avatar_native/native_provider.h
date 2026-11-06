@@ -2,7 +2,8 @@
 #include "onevs100_init.h"
 #include <filesystem>
 #include <optional>
-std::optional<std::filesystem::path> NativeAvatarPack();
+#include <vector>
+const std::vector<std::filesystem::path>& NativeAvatarPacks();
 bool NativeAvatarEnabled();
 void NativeAvatarInitialize(PPCContext&,uint8_t*);
 void NativeAvatarSizes(PPCContext&,uint8_t*);

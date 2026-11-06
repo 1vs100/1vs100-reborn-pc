@@ -11,7 +11,9 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cctype>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
@@ -20,12 +22,12 @@
 #include <vector>
 #include <string_view>
 #include <system_error>
-#include <rex/filesystem/devices/stfs_container_device.h>
-#include <rex/filesystem/file.h>
+#include <fmt/format.h>
+#include <fmt/std.h>
 
 #include "third_party/mspack/lzx.h"
 #include "third_party/mspack/mspack.h"
-#include "native_bridge.h"
+#include "stfs_file.h"
 
 namespace xe {
 namespace kernel {
@@ -2117,8 +2119,8 @@ const std::vector<uint8_t>* Catalog::ExternalBlob(uint32_t external) const {
     }
     if (bytes.empty()) {
       external_failed_[external] = 1;
-      REXKRNL_WARN("NATIVE_AVATAR closet item {} could not be read",
-                   external_files_[external].string());
+      Warn(fmt::format("NATIVE_AVATAR closet item {} could not be read",
+                   external_files_[external]));
     } else {
       blob = std::move(bytes);
     }
@@ -2502,6 +2504,20 @@ int32_t HeadFeatureForUsage(uint32_t usage) {
 }
 
 namespace {
+WarningSink warning_sink = nullptr;
+}
+
+void SetWarningSink(WarningSink sink) { warning_sink = sink; }
+
+void Warn(const std::string& message) {
+  if (warning_sink) {
+    warning_sink(message);
+  } else {
+    std::fprintf(stderr, "%s\n", message.c_str());
+  }
+}
+
+namespace {
 // CON, PIRS and LIVE packages all start with their magic where a .toc never
 // has one, so the first four bytes tell a bare pack table from a container.
 bool HasStfsMagic(const std::filesystem::path& path) {
@@ -2525,49 +2541,9 @@ bool ReadRawFile(const std::filesystem::path& path, std::vector<uint8_t>* out) {
   return true;
 }
 
-// Reads one file out of an STFS package through the runtime container device.
-bool ReadStfsFile(const std::filesystem::path& package, const char* name,
-                  std::vector<uint8_t>* out) {
-  rex::filesystem::StfsContainerDevice device("avatarstfs", package);
-  if (!device.Initialize()) return false;
-  rex::filesystem::Entry* entry = device.ResolvePath(name);
-  if (!entry) return false;
-  const size_t size = entry->size();
-  if (!size || size > (256ull << 20)) return false;
-  using rex::X_STATUS;
-  struct FileDestroy {
-    void operator()(rex::filesystem::File* file) const {
-      if (file) file->Destroy();
-    }
-  };
-  std::unique_ptr<rex::filesystem::File, FileDestroy> file;
-  {
-    rex::filesystem::File* raw = nullptr;
-    if (entry->Open(rex::filesystem::FileAccess::kGenericRead, &raw) !=
-            X_STATUS_SUCCESS ||
-        !raw) {
-      return false;
-    }
-    file.reset(raw);
-  }
-  std::vector<uint8_t> bytes(size);
-  size_t offset = 0;
-  while (offset < size) {
-    size_t got = 0;
-    const X_STATUS status = file->ReadSync(
-        std::span<uint8_t>(bytes.data() + offset, size - offset), offset, &got);
-    if (status != X_STATUS_SUCCESS || !got) {
-      return false;
-    }
-    offset += got;
-  }
-  *out = std::move(bytes);
-  return true;
-}
-
 // The pack table as a bare AvatarAssetPack.toc or inside its STFS package.
 bool ReadAvatarTocBytes(const std::filesystem::path& pack, std::vector<uint8_t>* out) {
-  if (HasStfsMagic(pack)) return ReadStfsFile(pack, "AvatarAssetPack.toc", out);
+  if (HasStfsMagic(pack)) return ReadStfsRootFile(pack, "AvatarAssetPack.toc", out);
   return ReadRawFile(pack, out);
 }
 }  // namespace
@@ -2576,7 +2552,24 @@ namespace {
 size_t closet_items = 0;
 }
 
-Catalog* SharedCatalog(const std::filesystem::path& pack) {
+std::unique_ptr<Catalog> LoadPackCatalog(std::span<const std::filesystem::path> packs) {
+  for (const auto& pack : packs) {
+    std::vector<uint8_t> toc;
+    if (!ReadAvatarTocBytes(pack, &toc)) {
+      Warn(fmt::format("Avatar: no pack table in {}", pack));
+      continue;
+    }
+    auto loaded = std::make_unique<Catalog>();
+    if (!loaded->LoadBytes(toc.data(), toc.size())) {
+      Warn(fmt::format("Avatar: pack table in {} ({} bytes) did not parse", pack, toc.size()));
+      continue;
+    }
+    return loaded;
+  }
+  return nullptr;
+}
+
+Catalog* SharedCatalog(std::span<const std::filesystem::path> packs) {
   static std::mutex mutex;
   static std::unique_ptr<Catalog> catalog;
   static std::chrono::steady_clock::time_point last_attempt;
@@ -2591,16 +2584,8 @@ Catalog* SharedCatalog(const std::filesystem::path& pack) {
   }
   attempted = true;
   last_attempt = now;
-  std::vector<uint8_t> toc;
-  if (!ReadAvatarTocBytes(pack, &toc)) {
-    REXKRNL_WARN("Avatar: no pack table in {}", pack.string());
-    return nullptr;
-  }
-  auto loaded = std::make_unique<Catalog>();
-  if (!loaded->LoadBytes(toc.data(), toc.size())) {
-    REXKRNL_WARN("Avatar: pack table ({} bytes) did not parse", toc.size());
-    return nullptr;
-  }
+  auto loaded = LoadPackCatalog(packs);
+  if (!loaded) return nullptr;
   if (const char* closet = std::getenv("ONEVS100_AVATAR_CLOSET");
       closet && *closet) {
     closet_items = LoadClosetItems(*loaded, std::filesystem::path(closet));
@@ -3448,11 +3433,11 @@ bool ReshapeRawHead(Catalog& catalog, const Description& description,
             fmt::format(" [vb {:X} stride {} uv {} n {}]", batch.vb_offset,
                         batch.stride, batch.uv_sets, batch.vertices.size());
       }
-      XELOGW(
+      Warn(fmt::format(
           "avatar: a blend shape names {} of {} vertices this head has not; "
           "head vb {:X} size {}, batches{}",
           missed, shape->vertices.size(), head->vb_offset, head->vb_size,
-          layout);
+          layout));
     }
   }
   return true;
@@ -3538,10 +3523,10 @@ void HideCoveredBody(Catalog& catalog, const Description& description,
   auto edited = std::make_shared<Model>(*body->model);
   const uint32_t missed = HideTriangles(edited.get(), hidden);
   if (missed) {
-    XELOGW(
+    Warn(fmt::format(
         "avatar: {} of {} hidden body triangles fell outside every batch - "
         "the batch index-buffer offsets do not line up with the template",
-        missed, hidden.size());
+        missed, hidden.size()));
   }
   body->model = std::move(edited);
 }
@@ -3878,6 +3863,64 @@ void RenderPreview(const Scene& scene, const Matrix* local,
       }
     }
   }
+}
+
+namespace {
+int Base64Value(char c) {
+  if (c >= 'A' && c <= 'Z') return c - 'A';
+  if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+  if (c >= '0' && c <= '9') return c - '0' + 52;
+  if (c == '+' || c == '-') return 62;
+  if (c == '/' || c == '_') return 63;
+  return -1;
+}
+}  // namespace
+
+std::optional<std::vector<uint8_t>> DecodeAvatarText(std::string_view text) {
+  std::vector<uint8_t> out;
+  uint32_t bits = 0;
+  int count = 0;
+  bool padded = false;
+  while (!text.empty() && !padded) {
+    const size_t end = std::min(text.find('\n'), text.size());
+    std::string_view line = text.substr(0, end);
+    text.remove_prefix(std::min(end + 1, text.size()));
+    while (!line.empty() && std::isspace(static_cast<unsigned char>(line.back()))) line.remove_suffix(1);
+    while (!line.empty() && std::isspace(static_cast<unsigned char>(line.front()))) line.remove_prefix(1);
+    // Title and comment lines hold spaces; base64 never does.
+    if (line.empty() || line.front() == '#' || line.find(' ') != std::string_view::npos) {
+      continue;
+    }
+    for (char c : line) {
+      // Padding ends the data.
+      if (c == '=') {
+        padded = true;
+        break;
+      }
+      const int value = Base64Value(c);
+      if (value < 0) return std::nullopt;
+      bits = (bits << 6) | uint32_t(value);
+      count += 6;
+      if (count >= 8) {
+        count -= 8;
+        out.push_back(uint8_t(bits >> count));
+      }
+    }
+  }
+  if (out.empty()) return std::nullopt;
+  return out;
+}
+
+void RenderIdle(Catalog& catalog, const Scene& scene, uint32_t width,
+                uint32_t height, float yaw, std::vector<uint8_t>* rgba) {
+  Matrix local[kMaxJoints];
+  BindPose(scene.skeleton, local);
+  // The first preset clip is the standing idle; a still from it reads better
+  // than the bind pose.
+  if (const auto idle = catalog.LoadClip(uint32_t(PresetClip(0)))) {
+    SamplePose(*idle, scene.skeleton, 0.5f, local);
+  }
+  RenderPreview(scene, local, nullptr, Expression{}, width, height, yaw, rgba);
 }
 
 std::vector<uint8_t> EncodePng(uint32_t width, uint32_t height,

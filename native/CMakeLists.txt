@@ -42,12 +42,8 @@ set(ONEVS100_SOURCES
     src/avatar_native/native_provider.cpp
     src/avatar_native/local_avatar.cpp
     src/avatar_native/native_assets.cc
-    src/avatar_native/xna_avatar_format.cc
     src/avatar_view/avatar_view.cpp
     src/avatar_view/avatar_dialog.cpp
-    src/avatar_native/third_party/mspack/lzxd.c
-    src/avatar_native/third_party/mspack/system.c
-    src/avatar_native/third_party/mspack/logging.cc
     src/exit_probe.cpp
     src/platform_compat.cpp
     src/round_even.cpp
@@ -310,7 +306,8 @@ else()
 endif()
 
 target_include_directories(onevs100 PRIVATE src/avatar_native third_party/1vs100-mm-protocol)
-target_include_directories(onevs100 PRIVATE src/avatar_native/third_party/mspack)
+add_subdirectory(src/avatar_native onevs100_avatar)
+target_link_libraries(onevs100 PRIVATE onevs100_avatar)
 
 # Dead code in the title's own sources. Unused internal functions, variables and fields warn at compile time.
 # Functions with external linkage that nothing calls only show at link time: a separate build configured with
