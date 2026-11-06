@@ -56,6 +56,7 @@ li{margin:.4em 0}.result{min-height:1.3em}</style></head>
 <li>Copy the <b>360sona avatar</b> text, paste it below and press <b>Use code</b>.
 Or click <b>Save the description (.bin)</b> and upload that file under Avatar file.</li>
 </ol>
+<p>Or enter your Xbox gamertag below to use the avatar 360sona has for it.</p>
 <p>The preview shows your avatar once it is saved. The game uses it the next time it loads your avatar.</p>
 <img id="preview" src="/avatar.png" alt="Avatar">
 <h2>Sona code</h2>
@@ -65,6 +66,9 @@ Or click <b>Save the description (.bin)</b> and upload that file under Avatar fi
 <h2>Avatar file</h2>
 <input type="file" id="file"> <button id="sendFile">Upload</button>
 <p class="result" id="fileResult"></p>
+<h2>Xbox gamertag</h2>
+<input id="gamertag" maxlength="64" placeholder="Gamertag"> <button id="sendGamertag">Use gamertag</button>
+<p class="result" id="gamertagResult"></p>
 <script>
 async function send(body, result) {
   try {
@@ -86,6 +90,28 @@ document.getElementById('sendFile').onclick = () => {
   const result = document.getElementById('fileResult');
   if (!file) { result.textContent = 'Pick a file first.'; return; }
   send(file, result);
+};
+// This browser fetches the manifest, so the console needs no internet access.
+// A plain GET needs no CORS preflight; 360sona allows any origin for it.
+document.getElementById('sendGamertag').onclick = async () => {
+  const gamertag = document.getElementById('gamertag').value.trim();
+  const result = document.getElementById('gamertagResult');
+  if (!gamertag) { result.textContent = 'Enter a gamertag first.'; return; }
+  let manifest;
+  try {
+    const response = await fetch('https://360sona.com/sona/v1/gamertag/' + encodeURIComponent(gamertag) +
+                                 '?client=1vs100rb&format=bin');
+    if (!response.ok) {
+      const reason = await response.json().then(body => body && body.error, () => null);
+      result.textContent = reason || '360sona.com answered with status ' + response.status + '.';
+      return;
+    }
+    manifest = await response.blob();
+  } catch (error) {
+    result.textContent = '360sona.com did not answer: ' + error;
+    return;
+  }
+  send(manifest, result);
 };
 </script></body></html>
 )";
@@ -250,7 +276,9 @@ std::string UploadUrl() {
 std::string UploadHint() {
   const std::string url = UploadUrl();
   return url.empty() ? std::string("The upload page is not reachable on this network.")
-                     : "Open " + url + " on a phone or PC on the same network to upload avatarmanifest.bin.";
+                     : "Open " + url +
+                           " on a phone or PC on the same network to upload avatarmanifest.bin or use your Xbox "
+                           "gamertag.";
 }
 
 }  // namespace avatar_view
