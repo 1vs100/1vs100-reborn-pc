@@ -1,4 +1,5 @@
 #include "guest_call.h"
+#include "fatal_dialog.h"
 #include <rex/hook.h>
 #include <rex/logging.h>
 #include <rex/memory/utils.h>
@@ -20,6 +21,7 @@ uint32_t GuestCall::Scratch(std::span<const uint8_t> bytes) {
   const uint32_t size = (static_cast<uint32_t>(bytes.size()) + 7) & ~7u;
   if (scratchUsed_ + size > kScratchSize) {
     REXKRNL_CRITICAL("GuestCall scratch area exhausted");
+    fatal_dialog::FatalError("1 vs 100", "GuestCall scratch area exhausted");
     std::abort();
   }
   const uint32_t address = parent_.r1.u32 - kFrameSize + kScratchOffset + scratchUsed_;
@@ -31,6 +33,7 @@ uint32_t GuestCall::Scratch(std::span<const uint8_t> bytes) {
 uint64_t GuestCall::Call(uint32_t target, std::initializer_list<uint64_t> arguments) {
   if (arguments.size() > kRegisterArguments + kMaxStackArguments) {
     REXKRNL_CRITICAL("GuestCall with {} arguments", arguments.size());
+    fatal_dialog::FatalError("1 vs 100", "GuestCall with too many arguments");
     std::abort();
   }
   rex::CallFrame frame(parent_);

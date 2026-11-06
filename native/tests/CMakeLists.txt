@@ -18,6 +18,10 @@ add_executable(floor_ceil_test floor_ceil_test.cpp)
 target_include_directories(floor_ceil_test PRIVATE ../src)
 add_test(NAME floor_ceil COMMAND floor_ceil_test)
 
+add_executable(fatal_dialog_test fatal_dialog_test.cpp)
+target_include_directories(fatal_dialog_test PRIVATE ../src)
+add_test(NAME fatal_dialog COMMAND fatal_dialog_test)
+
 add_executable(fma_test fma_test.cpp)
 add_test(NAME fma COMMAND fma_test)
 

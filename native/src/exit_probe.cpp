@@ -8,9 +8,7 @@
 #include <cstdlib>
 #include <string>
 #include <rex/logging/api.h>
-#if !REX_PLATFORM_WINRT
-#include <SDL3/SDL_messagebox.h>
-#endif
+#include "fatal_dialog.h"
 
 // Player 1's pad state: the runtime's result (SDL/XInput) plus the optional
 // native sources (USB DualSense direct reader, mouse panel; see
@@ -104,9 +102,6 @@ REX_HOOK_RAW(sub_82121648) {
   std::string text = fmt::format("Game error {:08X} (caller {:08X})", ctx.r4.u32, uint32_t(ctx.lr));
   if (!g_lua_error.empty()) text += ": " + g_lua_error;
   REXKRNL_ERROR("Guest terminal path: {}", text);
-  rex::FlushLogging();
-#if !REX_PLATFORM_WINRT
-  SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "1 vs 100", text.c_str(), nullptr);
-#endif
+  fatal_dialog::FatalError("1 vs 100", text);
   std::_Exit(1);
 }

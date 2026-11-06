@@ -1,9 +1,11 @@
 // Unhandled exception capture. Writes a text description and a minidump next to
 // each other, because a packaged app cannot write to its install folder.
 #include <windows.h>
+#include "fatal_dialog.h"
 #include <dbghelp.h>
 #include <cstdio>
 #include <cwchar>
+#include <string>
 
 namespace {
 
@@ -19,6 +21,8 @@ void CrashDirectory(wchar_t* out, size_t capacity) {
     slash[1] = 0;
   }
 }
+
+LPTOP_LEVEL_EXCEPTION_FILTER g_previous_crash_filter = nullptr;
 
 LONG WINAPI CaptureCrash(EXCEPTION_POINTERS* info) {
   wchar_t directory[MAX_PATH];
@@ -60,12 +64,20 @@ LONG WINAPI CaptureCrash(EXCEPTION_POINTERS* info) {
                       nullptr, nullptr);
     CloseHandle(file);
   }
+  char narrow[MAX_PATH * 2] = {};
+  size_t converted = 0;
+  wcstombs_s(&converted, narrow, text_path, _TRUNCATE);
+  const std::string detail =
+      std::string("Unhandled exception. Crash details in ") + (converted ? narrow : "the crash log");
+  fatal_dialog::FatalError("1 vs 100", detail);
+  if (g_previous_crash_filter != nullptr) return g_previous_crash_filter(info);
   return EXCEPTION_CONTINUE_SEARCH;
 }
 
+
 struct InstallCapture {
   InstallCapture() {
-    SetUnhandledExceptionFilter(CaptureCrash);
+    g_previous_crash_filter = SetUnhandledExceptionFilter(CaptureCrash);
   }
 } install_capture;
 
