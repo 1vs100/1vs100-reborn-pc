@@ -52,7 +52,7 @@ claims; both routes and the plist read it. Override a single build with
 on either.
 
 Use `MAC_ARCH=x86_64` and `build/mac-amd64` for the Intel slice. The
-pinned osxcross and SDK versions live in `build.yaml` (`OSXCROSS_VERSION`,
-`MACOS_SDK_VERSION`); match them locally so both routes agree.
+pinned osxcross and SDK versions live in `tools/ci/versions.env`
+(`OSXCROSS_VERSION`, `MACOS_SDK_VERSION`); match them locally so both routes agree.
 Packaging works from either host: `make_mac_app.sh` uses `ditto` on macOS
 and falls back to `zip` on Linux.

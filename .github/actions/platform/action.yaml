@@ -1,0 +1,73 @@
+name: Build and package one target
+description: >-
+  Runs tools/ci/build.sh and tools/ci/package.sh for one target and uploads
+  the package. Expects a checkout with submodules and the toolchain on PATH.
+
+inputs:
+  target:
+    description: tools/ci/build.sh target
+    required: true
+  codegen-key:
+    description: Cache key of the generated sources
+    required: true
+  deps:
+    description: tools/ci/deps.sh dependencies to cache, space separated
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Set up ccache
+      uses: ./.github/actions/setup-ccache
+      with:
+        key: ccache-${{ inputs.target }}-${{ hashFiles('tools/ci/versions.env') }}
+
+    - name: Restore dependencies
+      if: inputs.deps != ''
+      id: deps
+      uses: actions/cache/restore@v6
+      with:
+        path: build/deps
+        key: deps-${{ inputs.target }}-${{ hashFiles('tools/ci/versions.env', 'tools/ci/deps.sh', 'tools/uwp/sdl3-uwp-prefix.txt') }}
+
+    - name: Provision dependencies
+      if: inputs.deps != '' && steps.deps.outputs.cache-hit != 'true'
+      shell: bash
+      run: tools/ci/deps.sh ${{ inputs.deps }}
+
+    # Saved before the build: a post-job save is skipped when a later step fails.
+    - name: Save dependencies
+      if: inputs.deps != '' && steps.deps.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v6
+      with:
+        path: build/deps
+        key: ${{ steps.deps.outputs.cache-primary-key }}
+
+    - name: Restore the generated sources
+      uses: actions/cache/restore@v6
+      with:
+        path: native/generated/default-v5
+        key: ${{ inputs.codegen-key }}
+        fail-on-cache-miss: true
+
+    - name: Build
+      shell: bash
+      run: tools/ci/build.sh ${{ inputs.target }}
+
+    - name: Show ccache statistics
+      if: always()
+      shell: bash
+      run: ccache --show-stats || true
+
+    - name: Package
+      shell: bash
+      run: tools/ci/package.sh ${{ inputs.target }}
+
+    - name: Upload package
+      uses: actions/upload-artifact@v7
+      with:
+        name: onevs100-${{ inputs.target }}
+        path: out/*
+        retention-days: 14
+        if-no-files-found: error

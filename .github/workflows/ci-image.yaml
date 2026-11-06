@@ -1,35 +1,44 @@
+# Publishes the build image from tools/ci, tagged by a hash of its inputs.
+# build.yaml calls this first, so every run uses the image that matches its
+# own checkout. An existing tag is reused.
+
 name: ci-image
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - tools/ci-image/**
-      - .github/actions/setup-clang/**
-      - .github/workflows/ci-image.yaml
+  workflow_call:
+    outputs:
+      ref:
+        description: Image reference for jobs.<id>.container
+        value: ${{ jobs.publish.outputs.ref }}
   workflow_dispatch:
-  schedule:
-    - cron: '0 6 * * 1'
 
 permissions:
   contents: read
   packages: write
 
-env:
-  IMAGE: ghcr.io/1vs100/1vs100-pc-ci
-
 jobs:
-  build:
-    name: build and push CI image
+  publish:
+    name: publish
     runs-on: ubuntu-24.04
+    outputs:
+      ref: ${{ steps.publish.outputs.ref }}
     steps:
-      - name: Check out the Dockerfile
-        uses: actions/checkout@v7
-      - name: Log in to GHCR
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-      - name: Build and push
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: tools/ci
+      - name: Build and push when missing
+        id: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          docker build -t "$IMAGE:v1" -t "$IMAGE:sha-${GITHUB_SHA::8}" tools/ci-image
-          docker push "$IMAGE:v1"
-          docker push "$IMAGE:sha-${GITHUB_SHA::8}"
+          ref="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/1vs100-pc-ci:$(tools/ci/image_tag.sh)"
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          if docker manifest inspect "$ref" >/dev/null 2>&1; then
+            echo "$ref exists"
+          else
+            docker build --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
+              -t "$ref" tools/ci
+            docker push "$ref"
+          fi
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"

@@ -1,0 +1,10 @@
+ca-certificates curl git gcc g++ python3 python3-pip python3-venv pkg-config
+ninja-build nasm ccache unzip zip xz-utils zstd file msitools gcab
+libx11-dev libx11-xcb-dev libxext-dev libxcursor-dev libxrandr-dev
+libxfixes-dev libxi-dev libxinerama-dev libxss-dev libxkbcommon-dev
+libxtst-dev libxdamage-dev libxrender-dev libxxf86vm-dev
+libxcomposite-dev libibus-1.0-dev libwayland-dev wayland-protocols
+libegl1-mesa-dev libgl1-mesa-dev libasound2-dev libpulse-dev
+libpipewire-0.3-dev libdbus-1-dev libudev-dev
+libssl-dev libxerces-c-dev libicu-dev zlib1g-dev
+osslsigncode openssl imagemagick fonts-dejavu-core

@@ -71,30 +71,15 @@ fi
 # Preserve that subtree so DetectMacOSVulkanRuntimePaths finds it
 # via executable_dir/vulkan. The ICD library_path is relative
 # (../../../lib/libMoltenVK.dylib), so the share/ to lib/ layout must stay intact.
-if [ -d "$build_dir/vulkan" ]; then
-  for req in "vulkan/lib/libvulkan.1.dylib" "vulkan/lib/libMoltenVK.dylib" "vulkan/share/vulkan/icd.d/MoltenVK_icd.json"; do
-    if [ ! -f "$build_dir/$req" ]; then
-      echo "missing $build_dir/$req" >&2
-      exit 1
-    fi
-  done
-  mkdir -p "$app/vulkan"
-  cp -pR "$build_dir/vulkan/." "$app/vulkan/"
-else
-  # Flat layout predating the SDK vulkan/ staging change.
-  for f in MoltenVK_icd.json 'libvulkan*.dylib'; do
-    found=0
-    for src in "$build_dir"/$f; do
-      if [ -f "$src" ]; then
-        cp "$src" "$app/"
-        found=1
-      fi
-    done
-    if [ "$found" -ne 1 ] && [ "$f" = "MoltenVK_icd.json" ]; then
-      echo "warning: $build_dir/MoltenVK_icd.json absent, Vulkan may miss driver" >&2
-    fi
-  done
-fi
+for req in "vulkan/lib/libvulkan.1.dylib" "vulkan/lib/libMoltenVK.dylib" "vulkan/share/vulkan/icd.d/MoltenVK_icd.json"; do
+  if [ ! -f "$build_dir/$req" ]; then
+    echo "missing $build_dir/$req" >&2
+    exit 1
+  fi
+done
+mkdir -p "$app/vulkan"
+cp -pR "$build_dir/vulkan/." "$app/vulkan/"
+
 sed -e "s/__VERSION__/$version/g" -e "s/__MIN_MACOS__/$minimum_os/g" \
   "$script_dir/mac/Info.plist.template" > "$stage/1vs100.app/Contents/Info.plist"
 chmod +x "$app/onevs100" "$app/launcher"

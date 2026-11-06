@@ -18,11 +18,7 @@ runs:
     - name: Install ccache
       shell: bash
       run: |
-        if [ "$RUNNER_OS" = "macOS" ]; then
-          brew install ccache || true
-        else
-          sudo apt-get install -y ccache
-        fi
+        command -v ccache >/dev/null || brew install ccache
     - name: Configure ccache
       shell: bash
       env:
@@ -30,7 +26,8 @@ runs:
       run: |
         set -euo pipefail
         {
-          echo "CCACHE_DIR=$RUNNER_TEMP/ccache"
+          # Inside the workspace: runner.temp names a host path in container jobs.
+          echo "CCACHE_DIR=$GITHUB_WORKSPACE/build/ccache"
           # The compiler is reinstalled on every run, so its mtime changes.
           echo "CCACHE_COMPILERCHECK=content"
           echo "CCACHE_MAXSIZE=$MAX_SIZE"
@@ -41,7 +38,7 @@ runs:
     - name: Restore ccache
       uses: actions/cache@v6
       with:
-        path: ${{ runner.temp }}/ccache
+        path: build/ccache
         # Each run saves a new entry; the newest one with the prefix is restored.
         key: ${{ inputs.key }}-${{ github.run_id }}-${{ github.run_attempt }}
         restore-keys: ${{ inputs.key }}-

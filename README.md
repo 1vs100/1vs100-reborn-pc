@@ -119,7 +119,7 @@ These run parts of the game as native code or change how frames are handed over.
 
 You need:
 
-- Windows 10/11 with Visual Studio 18 (C++ workload, CMake, Ninja) and LLVM/clang 22.1.8, or Linux with clang 22.1.8, CMake 3.28.3 (`pip install cmake==3.28.3`) and Ninja. Releases build in the `tools/ci-image` Ubuntu 24.04 container, which holds this toolchain and the system build deps (ccache, the MSVC install, the xwin splat and the SDL3-uwp prefix are still provisioned per build); run it through Podman so your checkout matches CI.
+- Windows 10/11 with Visual Studio 18 (C++ workload, CMake, Ninja) and LLVM/clang 22.1.8, or Linux with clang 22.1.8, CMake 3.28.3 (`pip install cmake==3.28.3`) and Ninja. To build release packages the way CI does, see [tools/ci/README.md](tools/ci/README.md).
 - The [ReXGlue SDK](https://github.com/1vs100/rexglue-sdk) arrives as a pinned submodule in `rexglue-sdk/`. Pass it with `-DREXSDK_DIR=$PWD/rexglue-sdk`; a prebuilt SDK package does not work, the in-place content support needs the newer source.
 
 Steps:

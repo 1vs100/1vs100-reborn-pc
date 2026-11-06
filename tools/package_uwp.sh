@@ -62,10 +62,11 @@ fi
 # Same config as the desktop archives; copied to LocalState on first run.
 cp "$script_dir/../package/onevs100.toml" "$layout/"
 
-# ImageMagick 7 installs magick, ImageMagick 6 (Ubuntu) only convert.
+# ImageMagick 7 installs magick, ImageMagick 6 (Ubuntu) only convert. The
+# font is named because the default one needs Ghostscript fonts.
 magick=$(command -v magick || command -v convert) || { echo "ImageMagick not found" >&2; exit 1; }
 logo() {
-  "$magick" -size "$2" xc:'#1a237e' -fill white -gravity center \
+  "$magick" -size "$2" xc:'#1a237e' -fill white -gravity center -font DejaVu-Sans \
     -pointsize "$3" -annotate 0 '1 vs 100' "$layout/Logos/$1"
 }
 logo StoreLogo.png 50x50 10
