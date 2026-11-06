@@ -44,8 +44,9 @@ Platform backends inside the module:
 POSIX crash capture is a new file `native/src/fatal_signal_posix.cpp`, compiled on non-Windows only:
 
 - Handles `SIGSEGV`, `SIGILL`, `SIGFPE`, `SIGBUS`, and `SIGABRT`.
-- Writes a short fault line with async-safe calls only (`write()`, no allocation, no logging).
-- Then best-effort SDL messagebox, then `_exit(1)`.
+- Runs on a 64 KB alternate stack, since guest faults often mean a broken stack.
+- Writes a short fault line with async-signal-safe calls only (`open`/`write`/`close`, no allocation, no logging). Dialog text is prebuilt at install, never in the handler.
+- Then best-effort SDL messagebox (stderr fallback), then re-raises into the default disposition so core dumps and debuggers keep working, with `_exit(1)` as fallback.
 
 UWP keeps `death_marker.cpp` as the fault recorder. Desktop Windows keeps `crash_capture.cpp` and adds the dialog call. POSIX gets the signal file above instead of `death_marker.cpp`.
 

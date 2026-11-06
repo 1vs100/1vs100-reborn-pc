@@ -22,6 +22,10 @@ add_executable(fatal_dialog_test fatal_dialog_test.cpp)
 target_include_directories(fatal_dialog_test PRIVATE ../src)
 add_test(NAME fatal_dialog COMMAND fatal_dialog_test)
 
+add_executable(fatal_signal_posix_test fatal_signal_posix_test.cpp)
+target_include_directories(fatal_signal_posix_test PRIVATE ../src)
+add_test(NAME fatal_signal_posix COMMAND fatal_signal_posix_test)
+
 add_executable(fma_test fma_test.cpp)
 add_test(NAME fma COMMAND fma_test)
 

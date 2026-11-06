@@ -22,6 +22,8 @@
 #include "guest_memory_ops.h"
 #ifdef _WIN32
 #include "death_marker.h"
+#else
+#include "fatal_signal_posix.h"
 #endif
 #include <rex/system/kernel_state.h>
 #ifdef _WIN32
@@ -104,6 +106,8 @@ class Onevs100App : public rex::ReXApp {
     // All development saves/cache/config stay beside this isolated build.
 #ifdef _WIN32
     death_marker::SetDirectory(folder);
+#else
+    posix_crash::Install(folder);
 #endif
     paths.user_data_root = folder / "userdata";
     paths.cache_root = folder / "cache";

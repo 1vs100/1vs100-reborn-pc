@@ -117,6 +117,7 @@ elseif(WIN32)
 else()
     list(APPEND ONEVS100_SOURCES
         src/dialogue_audio_posix.cpp
+        src/fatal_signal_posix.cpp
         src/local_profile_dialog_posix.cpp
         src/native_controls_posix.cpp
         src/native_video_posix.cpp
