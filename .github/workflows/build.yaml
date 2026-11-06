@@ -23,10 +23,8 @@
 #                       the UWP appx; when unset the package is signed with a
 #                       throwaway test certificate.
 #   CERT_PASSWORD       (optional) password of that certificate.
-#   MACOS_SDK_URL       (required for the mac legs) HTTPS URL of a macOS SDK
-#                       tarball for osxcross (Apple license forbids
-#                       redistributing it, so it is fetched, not committed).
-#   MACOS_SDK_AUTH      (optional) `Authorization` header for that URL.
+#   (No macOS SDK secret: osxcross cross-builds run locally with your own
+#   SDK tarball, never in CI.)
 #
 # Fork pull requests cannot read secrets, so the secret-dependent jobs skip
 # themselves there instead of failing.
@@ -65,8 +63,11 @@ env:
   MSVC_WINE_VERSION: "514f8ea34842cd6d831804d0e9658d3a32870ae1"
   WINSDK_VERSION_PIN: "10.0.26100.0"
   CMAKE_VERSION: "3.28.3"
+  # Local osxcross cross-builds (see tools/mac/osxcross-toolchain.cmake and the
+  # flavor doc) pin the same versions; there is no CI job for them because the
+  # macOS SDK cannot be redistributed.
   OSXCROSS_VERSION: "27d21e4977c9751d01199c7a226a6faf494c3dd9"
-  MACOS_SDK_VERSION: "15.1" # must match the MACOS_SDK_URL tarball; cache key only
+  MACOS_SDK_VERSION: "15.1"
   MSVC_CACHE_VERSION: v2 # bump to force a fresh MSVC download
   CMAKE_BUILD_TYPE: Release
   XWIN_ROOT: ${{ github.workspace }}/xwin-splat
@@ -282,9 +283,7 @@ jobs:
               build/linux-arm64/manifest.txt
               build/linux-arm64/launcher
           - platform: mac-arm64
-            runner: ubuntu-24.04
-            needs_osxcross: true
-            mac_arch: arm64
+            runner: macos-14
             timeout: 240
             build_dir: build/mac-arm64
             artifact: onevs100-mac-arm64
@@ -300,9 +299,7 @@ jobs:
               build/mac-arm64/manifest.txt
               build/mac-arm64/launcher
           - platform: mac-amd64
-            runner: ubuntu-24.04
-            needs_osxcross: true
-            mac_arch: x86_64
+            runner: macos-15-intel
             timeout: 240
             build_dir: build/mac-amd64
             artifact: onevs100-mac-amd64
@@ -325,17 +322,22 @@ jobs:
 
       - name: Install build tools
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ninja-build nasm pkg-config python3 python3-pip curl unzip git
-          if [ "${{ matrix.platform }}" = "linux" ] || [ "${{ matrix.platform }}" = "linux-arm64" ]; then
-            sudo apt-get install -y libx11-dev libx11-xcb-dev libxext-dev \
-              libxcursor-dev libxrandr-dev libxfixes-dev libxi-dev libxinerama-dev \
-              libxss-dev libxkbcommon-dev libxtst-dev libxdamage-dev \
-              libxrender-dev libxxf86vm-dev libxcomposite-dev \
-              libibus-1.0-dev libwayland-dev \
-              wayland-protocols libegl1-mesa-dev libgl1-mesa-dev \
-              libasound2-dev libpulse-dev libpipewire-0.3-dev libdbus-1-dev \
-              libudev-dev
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            brew install ninja nasm pkg-config
+            brew install molten-vk vulkan-loader || true
+          else
+            sudo apt-get update
+            sudo apt-get install -y ninja-build nasm pkg-config python3 python3-pip curl unzip git
+            if [ "${{ matrix.platform }}" = "linux" ] || [ "${{ matrix.platform }}" = "linux-arm64" ]; then
+              sudo apt-get install -y libx11-dev libx11-xcb-dev libxext-dev \
+                libxcursor-dev libxrandr-dev libxfixes-dev libxi-dev libxinerama-dev \
+                libxss-dev libxkbcommon-dev libxtst-dev libxdamage-dev \
+                libxrender-dev libxxf86vm-dev libxcomposite-dev \
+                libibus-1.0-dev libwayland-dev \
+                wayland-protocols libegl1-mesa-dev libgl1-mesa-dev \
+                libasound2-dev libpulse-dev libpipewire-0.3-dev libdbus-1-dev \
+                libudev-dev
+            fi
           fi
       - name: Pin CMake
         run: |
@@ -483,50 +485,21 @@ jobs:
           key: ${{ needs.codegen-key.outputs.key }}
           fail-on-cache-miss: true
 
-      - name: Restore osxcross
-        if: matrix.needs_osxcross
-        id: osxcross-cache
-        uses: actions/cache@v6
-        with:
-          path: ${{ github.workspace }}/osxcross
-          key: osxcross-${{ env.OSXCROSS_VERSION }}-macsdk-${{ env.MACOS_SDK_VERSION }}
-      - name: Provision osxcross
-        if: matrix.needs_osxcross && steps.osxcross-cache.outputs.cache-hit != 'true'
-        env:
-          MACOS_SDK_URL: ${{ secrets.MACOS_SDK_URL }}
-          MACOS_SDK_AUTH: ${{ secrets.MACOS_SDK_AUTH }}
+      - name: Select latest Xcode (macOS)
+        if: runner.os == 'macOS'
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y clang llvm-dev libxml2-dev uuid-dev libssl-dev patch make tar xz-utils bzip2 gzip sed cpio libbz2-dev
-          if [ -z "$MACOS_SDK_URL" ]; then
-            echo "::error::MACOS_SDK_URL secret is not set" >&2
+          latest="$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -n 1)"
+          if [ -z "$latest" ]; then
+            echo "::error::no Xcode found under /Applications" >&2
             exit 1
           fi
-          auth=()
-          if [ -n "$MACOS_SDK_AUTH" ]; then
-            auth=(-H "Authorization: $MACOS_SDK_AUTH")
-          fi
-          git clone https://github.com/tpoechtrager/osxcross.git "$RUNNER_TEMP/osxcross"
-          git -C "$RUNNER_TEMP/osxcross" checkout "$OSXCROSS_VERSION"
-          mkdir -p "$RUNNER_TEMP/osxcross/tarballs"
-          curl -fsSL "${auth[@]}" -o "$RUNNER_TEMP/osxcross/tarballs/MacOSX.sdk.tar.xz" "$MACOS_SDK_URL"
-          cd "$RUNNER_TEMP/osxcross"
-          ./build.sh
-          mkdir -p "$GITHUB_WORKSPACE/osxcross"
-          cp -r "$RUNNER_TEMP/osxcross/target" "$GITHUB_WORKSPACE/osxcross/"
-          for tool in clang clang++ ar ranlib; do
-            matches=( "$GITHUB_WORKSPACE/osxcross/target/bin/${{ matrix.mac_arch }}"-apple-darwin*-"$tool" )
-            if [ "${#matches[@]}" -ne 1 ] || [ ! -x "${matches[0]}" ]; then
-              echo "::error::expected exactly one executable ${{ matrix.mac_arch }}-apple-darwin*-$tool in the osxcross install, found ${#matches[@]}" >&2
-              exit 1
-            fi
-          done
+          echo "Selecting $latest"
+          sudo xcode-select -s "$latest"
+          xcodebuild -version
+          clang --version
       - name: Configure
         env:
-          OSXCROSS_ROOT: ${{ github.workspace }}/osxcross
-          MAC_ARCH: ${{ matrix.mac_arch }}
-          MACOS_DEPLOYMENT_TARGET: "14.0"
           MSVC_VERSION: ${{ env.MSVC_DETECTED_VERSION }}
           WINSDK_VERSION: ${{ env.WINSDK_DETECTED_VERSION }}
         run: |
@@ -545,8 +518,9 @@ jobs:
                      -DREXGLUE_SDL3_UWP_PREFIX="$GITHUB_WORKSPACE/sdl3-uwp-prefix")
               ;;
             mac-arm64|mac-amd64)
-              args+=(-DCMAKE_TOOLCHAIN_FILE="$GITHUB_WORKSPACE/tools/mac/osxcross-toolchain.cmake"
-                     -DONEVS100_NATIVE_GPU=OFF)
+              # No DXC release exists for macOS; build without the native
+              # renderer (same default the option carries on Darwin).
+              args+=(-DONEVS100_NATIVE_GPU=OFF)
               ;;
           esac
           cmake -S native -B "${{ matrix.build_dir }}" -G Ninja "${args[@]}"
@@ -556,10 +530,6 @@ jobs:
 
       - name: Build launcher
         if: matrix.platform != 'uwp'
-        env:
-          OSXCROSS_ROOT: ${{ github.workspace }}/osxcross
-          MAC_ARCH: ${{ matrix.mac_arch }}
-          MACOS_DEPLOYMENT_TARGET: "14.0"
         run: |
           args=(
             -DCMAKE_BUILD_TYPE=Release
@@ -567,8 +537,6 @@ jobs:
           )
           if [ "${{ matrix.platform }}" = "windows" ]; then
             args+=(-DCMAKE_TOOLCHAIN_FILE="$GITHUB_WORKSPACE/tools/win/clang-cl-toolchain.cmake")
-          elif [ "${{ matrix.platform }}" = "mac-arm64" ] || [ "${{ matrix.platform }}" = "mac-amd64" ]; then
-            args+=(-DCMAKE_TOOLCHAIN_FILE="$GITHUB_WORKSPACE/tools/mac/osxcross-toolchain.cmake")
           else
             args+=(-DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++)
           fi
@@ -713,15 +681,17 @@ jobs:
   package-mac:
     name: package mac (${{ matrix.artifact }})
     needs: [build]
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     strategy:
       fail-fast: false
       matrix:
         include:
           - artifact: onevs100-mac-arm64
+            runner: macos-14
             out: onevs100-mac-arm64
           - artifact: onevs100-mac-amd64
+            runner: macos-15-intel
             out: onevs100-mac-amd64
     steps:
       - name: Check out packaging scripts

@@ -1,7 +1,6 @@
 # macOS cross build from Linux with osxcross (https://github.com/tpoechtrager/osxcross).
-# Supports arm64 and x86_64 from one osxcross install; the macOS SDK itself
-# comes from a tarball (Apple license forbids redistributing it, so CI
-# fetches it from MACOS_SDK_URL and caches the built toolchain).
+# The macOS SDK itself comes from your own tarball: Apple forbids
+# redistributing it, so the cross route is local-only and never runs in CI.
 #
 # Environment:
 #   OSXCROSS_ROOT            osxcross install dir (default ~/.local/share/osxcross)
