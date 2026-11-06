@@ -1,11 +1,12 @@
 # Builds the game for every supported platform.
 #
-# Chain: `codegen-key` resolves the SDK ref to a commit and derives the cache
-# key for the generated sources from that commit, the XEX hash and the codegen
-# config files. `codegen` runs `rexglue codegen` only when no cache entry has
-# key. `build` restores the generated sources from the cache in a
-# platform matrix (linux / windows / uwp / linux-arm64 / mac-arm64 /
-# mac-amd64). `package-*` repacks the build artifacts into tar.xz (linux),
+# Chain: `codegen-key` reads the pinned SDK commit from the rexglue-sdk
+# submodule and derives the cache key for the generated sources from that
+# commit, the XEX hash and the codegen config files. `codegen` runs
+# `rexglue codegen` only when no cache entry has that key. `build` restores
+# the generated sources from the cache, then builds a platform matrix
+# (linux / windows / uwp / linux-arm64 / mac-arm64 / mac-amd64).
+# `package-*` repacks the build artifacts into tar.xz (linux),
 # zip + Inno Setup installer (windows) and per-arch .app zips (mac).
 # Every compile goes through ccache,
 # one cache per toolchain, so an unchanged SDK is not recompiled.
@@ -51,8 +52,6 @@ defaults:
     shell: bash
 
 env:
-  SDK_REPO: 1vs100/rexglue-sdk
-  SDK_REF: fixes/various_1vs100
   CLANG_VERSION: "22"
   XWIN_VERSION: 0.10.0
   MSVC_MAJOR: "17" # vsdownload.py manifest major; 17 == Visual Studio 2022 line
@@ -87,19 +86,9 @@ jobs:
             echo "::error::XEX_SHA256 secret is not set"
             exit 1
           fi
-          if [[ "$SDK_REF" =~ ^[0-9a-f]{40}$ ]]; then
-            sdk_sha="$SDK_REF"
-          else
-            refs="$(git ls-remote "https://github.com/$SDK_REPO" \
-              "refs/heads/$SDK_REF" "refs/tags/$SDK_REF" "refs/tags/$SDK_REF^{}")"
-            # An annotated tag lists the tag object first; ^{} is its commit.
-            sdk_sha="$(printf '%s\n' "$refs" | awk '
-              $2 ~ /\^\{\}$/ { peeled = $1 }
-              NR == 1 { first = $1 }
-              END { print (peeled != "" ? peeled : first) }')"
-          fi
+          sdk_sha="$(git ls-tree HEAD rexglue-sdk | awk '{ print $3 }')"
           if [ -z "$sdk_sha" ]; then
-            echo "::error::$SDK_REF not found in $SDK_REPO"
+            echo "::error::rexglue-sdk submodule pointer is missing"
             exit 1
           fi
           # Job outputs that contain a secret are dropped, so hash it again.
@@ -126,14 +115,7 @@ jobs:
         if: steps.lookup.outputs.cache-hit != 'true'
         uses: actions/checkout@v7
         with:
-          submodules: true
-
-      - name: Check out rexglue-sdk
-        if: steps.lookup.outputs.cache-hit != 'true'
-        uses: ./.github/actions/checkout-sdk
-        with:
-          repo: ${{ env.SDK_REPO }}
-          ref: ${{ needs.codegen-key.outputs.sdk_sha }}
+          submodules: recursive
 
       - name: Install build tools
         if: steps.lookup.outputs.cache-hit != 'true'
@@ -314,13 +296,7 @@ jobs:
       - name: Check out the game
         uses: actions/checkout@v7
         with:
-          submodules: true
-
-      - name: Check out rexglue-sdk
-        uses: ./.github/actions/checkout-sdk
-        with:
-          repo: ${{ env.SDK_REPO }}
-          ref: ${{ needs.codegen-key.outputs.sdk_sha }}
+          submodules: recursive
 
       - name: Install build tools
         run: |

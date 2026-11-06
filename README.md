@@ -121,25 +121,25 @@ These run parts of the game as native code or change how frames are handed over.
 You need:
 
 - Windows 10/11 with Visual Studio 18 (C++ workload, CMake, Ninja) and LLVM/clang 23, or Linux with clang 22, CMake 3.25+ and Ninja.
-- A [ReXGlue SDK](https://github.com/rexglue/rexglue-sdk) source checkout on branch `fixes/various_1vs100` (which includes `feat/uwp`) or newer, with submodules initialized. Pass it with `-DREXSDK_DIR=<rexglue-sdk>`; a prebuilt SDK package does not work, the in-place content support needs the newer source.
+- The [ReXGlue SDK](https://github.com/1vs100/rexglue-sdk) arrives as a pinned submodule in `rexglue-sdk/`. Pass it with `-DREXSDK_DIR=$PWD/rexglue-sdk`; a prebuilt SDK package does not work, the in-place content support needs the newer source.
 
 Steps:
 
-1. Fetch the submodules: `git submodule update --init`
+1. Fetch the submodules, including the SDK's own: `git submodule update --init --recursive`
 2. Put your game files in `native/assets/` (the folder `onevs100_manifest.toml` points at).
 3. Generate the recompiled code from **your** `default.xex`: `rexglue codegen native/onevs100_manifest.toml`
 4. Configure and build. On Windows:
    ```
     cmake -S native -B build -G Ninja -DCMAKE_BUILD_TYPE=Release ^
       -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl ^
-      -DREXSDK_DIR=<rexglue-sdk>
+      -DREXSDK_DIR=$PWD/rexglue-sdk
    cmake --build build --target onevs100
    ```
    On Linux:
    ```
     cmake -S native -B build/linux -G Ninja -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
-      -DREXSDK_DIR=<rexglue-sdk>
+      -DREXSDK_DIR=$PWD/rexglue-sdk
    cmake --build build/linux --target onevs100
    ```
 5. Development launcher (Windows): `tools\dev-launcher\build_launcher.cmd` (set `LLVM_BIN` or put clang-cl on PATH).
