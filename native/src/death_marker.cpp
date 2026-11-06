@@ -19,6 +19,7 @@
 
 #include "death_marker.h"
 #include "fatal_dialog.h"
+#include <rex/platform.h>
 
 #include <rex/ppc/context.h>
 #include <rex/system/kernel_state.h>
@@ -251,7 +252,7 @@ void OnExit() {
   DeathMarker("exit\n");
 }
 
-// OnFault stays log-only and never blocks on UI. The unhandled dialog
+// OnFault stays non-blocking and never shows UI. The unhandled dialog
 // lives in crash_capture on desktop and in the pending-marker modal on UWP.
 
 // First-chance fault record. UWP builds exclude the minidump capture, so a
@@ -271,6 +272,9 @@ LONG WINAPI OnFault(EXCEPTION_POINTERS* info) {
   FILE* file = nullptr;
   _wfopen_s(&file, path, L"a");
   if (file == nullptr) {
+#if REX_PLATFORM_WINRT
+    fatal_dialog::FatalError("1 vs 100", "Unhandled exception. See native-fault.log in the user folder.");
+#endif
     if (g_previous_fault_filter != nullptr) return g_previous_fault_filter(info);
     return EXCEPTION_CONTINUE_SEARCH;
   }
@@ -321,6 +325,11 @@ LONG WINAPI OnFault(EXCEPTION_POINTERS* info) {
   const USHORT count = RtlCaptureStackBackTrace(0, 32, stack, nullptr);
   for (USHORT i = 0; i < count; ++i) frame(L"at", reinterpret_cast<uintptr_t>(stack[i]));
   fclose(file);
+#if REX_PLATFORM_WINRT
+  // No dialog runs on the faulting thread in a package; the next launch
+  // reports through the pending marker instead.
+  fatal_dialog::FatalError("1 vs 100", "Unhandled exception. See native-fault.log in the user folder.");
+#endif
   if (g_previous_fault_filter != nullptr) return g_previous_fault_filter(info);
   return EXCEPTION_CONTINUE_SEARCH;
 }

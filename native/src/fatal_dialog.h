@@ -2,7 +2,11 @@
 #pragma once
 
 #include <cstddef>
+#include <filesystem>
+#include <fstream>
+#include <optional>
 #include <string>
+#include <utility>
 
 namespace fatal_dialog {
 
@@ -16,5 +20,44 @@ inline std::string TruncateDetail(const std::string& detail) {
 
 // Log flushing plus one blocking error dialog. Returns; the caller exits.
 void FatalError(const char* title, const std::string& detail);
+
+// Next-launch crash report. The UWP backend of FatalError leaves the text
+// in this file; TakePending reads and deletes it, or returns null when the
+// last run ended cleanly.
+inline std::string PendingFileName() { return "fatal-pending.txt"; }
+
+// Larger than kMaxDetail: tolerate hand-written markers, not runaway files.
+constexpr size_t kMaxPending = 8192;
+inline std::filesystem::path& PendingDirectory() {
+  static std::filesystem::path directory;
+  return directory;
+}
+
+inline void SetDirectory(std::filesystem::path directory) {
+  PendingDirectory() = std::move(directory);
+}
+
+inline std::optional<std::string> TakePending() {
+  std::filesystem::path& dir = PendingDirectory();
+  if (dir.empty()) return std::nullopt;
+  const std::filesystem::path path = dir / PendingFileName();
+  std::error_code error;
+  const auto size = std::filesystem::file_size(path, error);
+  if (error || size == 0 || size > kMaxPending) {
+    std::filesystem::remove(path, error);
+    return std::nullopt;
+  }
+  std::ifstream in(path, std::ios::binary);
+  if (!in) {
+    std::filesystem::remove(path, error);
+    return std::nullopt;
+  }
+  std::string text(size_t(size), '\0');
+  in.read(text.data(), std::streamsize(size));
+  text.resize(size_t(in.gcount()));
+  std::filesystem::remove(path, error);
+  if (text.empty()) return std::nullopt;
+  return text;
+}
 
 }  // namespace fatal_dialog

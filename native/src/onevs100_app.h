@@ -19,6 +19,7 @@
 #include "online_service.h"
 #include "xma_kick.h"
 #include "avatar_view/avatar_dialog.h"
+#include "fatal_dialog.h"
 #include "guest_memory_ops.h"
 #ifdef _WIN32
 #include "death_marker.h"
@@ -106,6 +107,9 @@ class Onevs100App : public rex::ReXApp {
     // All development saves/cache/config stay beside this isolated build.
 #ifdef _WIN32
     death_marker::SetDirectory(folder);
+#if REX_PLATFORM_WINRT
+    fatal_dialog::SetDirectory(folder);
+#endif
 #else
     posix_crash::Install(folder);
 #endif
@@ -173,6 +177,13 @@ class Onevs100App : public rex::ReXApp {
   void OnCreateDialogs(rex::ui::ImGuiDrawer* drawer) override {
     SetGuestFrameStats(GuestFrameStats);
     avatar_dialog_ = std::make_unique<avatar_view::AvatarDialog>(drawer, immediate_drawer());
+#if REX_PLATFORM_WINRT
+    // A packaged crash leaves its report for the next launch: no dialog
+    // runs on the faulting thread. The box owns itself and closes on tap.
+    if (auto pending = fatal_dialog::TakePending()) {
+      rex::ui::ImGuiDialog::ShowMessageBox(drawer, "1 vs 100", *pending);
+    }
+#endif
     if (onevs100::render::display::FpsCounter()) {
       fps_overlay_ = std::make_unique<rex::ui::DebugOverlayDialog>(drawer, GuestFrameStats);
     }

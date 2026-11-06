@@ -9,6 +9,7 @@
 #endif
 
 #include <cstdio>
+#include <fstream>
 
 namespace fatal_dialog {
 
@@ -21,9 +22,12 @@ void FatalError(const char* title, const std::string& detail) {
   const std::string text = TruncateDetail(detail);
   const char* heading = (title != nullptr && *title != '\0') ? title : "1 vs 100";
 #if REX_PLATFORM_WINRT
-  // The pending-marker modal lands in ticket 3; log only for now.
+  // No SDL messagebox in a package: leave the text for the next launch.
+  if (!PendingDirectory().empty()) {
+    std::ofstream out(PendingDirectory() / PendingFileName(), std::ios::trunc | std::ios::binary);
+    out.write(text.data(), std::streamsize(text.size()));
+  }
   (void)heading;
-  (void)text;
 #else
   if (SDL_WasInit(SDL_INIT_VIDEO) != 0) {
     SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, heading, text.c_str(), nullptr);

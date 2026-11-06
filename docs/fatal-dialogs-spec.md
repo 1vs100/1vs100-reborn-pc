@@ -39,7 +39,7 @@ Behavior of `FatalError`:
 Platform backends inside the module:
 
 - Windows Desktop and Linux/macOS: `SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, ...)`. Guard with `SDL_WasInit(SDL_INIT_VIDEO)`; when video is not up, fall back to stderr plus the log. This matches `exit_probe.cpp` today.
-- UWP: never call SDL messagebox. Crash path writes `native-fault.log` and a `fatal-pending` marker in LocalState, then exits. Next launch checks the marker in `OnConfigurePaths` or `OnPostSetup` and shows an ImGui modal through the existing drawer (same stack as `AvatarDialog` and the onboarding gate). Startup errors on UWP show the same modal in-loop before exit.
+- UWP: never call SDL messagebox. Crash path writes `native-fault.log` and a `fatal-pending.txt` marker in LocalState via `fatal_dialog::FatalError`, then exits. Next launch `OnCreateDialogs` reports it with `rex::ui::ImGuiDialog::ShowMessageBox`, which owns itself and closes on tap. (Ticket 4 reuses the same box for in-loop startup errors.)
 
 POSIX crash capture is a new file `native/src/fatal_signal_posix.cpp`, compiled on non-Windows only:
 
