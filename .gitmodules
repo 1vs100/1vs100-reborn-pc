@@ -4,3 +4,6 @@
 [submodule "rexglue-sdk"]
 	path = rexglue-sdk
 	url = https://github.com/1vs100/rexglue-sdk.git
+[submodule "native/third_party/deployment-onboarding-ui"]
+	path = native/third_party/deployment-onboarding-ui
+	url = git@github.com:1vs100/deployment-onboarding-ui.git

@@ -15,16 +15,17 @@
 
 #include <winrt/windows.networking.sockets.h>
 
-#include "storage/file_store.h"
+#include "onboarding/files.h"
+#include "onboarding/platform.h"
 
 namespace onboarding {
 
-class HttpServer {
+class HttpServer final : public UploadServer {
  public:
   HttpServer(FileStore& store, Catalog& catalog);
 
   // Waits for the bind to finish, so it must not run on the UI thread.
-  bool Start(uint16_t port, std::string* error);
+  bool Start(uint16_t port, std::string* error) override;
 
  private:
   void HandleConnection(winrt::Windows::Networking::Sockets::StreamSocket socket);

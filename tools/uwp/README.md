@@ -33,7 +33,9 @@ Content packages are named `<content id>58`, the name the game looks for. Edit t
 
 ## Code layout
 
-`native/src/uwp_onboarding/` is adapted from sdl-uwp-onboarding (MIT, see `THIRD_PARTY_NOTICES.md`). It holds manifest parsing, the HTTP upload server, the USB and file pickers and the progress UI. It compiles into `onevs100.exe` for the `WindowsStore` toolchain only and runs from `Onevs100App::OnConfigurePaths` via `uwp_onboarding::EnsureGameFiles()`, before the game creates its window.
+The setup view is [1vs100/deployment-onboarding-ui](https://github.com/1vs100/deployment-onboarding-ui), checked out at `native/third_party/deployment-onboarding-ui` and adapted from sdl-uwp-onboarding (MIT, see `THIRD_PARTY_NOTICES.md`). It holds manifest parsing, the file store, the progress pages and the browser upload page, and picks its toolkit with `-DONBOARDING_UI_FLAVOR=sdl3|imgui`.
+
+What stays here is `native/src/onboarding_host/`: the HTTP listener, the USB and file pickers, the LAN addresses and `Platform`, which is everything that needs a WinRT API. It compiles into `onevs100.exe` for the `WindowsStore` toolchain only and runs from `Onevs100App::OnConfigurePaths` via `onboarding::EnsureGameFiles()`, before the game creates its window.
 
 UWP-only path rules live next to the generic ones. `content/` and avatar content resolve under the user folder (`native/src/content_install.cpp`, `native/src/avatar_native/native_provider.cpp`).
 

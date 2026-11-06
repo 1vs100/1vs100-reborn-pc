@@ -1,5 +1,19 @@
 # UWP first-run onboarding: status
 
+## Split into its own repository (2026-11-06)
+
+The view, the file store, the manifest and the upload page moved to
+`native/third_party/deployment-onboarding-ui`
+([1vs100/deployment-onboarding-ui](https://github.com/1vs100/deployment-onboarding-ui)),
+a CMake library with a `Platform` seam. What is left here is
+`native/src/onboarding_host/`: the WinRT HTTP listener, the pickers, USB
+presence, LAN addresses and `MakeWinrtPlatform()`. `Onevs100App::OnConfigurePaths`
+calls `onboarding::EnsureGameFiles(folder, header, onboarding::MakeWinrtPlatform())`.
+The reskin is flat-neutral, and `-DONBOARDING_UI_FLAVOR=sdl3|imgui` selects the
+toolkit; the screenshots of both are in that repository under
+`docs/screenshots/`. The device test below is still outstanding, and a UWP build
+of the moved code has not been run.
+
 UWP/Xbox builds cannot ship game files, so the `.appx` carries none.
 On first run the game shows a setup screen (browser upload via QR code
 or on-device USB/file pickers, every file hash-verified) before booting.
