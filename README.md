@@ -25,7 +25,7 @@ The Xbox 360 game 1 vs 100, rebuilt for the PC with the [ReXGlue](https://github
 You need files from your own Xbox 360. This repository ships no game content.
 
 1. Put the 1 vs 100 game files where the executable finds them. Put the untouched game package in the `content/` folder next to the executable (used as-is, no unpacking), or unpack `default.xex` and its media into an `assets/` folder next to the built executable. You can also pass `--game_data_root=<folder>`.
-2. Put the avatar pack table in the same `content/` folder. Use either `AvatarAssetPack.toc` or the `FFFE07DF00000002` package it comes in. The game needs it to start. Make yours at [360sona.com](https://360sona.com) (**My Sonas → Import / Export → Save the description (.bin)**) and save it as `profiles/avatar.bin` in the player data folder, otherwise the game builds one from your profile id. The asset files come from Xbox 360 System Update 17559 ([CD + USB download](https://archive.org/details/xbox-360-system-update-17559-cd-usb)).
+2. Put the avatar pack table in the same `content/` folder. Use either `AvatarAssetPack.toc` or the `FFFE07DF00000002` package it comes in. The game needs it to start. To make yours, create an account at [360sona.com](https://360sona.com) and open **My Sonas > your avatar > Import / Export** in the editor. Copy the 360sona avatar text and paste it on the launcher's Avatar tab, or save the description (.bin) and open that file there. Without the launcher, save the description as `profiles/avatar.bin` in the player data folder, otherwise the game builds one from your profile id. The asset files come from Xbox 360 System Update 17559 ([CD + USB download](https://archive.org/details/xbox-360-system-update-17559-cd-usb)).
 3. Host voice lines need no copying: with the show package in `content`, the game reads `vo.xwb`/`vo.xsb` from the package itself.
 4. For online play you need the stock retail 2.0.1149.0 game files with their original Lua scripts, plus the show and episode packages. Put these settings in `onevs100.toml` next to the executable:
 ```
@@ -69,7 +69,7 @@ Windows only: `ONEVS100_DUALSENSE_HID=1` reads a USB DualSense directly as a bac
 
 ### Settings reference
 
-`onevs100.toml` next to the executable holds flat `name = value` keys; every key also works as a `--name=value` flag. The launcher only manages `gameserver_host` and `fullscreen` — extra keys survive a Launch, hand-written comments don't.
+`onevs100.toml` next to the executable holds flat `name = value` keys; every key also works as a `--name=value` flag. The launcher sets `gameserver_host`, `fullscreen` and the keyboard keys itself. Its "Show all settings" switch lists every other key for editing. Hand-written comments do not survive a Launch.
 
 | Setting | Default | What it does |
 |---|---|---|

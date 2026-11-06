@@ -5,10 +5,13 @@
 #include <imgui.h>
 #include <imgui_impl_sdl3.h>
 #include <imgui_impl_sdlrenderer3.h>
+#include <misc/cpp/imgui_stdlib.h>
 #include <toml++/toml.hpp>
 
 #include <algorithm>
 #include <array>
+#include <charconv>
+#include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <vector>
@@ -16,24 +19,34 @@
 #include <expected>
 #include <filesystem>
 #include <fstream>
+#include <future>
+#include <iterator>
 #include <optional>
 #include <string>
 #include <system_error>
 #include <utility>
 
 #include "font_data.h"
+#include "xna_avatar_format.h"
 
 namespace fs = std::filesystem;
+namespace av = xe::kernel::xna::avatar;
 
 namespace {
 
 constexpr const char* kDefaultHost = "1vs100.fans";
 constexpr const char* kDiscordUrl = "https://discord.gg/tV3ajhwFTf";
 constexpr const char* kWebsiteUrl = "https://1vs100.fans";
+constexpr const char* kDocsUrl = "https://docs.1vs100.fans";
+constexpr const char* kGithubUrl = "https://github.com/1vs100";
 constexpr const char* kAvatarEditorUrl = "https://360sona.com";
+constexpr uint32_t kPreviewWidth = 240, kPreviewHeight = 320;
+constexpr float kTurnStep = 3.14159265f / 12.0f;  // 15 degrees per arrow press
+// Keys the launcher edits through its own controls; the advanced list leaves them out.
+constexpr std::array<std::string_view, 5> kManagedKeys = {"gameserver_host", "fullscreen", "mnk_mode", "mnk_mouse",
+                                                          "content"};
+constexpr const char* kDefaultContent = "content";
 constexpr size_t kGamertagMax = 15;
-// Avatar description sizes the game accepts (xna_avatar_format.h).
-constexpr std::array<uintmax_t, 2> kAvatarSizes = {1020, 1000};
 // Content families the game looks for (native/src/content_install.cpp and the
 // observed 1vs100 packages: show/episode packs share 584A07DC, the launch
 // content uses 584A07E4).
@@ -97,7 +110,10 @@ Paths MakePaths() {
   const char* base_path = SDL_GetBasePath();
   const fs::path base =
       base_path ? PathFromUtf8(base_path) : fs::current_path();
-  const fs::path profiles = base / "userdata" / "profiles";
+  // Same rule as PlayerDataFolder in native/src/local_profile.cpp.
+  const char* player_data = SDL_getenv("ONEVS100_PLAYER_DATA");
+  const fs::path data = (player_data && *player_data) ? PathFromUtf8(player_data) : base / "userdata";
+  const fs::path profiles = data / "profiles";
   return {base, base / kGameExecutable, base / "onevs100.toml", profiles, profiles / "local-name.txt",
           profiles / "avatar.bin"};
 }
@@ -145,7 +161,6 @@ enum class ErrorKind {
   InvalidHost,
   ConfigUnreadable,
   WriteFailed,
-  AvatarWrongSize,
   AvatarUnreadable,
   GameMissing,
   LaunchFailed
@@ -166,12 +181,88 @@ std::string Describe(const Error& error) {
       return "Enter a gameserver host first (hostname or IPv4, no spaces or ://).";
     case ErrorKind::ConfigUnreadable: return "Cannot read " + path + ": " + error.detail;
     case ErrorKind::WriteFailed: return "Cannot write " + path + ": " + error.detail;
-    case ErrorKind::AvatarWrongSize: return "Not an avatar description: " + path + " (" + error.detail + ")";
     case ErrorKind::AvatarUnreadable: return "Cannot read " + path + ": " + error.detail;
     case ErrorKind::GameMissing: return "Game not found: " + path;
     case ErrorKind::LaunchFailed: return "Cannot start the game: " + error.detail;
   }
   return {};
+}
+
+// One onevs100.toml key outside the launcher's own controls.
+struct ConfigEntry {
+  enum class Kind { Flag, Integer, Number, Text };
+  std::string key;
+  Kind kind = Kind::Text;
+  bool flag = false;
+  int64_t integer = 0;
+  double number = 0;
+  std::string text;
+};
+
+std::optional<ConfigEntry> EntryFromNode(std::string key, const toml::node& node) {
+  ConfigEntry entry;
+  entry.key = std::move(key);
+  if (auto flag = node.value_exact<bool>()) {
+    entry.kind = ConfigEntry::Kind::Flag;
+    entry.flag = *flag;
+  } else if (auto integer = node.value_exact<int64_t>()) {
+    entry.kind = ConfigEntry::Kind::Integer;
+    entry.integer = *integer;
+  } else if (auto number = node.value_exact<double>()) {
+    entry.kind = ConfigEntry::Kind::Number;
+    entry.number = *number;
+  } else if (auto text = node.value_exact<std::string>()) {
+    entry.kind = ConfigEntry::Kind::Text;
+    entry.text = *text;
+  } else {
+    return std::nullopt;
+  }
+  return entry;
+}
+
+// strtod, not from_chars: older libc++ has no floating-point from_chars. Only
+// plain decimals count, so text such as 0x10, inf or nan stays text.
+bool ParseDecimal(std::string_view value, double* out) {
+  if (value.empty() || value.find_first_not_of("0123456789.-eE") != std::string_view::npos) return false;
+  const std::string text(value);
+  char* end = nullptr;
+  *out = std::strtod(text.c_str(), &end);
+  return !text.empty() && end == text.c_str() + text.size();
+}
+
+// Typed the way a TOML value is: true/false, a whole number, a decimal number, else text.
+ConfigEntry EntryFromText(std::string key, std::string_view value) {
+  ConfigEntry entry;
+  entry.key = std::move(key);
+  int64_t integer = 0;
+  double number = 0;
+  const char* end = value.data() + value.size();
+  if (value == "true" || value == "false") {
+    entry.kind = ConfigEntry::Kind::Flag;
+    entry.flag = value == "true";
+  } else if (const auto parsed = std::from_chars(value.data(), end, integer);
+             !value.empty() && parsed.ec == std::errc() && parsed.ptr == end) {
+    entry.kind = ConfigEntry::Kind::Integer;
+    entry.integer = integer;
+  } else if (ParseDecimal(value, &number)) {
+    entry.kind = ConfigEntry::Kind::Number;
+    entry.number = number;
+  } else {
+    entry.kind = ConfigEntry::Kind::Text;
+    entry.text = std::string(value);
+  }
+  return entry;
+}
+
+bool ValidConfigKey(std::string_view key) {
+  if (key.empty()) return false;
+  for (unsigned char c : key)
+    if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_')) return false;
+  return true;
+}
+
+bool ManagedKey(std::string_view key) {
+  return std::find(kManagedKeys.begin(), kManagedKeys.end(), key) != kManagedKeys.end();
 }
 
 struct Settings {
@@ -180,6 +271,9 @@ struct Settings {
   std::string content = "content";
   bool keyboard = false;
   bool mouse_look = false;
+  std::vector<ConfigEntry> others;
+  // Keys removed from `others` since loading, so saving drops them from the file.
+  std::vector<std::string> removed;
 };
 
 // Missing keys take the game's own defaults, except the host, which the
@@ -197,6 +291,10 @@ std::expected<Settings, Error> LoadSettings(const fs::path& config) {
   if (auto content = table["content"].value<std::string>()) settings.content = *content;
   if (auto keyboard = table["mnk_mode"].value<bool>()) settings.keyboard = *keyboard;
   if (auto mouse_look = table["mnk_mouse"].value<bool>()) settings.mouse_look = *mouse_look;
+  for (const auto& [key, node] : table) {
+    if (ManagedKey(key.str())) continue;
+    if (auto entry = EntryFromNode(std::string(key.str()), node)) settings.others.push_back(std::move(*entry));
+  }
   return settings;
 }
 
@@ -211,7 +309,17 @@ std::expected<void, Error> SaveSettings(const fs::path& config, const Settings& 
       return std::unexpected(Error{ErrorKind::ConfigUnreadable, config, parsed.error()});
     table = std::move(*parsed);
   }
+  for (const auto& key : settings.removed) table.erase(key);
+  for (const auto& entry : settings.others) {
+    switch (entry.kind) {
+      case ConfigEntry::Kind::Flag: table.insert_or_assign(entry.key, entry.flag); break;
+      case ConfigEntry::Kind::Integer: table.insert_or_assign(entry.key, entry.integer); break;
+      case ConfigEntry::Kind::Number: table.insert_or_assign(entry.key, entry.number); break;
+      case ConfigEntry::Kind::Text: table.insert_or_assign(entry.key, entry.text); break;
+    }
+  }
   table.insert_or_assign("gameserver_host", settings.host);
+  table.insert_or_assign("content", settings.content);
   table.insert_or_assign("fullscreen", !settings.windowed);
   table.insert_or_assign("mnk_mode", settings.keyboard);
   table.insert_or_assign("mnk_mouse", settings.mouse_look);
@@ -244,17 +352,21 @@ std::expected<void, Error> SaveGamertag(const Paths& paths, const std::string& n
   return {};
 }
 
-std::expected<void, Error> ImportAvatar(const Paths& paths, const fs::path& source) {
+std::expected<void, Error> WriteBytes(const fs::path& target, const uint8_t* data, size_t size) {
   std::error_code ec;
-  const uintmax_t size = fs::file_size(source, ec);
-  if (ec) return std::unexpected(Error{ErrorKind::AvatarUnreadable, source, ec.message()});
-  if (std::find(kAvatarSizes.begin(), kAvatarSizes.end(), size) == kAvatarSizes.end())
-    return std::unexpected(Error{ErrorKind::AvatarWrongSize, source, std::to_string(size) + " bytes"});
-  fs::create_directories(paths.profiles, ec);
-  if (ec) return std::unexpected(Error{ErrorKind::WriteFailed, paths.profiles, ec.message()});
-  fs::copy_file(source, paths.avatar, fs::copy_options::overwrite_existing, ec);
-  if (ec) return std::unexpected(Error{ErrorKind::WriteFailed, paths.avatar, ec.message()});
+  fs::create_directories(target.parent_path(), ec);
+  if (ec) return std::unexpected(Error{ErrorKind::WriteFailed, target.parent_path(), ec.message()});
+  std::ofstream out(target, std::ios::trunc | std::ios::binary);
+  out.write(reinterpret_cast<const char*>(data), std::streamsize(size));
+  out.flush();
+  if (!out) return std::unexpected(Error{ErrorKind::WriteFailed, target, "write error"});
   return {};
+}
+
+std::expected<std::vector<uint8_t>, Error> ReadBytes(const fs::path& source) {
+  std::ifstream in(source, std::ios::binary);
+  if (!in) return std::unexpected(Error{ErrorKind::AvatarUnreadable, source, "cannot open file"});
+  return std::vector<uint8_t>((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 }
 
 enum class FileRole { Game, Launch, Show, Episode, ShowEpisode, Avatar, Other, Invalid };
@@ -319,8 +431,31 @@ std::optional<std::vector<ManifestEntry>> LoadManifest(const fs::path& file) {
   return entries;
 }
 
+// What a folder holds, by listing alone: cheap enough to compare every few seconds.
+struct FolderEntry {
+  std::string name;
+  uintmax_t size = 0;
+  fs::file_time_type modified;
+  bool operator==(const FolderEntry&) const = default;
+};
+
+// nullopt when the folder is missing.
+std::optional<std::vector<FolderEntry>> ListFolder(const fs::path& dir) {
+  std::error_code ec;
+  if (!fs::is_directory(dir, ec)) return std::nullopt;
+  std::vector<FolderEntry> entries;
+  for (const auto& entry : fs::directory_iterator(dir, ec)) {
+    std::error_code entry_ec;
+    if (!entry.is_regular_file(entry_ec)) continue;
+    entries.push_back({PathText(entry.path().filename()), entry.file_size(entry_ec), entry.last_write_time(entry_ec)});
+  }
+  std::sort(entries.begin(), entries.end(), [](const FolderEntry& a, const FolderEntry& b) { return a.name < b.name; });
+  return entries;
+}
+
 struct FilesCheck {
   fs::path dir;
+  std::optional<std::vector<FolderEntry>> listing;
   bool dirOk = false;
   bool manifestOk = false;
   std::vector<ContentFile> files;
@@ -330,6 +465,8 @@ struct FilesCheck {
   size_t episodeCount = 0;
   size_t showEpisodeCount = 0;
   bool hasAvatar = false;
+  // Every avatar file that looks right; the catalog tries them in order.
+  std::vector<fs::path> avatarPacks;
   bool ok() const {
     if (!dirOk || !hasGame || !hasLaunch || !hasAvatar) return false;
     if (manifestOk) return showCount > 0 && episodeCount > 0;
@@ -433,6 +570,7 @@ const ImVec4 kText = Hex(0xf3f1ff);
 const ImVec4 kText3 = Hex(0xf3f1ff, 0.52f);
 const ImVec4 kAccent = Hex(0xb28cff);
 const ImVec4 kError = Hex(0xff2d55);
+const ImVec4 kCaution = Hex(0xffb020);
 // The "show" gradient: blue, violet at 40%, magenta at 70%, red.
 constexpr std::array<std::pair<float, uint32_t>, 4> kShowStops = {
     {{0.0f, 0x3d6bff}, {0.4f, 0x8b3dff}, {0.7f, 0xe23fd2}, {1.0f, 0xff2d55}}};
@@ -504,21 +642,26 @@ int GamertagFilter(ImGuiInputTextCallbackData* data) {
   return GamertagChar(static_cast<unsigned char>(data->EventChar)) ? 0 : 1;
 }
 
-bool ShowButton(const char* label, ImVec2 size) {
+// The gradient marks it ready; a disabled one is flat gray so the two never look alike.
+bool ShowButton(const char* label, ImVec2 size, bool enabled) {
   const bool pressed = ImGui::InvisibleButton(label, size);
   const ImVec2 min = ImGui::GetItemRectMin();
   const ImVec2 max = ImGui::GetItemRectMax();
   ImDrawList* draw = ImGui::GetWindowDrawList();
   // AddRectFilledMultiColor has no rounding, so clip the gradient to the
   // button rect instead of overpainting the surroundings.
-  ImGui::PushClipRect(min, max, true);
-  ShowGradient(draw, min, max, ImGui::IsItemActive() ? 0.8f : 1.0f);
-  if (ImGui::IsItemHovered()) draw->AddRectFilled(min, max, ImGui::GetColorU32(Hex(0xffffff, 0.12f)));
-  ImGui::PopClipRect();
+  if (!enabled) {
+    draw->AddRectFilled(min, max, ImGui::GetColorU32(kSurface2), ImGui::GetStyle().FrameRounding);
+  } else {
+    ImGui::PushClipRect(min, max, true);
+    ShowGradient(draw, min, max, ImGui::IsItemActive() ? 0.8f : 1.0f);
+    if (ImGui::IsItemHovered()) draw->AddRectFilled(min, max, ImGui::GetColorU32(Hex(0xffffff, 0.12f)));
+    ImGui::PopClipRect();
+  }
   draw->AddRect(min, max, ImGui::GetColorU32(Hex(0xffffff, 0.14f)), ImGui::GetStyle().FrameRounding);
   const ImVec2 text = ImGui::CalcTextSize(label, nullptr, true);
   draw->AddText(ImVec2(min.x + (size.x - text.x) * 0.5f, min.y + (max.y - min.y - text.y) * 0.5f),
-                ImGui::GetColorU32(Hex(0xffffff)), label);
+                ImGui::GetColorU32(enabled ? kText : kText3), label);
   return pressed;
 }
 
@@ -550,13 +693,153 @@ struct App {
   bool mouse_look = false;
   Status status;
   SDL_Window* window = nullptr;
-  Uint32 dialog_event = 0;
+  // SDL's user event for file dialog results; none when SDL ran out of event types.
+  std::optional<Uint32> dialog_event;
   FilesCheck files;
-  int frames = 0;
-  int filesFrame = -1000000;
+  std::chrono::steady_clock::time_point filesChecked;
   std::string contentSetting = "content";
+  std::vector<ConfigEntry> others;
+  std::vector<std::string> removed;
+  bool advanced = false;
+  std::array<char, 64> newKey{};
+  std::array<char, 512> newValue{};
+  // Avatar tab.
+  SDL_Renderer* renderer = nullptr;
+  std::future<std::unique_ptr<av::Catalog>> catalogLoad;
+  std::unique_ptr<av::Catalog> catalog;
+  bool catalogFailed = false;
+  std::optional<av::Description> avatar;
+  bool avatarUnsaved = false;
+  av::Scene scene;
+  float yaw = 0.0f;
+  bool previewDirty = false;
+  SDL_Texture* preview = nullptr;
+  std::vector<uint8_t> previewPixels;
+  std::array<char, 8192> code{};
   void Report(const Error& error) { status = {Describe(error), true}; }
   void Report(std::string text) { status = {std::move(text), false}; }
+  void ReportError(std::string text) { status = {std::move(text), true}; }
+
+  bool Busy() { return catalogLoad.valid(); }
+
+  // The pack table is large, so it loads off the UI thread the first time the Avatar tab opens.
+  void StartCatalog() {
+    if (catalog || catalogFailed || catalogLoad.valid() || !files.hasAvatar) return;
+    catalogLoad = std::async(std::launch::async, [packs = files.avatarPacks] { return av::LoadPackCatalog(packs); });
+  }
+
+  void PollCatalog() {
+    if (!catalogLoad.valid() || catalogLoad.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
+    try {
+      catalog = catalogLoad.get();
+    } catch (const std::exception&) {
+      catalog.reset();
+    }
+    if (!catalog || !catalog->loaded()) {
+      catalog.reset();
+      catalogFailed = true;
+      ReportError("The avatar pack table did not load. See the Files tab.");
+      return;
+    }
+    LoadStoredAvatar();
+    // A code pasted while the pack was loading.
+    if (code[0]) ImportCode();
+  }
+
+  void ImportCode() {
+    const std::string_view text(code.data());
+    const auto decoded = av::DecodeAvatarText(text);
+    if (decoded && (decoded->size() == av::kManifestBytes || decoded->size() == av::kDescriptionBytes)) {
+      ImportAvatar(*decoded);
+    } else if (!text.empty()) {
+      Report("That is not a complete avatar code yet.");
+    }
+  }
+
+  void ShowAvatar(const av::Description& description, bool unsaved) {
+    avatar = description;
+    avatarUnsaved = unsaved;
+    scene = av::BuildScene(*catalog, description);
+    previewDirty = true;
+  }
+
+  void LoadStoredAvatar() {
+    avatar.reset();
+    avatarUnsaved = false;
+    std::error_code ec;
+    if (!fs::is_regular_file(paths.avatar, ec)) return;
+    auto bytes = ReadBytes(paths.avatar);
+    av::Description description;
+    if (!bytes || !av::ParseAnyDescription(catalog.get(), bytes->data(), bytes->size(), &description)) {
+      ReportError("The saved avatar cannot be read. Open or paste a new one.");
+      return;
+    }
+    ShowAvatar(description, false);
+  }
+
+  // A manifest or description file, or its text form.
+  void ImportAvatar(std::vector<uint8_t> bytes) {
+    if (!catalog) {
+      ReportError("The avatar pack table is not loaded yet. See the Files tab.");
+      return;
+    }
+    const auto fits = [](size_t size) { return size == av::kManifestBytes || size == av::kDescriptionBytes; };
+    if (!fits(bytes.size())) {
+      auto decoded = av::DecodeAvatarText(std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size()));
+      if (!decoded) {
+        ReportError("That is neither an avatar file nor an avatar code.");
+        return;
+      }
+      bytes = std::move(*decoded);
+    }
+    av::Description description;
+    if (!fits(bytes.size()) || !av::ParseAnyDescription(catalog.get(), bytes.data(), bytes.size(), &description)) {
+      ReportError("That is not an avatar.");
+      return;
+    }
+    // Marketplace items this PC lacks become similar standard items, as in the game.
+    const size_t similar = av::SubstituteMissingItems(*catalog, &description);
+    ShowAvatar(description, true);
+    Report(similar ? std::to_string(similar) +
+                         " item(s) you do not have became similar standard items. Launch saves this avatar."
+                   : std::string("Launch saves this avatar."));
+  }
+
+  std::expected<void, Error> SaveAvatar() {
+    if (!avatar || !avatarUnsaved) return {};
+    const auto bytes = av::SerializeDescription(*avatar);
+    if (auto written = WriteBytes(paths.avatar, bytes.data(), bytes.size()); !written) return written;
+    avatarUnsaved = false;
+    return {};
+  }
+
+  // The game needs one to start.
+  bool HasAvatar() const {
+    std::error_code ec;
+    return avatar.has_value() || fs::is_regular_file(paths.avatar, ec);
+  }
+
+  void ExportAvatar(const fs::path& target) {
+    // The manifest does not record the owner, so no profile id is needed.
+    const auto bytes = av::SerializeManifest(catalog.get(), *avatar, 0);
+    if (auto written = WriteBytes(target, bytes.data(), bytes.size()); !written) {
+      Report(written.error());
+      return;
+    }
+    Report("Exported to " + PathText(target) + ".");
+  }
+
+  void UpdatePreview() {
+    if (!previewDirty || !avatar || !renderer) return;
+    previewDirty = false;
+    if (!preview) {
+      preview = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STREAMING, kPreviewWidth,
+                                  kPreviewHeight);
+      if (!preview) return;
+    }
+    av::RenderIdle(*catalog, scene, kPreviewWidth, kPreviewHeight, yaw, &previewPixels);
+    SDL_UpdateTexture(preview, nullptr, previewPixels.data(), kPreviewWidth * 4);
+  }
 
   void Load() {
     if (auto name = LoadGamertag(paths.gamertag)) SDL_strlcpy(gamertag.data(), name->c_str(), gamertag.size());
@@ -572,30 +855,38 @@ struct App {
     contentSetting = settings->content;
     keyboard = settings->keyboard;
     mouse_look = settings->mouse_look;
+    others = std::move(settings->others);
     RefreshFiles(*this);
+  }
+
+  void SetContentFolder(std::string folder) {
+    contentSetting = std::move(folder);
+    RefreshFiles(*this);
+    Report("Launch saves the content folder.");
   }
 
   std::expected<void, Error> Save() {
     if (auto saved = SaveGamertag(paths, gamertag.data()); !saved) return saved;
+    if (auto saved = SaveAvatar(); !saved) return saved;
     Settings out;
     out.host = host.data();
     out.windowed = windowed;
     out.content = contentSetting;
     out.keyboard = keyboard;
     out.mouse_look = mouse_look;
-    return SaveSettings(paths.config, out);
-  }
-
-  bool AvatarPresent() const {
-    std::error_code ec;
-    return fs::is_regular_file(paths.avatar, ec);
+    out.others = others;
+    out.removed = removed;
+    if (auto saved = SaveSettings(paths.config, out); !saved) return saved;
+    removed.clear();
+    return {};
   }
 };
 
 void RefreshFiles(App& app) {
-  app.filesFrame = app.frames;
+  app.filesChecked = std::chrono::steady_clock::now();
   FilesCheck check;
   check.dir = ResolveContentDir(app.paths, app.contentSetting);
+  check.listing = ListFolder(check.dir);
   std::error_code ec;
   check.dirOk = fs::is_directory(check.dir, ec);
   if (check.dirOk) {
@@ -616,7 +907,7 @@ void RefreshFiles(App& app) {
         if (!file.present) {
           file.note = "not found";
         } else if (fs::file_size(full, entryEc) != entry.size) {
-          file.note = "size mismatch (expected " + std::to_string(entry.size) + ")";
+          file.note = "wrong size";
         } else if (file.role != FileRole::Avatar && !PeekStfsHeader(full)) {
           file.note = "not a package";
         } else {
@@ -661,40 +952,66 @@ void RefreshFiles(App& app) {
       if (file.role == FileRole::Show) ++check.showCount;
       if (file.role == FileRole::Episode) ++check.episodeCount;
       if (file.role == FileRole::ShowEpisode) ++check.showEpisodeCount;
-      if (file.role == FileRole::Avatar) check.hasAvatar = true;
+      if (file.role == FileRole::Avatar) {
+        check.hasAvatar = true;
+        check.avatarPacks.push_back(check.dir / PathFromUtf8(file.name.c_str()));
+      }
     }
     check.showEpisodeCount += check.showCount + check.episodeCount;
   }
+  // A load that failed may work with what is there now, such as a package that finished copying.
+  if (!app.catalog && check.avatarPacks != app.files.avatarPacks) app.catalogFailed = false;
   app.files = std::move(check);
 }
 
-void SDLCALL OnAvatarChosen(void* userdata, const char* const* files, int) {
-  auto* app = static_cast<App*>(userdata);
+enum class DialogKind : intptr_t { OpenAvatar, ExportAvatar, ContentFolder };
+
+struct DialogRequest {
+  App* app;
+  DialogKind kind;
+};
+
+void SDLCALL OnFileChosen(void* userdata, const char* const* files, int) {
+  auto* request = static_cast<DialogRequest*>(userdata);
   SDL_Event event{};
-  event.type = app->dialog_event;
+  event.type = *request->app->dialog_event;
   // A null list is an error, an empty list a cancel.
   event.user.code = files ? 0 : 1;
   event.user.data1 = (files && files[0]) ? SDL_strdup(files[0]) : nullptr;
+  event.user.data2 = reinterpret_cast<void*>(static_cast<intptr_t>(request->kind));
   SDL_PushEvent(&event);
 }
 
-void HandleAvatarChosen(App& app, const SDL_UserEvent& event) {
+DialogRequest open_request{nullptr, DialogKind::OpenAvatar};
+DialogRequest export_request{nullptr, DialogKind::ExportAvatar};
+DialogRequest folder_request{nullptr, DialogKind::ContentFolder};
+
+void HandleFileChosen(App& app, const SDL_UserEvent& event) {
   if (event.code) {
     const char* sdl_error = SDL_GetError();
-    app.status = {std::string("File dialog failed.") +
-                      ((sdl_error && *sdl_error) ? std::string(" ") + sdl_error : std::string()),
-                  true};
+    app.ReportError(std::string("File dialog failed.") +
+                    ((sdl_error && *sdl_error) ? std::string(" ") + sdl_error : std::string()));
     return;
   }
   auto* chosen = static_cast<char*>(event.data1);
   if (!chosen) return;
-  const fs::path source = PathFromUtf8(chosen);
+  const fs::path path = PathFromUtf8(chosen);
   SDL_free(chosen);
-  if (auto imported = ImportAvatar(app.paths, source); !imported) {
-    app.Report(imported.error());
+  const auto kind = static_cast<DialogKind>(reinterpret_cast<intptr_t>(event.data2));
+  if (kind == DialogKind::ExportAvatar) {
+    if (app.avatar) app.ExportAvatar(path);
     return;
   }
-  app.Report("Avatar saved.");
+  if (kind == DialogKind::ContentFolder) {
+    app.SetContentFolder(PathText(path));
+    return;
+  }
+  auto bytes = ReadBytes(path);
+  if (!bytes) {
+    app.Report(bytes.error());
+    return;
+  }
+  app.ImportAvatar(std::move(*bytes));
 }
 
 void SectionLabel(const char* text) {
@@ -714,32 +1031,188 @@ void DrawPlayerTab(App& app) {
   } else {
     SectionLabel("1-15 letters, numbers, spaces, _ or -");
   }
+}
 
-  ImGui::Dummy(ImVec2(0, 6));
-  SectionLabel("AVATAR");
-  if (app.AvatarPresent())
-    ImGui::TextUnformatted("Custom avatar set.");
-  else
-    ImGui::TextUnformatted("No avatar file. The game creates one for you.");
-  ImGui::BeginDisabled(app.dialog_event == static_cast<Uint32>(-1));
-  if (ImGui::Button("Choose .bin file")) {
-    static const SDL_DialogFileFilter filters[] = {{"Avatar description", "bin"}};
-    SDL_ShowOpenFileDialog(OnAvatarChosen, &app, app.window, filters, 1, nullptr, false);
+void Spinner(ImVec2 center) {
+  const float radius = ImGui::GetFontSize();
+  const float start = static_cast<float>(ImGui::GetTime()) * 6.0f;
+  ImDrawList* draw = ImGui::GetWindowDrawList();
+  draw->PathArcTo(center, radius, start, start + 4.5f, 24);
+  draw->PathStroke(ImGui::GetColorU32(kAccent), 0, radius * 0.2f);
+}
+
+void DrawAvatarTab(App& app) {
+  app.StartCatalog();
+  const ImGuiStyle& style = ImGui::GetStyle();
+  const float preview_width = kPreviewWidth * ImGui::GetFontSize() / 18.0f;
+  const float preview_height = preview_width * kPreviewHeight / kPreviewWidth;
+  const float left_width = ImGui::GetContentRegionAvail().x - preview_width - style.ItemSpacing.x * 3;
+
+  ImGui::BeginGroup();
+  ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + left_width);
+  static constexpr const char* kSteps[] = {
+      "Create an account at 360sona.com and sign in.",
+      "In the editor, click My Sonas, select your avatar and click Import / Export.",
+      "Copy the 360sona avatar text and paste it below. Or click Save the description (.bin) and open that "
+      "file here.",
+      "Check the preview, then press Launch.",
+  };
+  for (size_t i = 0; i < std::size(kSteps); ++i) {
+    ImGui::Text("%zu.", i + 1);
+    ImGui::SameLine();
+    ImGui::TextUnformatted(kSteps[i]);
+  }
+  ImGui::PopTextWrapPos();
+  if (ImGui::Button("Open 360sona.com")) SDL_OpenURL(kAvatarEditorUrl);
+
+  ImGui::Dummy(ImVec2(0, 4));
+  SectionLabel("SONA CODE");
+  const bool ready = app.catalog != nullptr;
+  // A complete code shows at once, whether typed, pasted with Ctrl+V or with the button.
+  bool changed = ImGui::InputTextMultiline("##code", app.code.data(), app.code.size(),
+                                           ImVec2(left_width, ImGui::GetTextLineHeight() * 4));
+  ImGui::BeginDisabled(!ready);
+  if (ImGui::Button("Paste")) {
+    char* clipboard = SDL_GetClipboardText();
+    SDL_strlcpy(app.code.data(), clipboard ? clipboard : "", app.code.size());
+    SDL_free(clipboard);
+    changed = true;
+  }
+  ImGui::EndDisabled();
+  if (changed && ready) app.ImportCode();
+  ImGui::SameLine();
+  ImGui::BeginDisabled(!ready || !app.dialog_event);
+  if (ImGui::Button("Open file...")) {
+    static const SDL_DialogFileFilter filters[] = {{"Avatar manifest or sona code", "bin;txt"}};
+    open_request.app = &app;
+    SDL_ShowOpenFileDialog(OnFileChosen, &open_request, app.window, filters, 1, nullptr, false);
+  }
+  ImGui::EndDisabled();
+
+  ImGui::Dummy(ImVec2(0, 4));
+  SectionLabel("YOUR AVATAR");
+  ImGui::BeginDisabled(!app.avatar || !app.dialog_event);
+  if (ImGui::Button("Export...")) {
+    static const SDL_DialogFileFilter filters[] = {{"Avatar manifest", "bin"}};
+    export_request.app = &app;
+    const std::string location = PathText(app.paths.base / "avatarmanifest.bin");
+    SDL_ShowSaveFileDialog(OnFileChosen, &export_request, app.window, filters, 1, location.c_str());
   }
   ImGui::EndDisabled();
   ImGui::SameLine();
-  ImGui::BeginDisabled(!app.AvatarPresent());
-  if (ImGui::Button("Remove")) {
-    std::error_code ec;
-    fs::remove(app.paths.avatar, ec);
-    if (ec)
-      app.Report(Error{ErrorKind::WriteFailed, app.paths.avatar, ec.message()});
-    else
-      app.Report("Avatar removed.");
+  if (!app.files.hasAvatar) {
+    ImGui::TextColored(kError, "The avatar pack table is missing. See the Files tab.");
+  } else if (app.Busy()) {
+    ImGui::TextUnformatted("Loading the avatar pack...");
+  } else if (!app.avatar) {
+    ImGui::TextColored(kError, "No avatar yet. Paste a code or open a file.");
+  } else if (app.avatarUnsaved) {
+    ImGui::TextColored(kAccent, "New. Launch saves it.");
+  } else {
+    ImGui::TextUnformatted("Saved.");
   }
-  ImGui::EndDisabled();
+  ImGui::EndGroup();
+
+  ImGui::SameLine(0, style.ItemSpacing.x * 3);
+  ImGui::BeginGroup();
+  const ImVec2 at = ImGui::GetCursorScreenPos();
+  ImGui::GetWindowDrawList()->AddRectFilled(at, ImVec2(at.x + preview_width, at.y + preview_height),
+                                            ImGui::GetColorU32(Hex(0x262930)), style.FrameRounding);
+  app.UpdatePreview();
+  if (app.avatar && app.preview) {
+    ImGui::Image(reinterpret_cast<ImTextureID>(app.preview), ImVec2(preview_width, preview_height));
+    // Dragging across the preview turns the avatar too.
+    if (ImGui::IsItemActive() || (ImGui::IsItemHovered() && ImGui::IsMouseDragging(ImGuiMouseButton_Left))) {
+      const float delta = ImGui::GetIO().MouseDelta.x;
+      if (delta != 0.0f) {
+        app.yaw += delta * 0.02f;
+        app.previewDirty = true;
+      }
+    }
+  } else {
+    ImGui::Dummy(ImVec2(preview_width, preview_height));
+    if (app.Busy()) Spinner(ImVec2(at.x + preview_width * 0.5f, at.y + preview_height * 0.5f));
+  }
+  const float arrow = ImGui::GetFrameHeight();
+  ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (preview_width - arrow * 2 - style.ItemSpacing.x) * 0.5f);
+  ImGui::BeginDisabled(!app.avatar);
+  ImGui::PushItemFlag(ImGuiItemFlags_ButtonRepeat, true);
+  if (ImGui::ArrowButton("##left", ImGuiDir_Left)) {
+    app.yaw -= kTurnStep;
+    app.previewDirty = true;
+  }
   ImGui::SameLine();
-  if (ImGui::Button("Make one at 360sona.com")) SDL_OpenURL(kAvatarEditorUrl);
+  if (ImGui::ArrowButton("##right", ImGuiDir_Right)) {
+    app.yaw += kTurnStep;
+    app.previewDirty = true;
+  }
+  ImGui::PopItemFlag();
+  ImGui::EndDisabled();
+  ImGui::EndGroup();
+}
+
+// Every other key in onevs100.toml. Saved with the rest when you press Launch.
+void DrawAdvancedSettings(App& app) {
+  ImGui::TextWrapped("Other keys in onevs100.toml. They are saved when you press Launch.");
+  LinkText("What each setting does", kDocsUrl);
+  const ImGuiStyle& style = ImGui::GetStyle();
+  const float remove_width = ImGui::CalcTextSize("Remove").x + style.FramePadding.x * 2;
+  if (ImGui::BeginTable("##others", 3, ImGuiTableFlags_SizingStretchProp)) {
+    ImGui::TableSetupColumn("key", ImGuiTableColumnFlags_WidthStretch, 0.4f);
+    ImGui::TableSetupColumn("value", ImGuiTableColumnFlags_WidthStretch, 0.6f);
+    ImGui::TableSetupColumn("remove", ImGuiTableColumnFlags_WidthFixed, remove_width);
+    std::optional<size_t> remove;
+    for (size_t i = 0; i < app.others.size(); ++i) {
+      ConfigEntry& entry = app.others[i];
+      ImGui::PushID(static_cast<int>(i));
+      ImGui::TableNextRow();
+      ImGui::TableNextColumn();
+      ImGui::AlignTextToFramePadding();
+      ImGui::TextUnformatted(entry.key.c_str());
+      ImGui::TableNextColumn();
+      ImGui::SetNextItemWidth(-1);
+      switch (entry.kind) {
+        case ConfigEntry::Kind::Flag: ImGui::Checkbox("##value", &entry.flag); break;
+        case ConfigEntry::Kind::Integer: {
+          ImGui::InputScalar("##value", ImGuiDataType_S64, &entry.integer);
+          break;
+        }
+        case ConfigEntry::Kind::Number: ImGui::InputDouble("##value", &entry.number); break;
+        case ConfigEntry::Kind::Text:
+          ImGui::InputText("##value", &entry.text);
+          break;
+      }
+      ImGui::TableNextColumn();
+      if (ImGui::Button("Remove")) remove = i;
+      ImGui::PopID();
+    }
+    if (remove) {
+      app.removed.push_back(app.others[*remove].key);
+      app.others.erase(app.others.begin() + static_cast<std::ptrdiff_t>(*remove));
+    }
+    ImGui::TableNextRow();
+    ImGui::TableNextColumn();
+    ImGui::SetNextItemWidth(-1);
+    ImGui::InputTextWithHint("##newkey", "name", app.newKey.data(), app.newKey.size(),
+                             ImGuiInputTextFlags_CharsNoBlank);
+    ImGui::TableNextColumn();
+    ImGui::SetNextItemWidth(-1);
+    ImGui::InputTextWithHint("##newvalue", "value", app.newValue.data(), app.newValue.size());
+    ImGui::TableNextColumn();
+    const std::string_view key(app.newKey.data());
+    const bool taken = ManagedKey(key) || std::any_of(app.others.begin(), app.others.end(),
+                                                      [&](const ConfigEntry& entry) { return entry.key == key; });
+    ImGui::BeginDisabled(!ValidConfigKey(key) || taken);
+    if (ImGui::Button("Add", ImVec2(remove_width, 0))) {
+      app.others.push_back(EntryFromText(std::string(key), app.newValue.data()));
+      std::erase(app.removed, std::string(key));
+      app.newKey.fill(0);
+      app.newValue.fill(0);
+    }
+    ImGui::EndDisabled();
+    ImGui::EndTable();
+  }
+  if (ManagedKey(app.newKey.data())) SectionLabel("That setting has its own control above.");
 }
 
 void DrawSettingsTab(App& app) {
@@ -766,18 +1239,32 @@ void DrawSettingsTab(App& app) {
   ImGui::BeginDisabled(!app.keyboard);
   ImGui::Checkbox("Mouse aims the right stick", &app.mouse_look);
   ImGui::EndDisabled();
+
+  ImGui::Dummy(ImVec2(0, 6));
+  ImGui::Checkbox("Show all settings", &app.advanced);
+  if (app.advanced) DrawAdvancedSettings(app);
 }
 
-void StatusIcon(bool ok) {
+// Green: as expected. Yellow: present by name, but not what the manifest or the game expects. Red: missing.
+enum class Indicator { Ok, Caution, Missing };
+
+void StatusIcon(Indicator indicator) {
+  const bool ok = indicator == Indicator::Ok;
   const float size = ImGui::GetTextLineHeight();
   const ImVec2 at = ImGui::GetCursorScreenPos();
   const ImVec2 center(at.x + size * 0.5f, at.y + size * 0.5f);
   ImGui::Dummy(ImVec2(size, size));
   ImDrawList* draw = ImGui::GetWindowDrawList();
-  const ImU32 ring = ImGui::GetColorU32(ok ? ImVec4(0.20f, 0.78f, 0.35f, 1.0f) : kError);
+  const ImU32 ring = ImGui::GetColorU32(ok                                ? ImVec4(0.20f, 0.78f, 0.35f, 1.0f)
+                                        : indicator == Indicator::Caution ? kCaution
+                                                                          : kError);
   const ImU32 mark = ImGui::GetColorU32(Hex(0xffffff));
   draw->AddCircle(center, size * 0.5f, ring, 20, size * 0.12f);
-  if (ok) {
+  if (indicator == Indicator::Caution) {
+    draw->AddLine(ImVec2(center.x, center.y - size * 0.24f), ImVec2(center.x, center.y + size * 0.06f), mark,
+                  size * 0.11f);
+    draw->AddCircleFilled(ImVec2(center.x, center.y + size * 0.22f), size * 0.06f, mark);
+  } else if (ok) {
     const ImVec2 p1(center.x - size * 0.20f, center.y);
     const ImVec2 p2(center.x - size * 0.02f, center.y + size * 0.18f);
     const ImVec2 p3(center.x + size * 0.24f, center.y - size * 0.18f);
@@ -806,8 +1293,8 @@ const char* RoleLabel(FileRole role) {
   return "";
 }
 
-void FileRow(bool ok, const char* label, const std::string& detail) {
-  StatusIcon(ok);
+void FileRow(Indicator indicator, const char* label, const std::string& detail) {
+  StatusIcon(indicator);
   ImGui::SameLine();
   ImGui::TextUnformatted(label);
   if (!detail.empty()) {
@@ -820,25 +1307,50 @@ void FileRow(bool ok, const char* label, const std::string& detail) {
 
 void ContentRow(const ContentFile& file) {
   if (!file.present) {
-    FileRow(false, RoleLabel(file.role), file.name + " - missing");
+    FileRow(Indicator::Missing, RoleLabel(file.role),
+            file.name + (file.role == FileRole::Avatar ? " - missing, or add the other avatar file" : " - missing"));
   } else if (!file.valid) {
-    FileRow(false, RoleLabel(file.role),
-            file.note.empty() ? file.name : file.name + " - " + file.note);
+    FileRow(Indicator::Caution, RoleLabel(file.role), file.name + " - " + file.note);
   } else {
-    FileRow(true, RoleLabel(file.role), file.name);
+    FileRow(Indicator::Ok, RoleLabel(file.role), file.name);
   }
 }
 
+// Files copied in while the launcher is in front show up within a few seconds.
+// Package headers are read again only when the folder listing changed.
+void CheckFiles(App& app) {
+  const auto now = std::chrono::steady_clock::now();
+  if (now - app.filesChecked < std::chrono::seconds(2)) return;
+  app.filesChecked = now;
+  if (ListFolder(app.files.dir) != app.files.listing) RefreshFiles(app);
+}
+
 void DrawFilesTab(App& app) {
-  // Refresh while visible so newly copied files show up without a restart.
-  if (app.frames - app.filesFrame >= 30) RefreshFiles(app);
   const FilesCheck& check = app.files;
+  ImGui::TextWrapped("Copy the packages from your Xbox 360 into the content folder: the game, its launch content, the "
+                     "show and episode packs, and the avatar pack (FFFE07DF00000002 or AvatarAssetPack.toc). Put "
+                     "them straight in the folder, untouched and without subfolders. This list updates by itself, "
+                     "and Launch unlocks once every row is green.");
+  ImGui::Dummy(ImVec2(0, 4));
   SectionLabel("CONTENT FOLDER");
   ImGui::TextWrapped("%s", PathText(check.dir).c_str());
+  ImGui::BeginDisabled(!app.dialog_event);
+  if (ImGui::Button("Set folder...")) {
+    folder_request.app = &app;
+    const std::string location = PathText(check.dir);
+    SDL_ShowOpenFolderDialog(OnFileChosen, &folder_request, app.window, location.c_str(), false);
+  }
+  ImGui::EndDisabled();
+  ImGui::SameLine();
+  ImGui::BeginDisabled(app.contentSetting == kDefaultContent);
+  if (ImGui::Button("Reset")) app.SetContentFolder(kDefaultContent);
+  ImGui::EndDisabled();
+  ImGui::SameLine();
+  SectionLabel("Default: the content folder next to the launcher.");
   if (!check.dirOk) {
-    FileRow(false, "Folder missing", "create it next to the launcher and add the game packages");
+    FileRow(Indicator::Missing, "Folder missing", "create it next to the launcher and add the game packages");
   } else if (check.files.empty()) {
-    FileRow(false, "No files", "copy the untouched game, show and episode packages here");
+    FileRow(Indicator::Missing, "No files", "copy the untouched game, show and episode packages here");
   }
   auto drawRole = [&](FileRole role) {
     for (const auto& file : check.files) {
@@ -852,49 +1364,46 @@ void DrawFilesTab(App& app) {
     return false;
   };
   drawRole(FileRole::Game);
-  if (check.dirOk && !hasRole(FileRole::Game)) FileRow(false, "Game package", "not found");
+  if (check.dirOk && !hasRole(FileRole::Game)) FileRow(Indicator::Missing, "Game package", "not found");
   drawRole(FileRole::Launch);
-  if (check.dirOk && !hasRole(FileRole::Launch)) FileRow(false, "Launch content", "not found");
+  if (check.dirOk && !hasRole(FileRole::Launch)) FileRow(Indicator::Missing, "Launch content", "not found");
+  // One pack is enough to play, so a partial set is a caution, not an error.
+  auto packSummary = [&](const char* label, FileRole role, size_t found) {
+    const size_t expected = static_cast<size_t>(
+        std::count_if(check.files.begin(), check.files.end(), [&](const ContentFile& file) { return file.role == role; }));
+    const std::string detail = std::to_string(found) + " of " + std::to_string(expected) + " found";
+    FileRow(found == expected ? Indicator::Ok : found ? Indicator::Caution : Indicator::Missing, label, detail);
+    drawRole(role);
+  };
   if (check.manifestOk) {
-    char count[64] = {};
-    SDL_snprintf(count, sizeof(count), "%zu found", check.showCount);
-    if (check.showCount > 0)
-      FileRow(true, "Show packs", count);
-    else
-      FileRow(false, "Show packs", "none found");
-    drawRole(FileRole::Show);
-    SDL_snprintf(count, sizeof(count), "%zu found", check.episodeCount);
-    if (check.episodeCount > 0)
-      FileRow(true, "Episode packs", count);
-    else
-      FileRow(false, "Episode packs", "none found");
-    drawRole(FileRole::Episode);
+    packSummary("Show packs", FileRole::Show, check.showCount);
+    packSummary("Episode packs", FileRole::Episode, check.episodeCount);
   } else {
     char packCount[64] = {};
     SDL_snprintf(packCount, sizeof(packCount), "%zu found", check.showEpisodeCount);
     if (check.showEpisodeCount > 0)
-      FileRow(true, "Show / episode packs", packCount);
+      FileRow(Indicator::Ok, "Show / episode packs", packCount);
     else
-      FileRow(false, "Show / episode packs", "none found");
+      FileRow(Indicator::Missing, "Show / episode packs", "none found");
     drawRole(FileRole::ShowEpisode);
   }
   drawRole(FileRole::Other);
   drawRole(FileRole::Invalid);
   ImGui::Dummy(ImVec2(0, 6));
   SectionLabel("AVATAR DATA");
-  drawRole(FileRole::Avatar);
+  // Either the pack table or the package holding it is enough, so once one is there the other is not missing.
+  for (const auto& file : check.files) {
+    if (file.role == FileRole::Avatar && (file.present || !check.hasAvatar)) ContentRow(file);
+  }
   if (check.dirOk && !hasRole(FileRole::Avatar))
-    FileRow(false, "Avatar pack table", "add AvatarAssetPack.toc or the FFFE07DF00000002 package");
-  ImGui::Dummy(ImVec2(0, 6));
-  if (ImGui::Button("Rescan")) RefreshFiles(app);
+    FileRow(Indicator::Missing, "Avatar pack table", "add AvatarAssetPack.toc or the FFFE07DF00000002 package");
 }
 
 // Returns true when the launcher should close.
 bool DrawFrame(App& app, const Fonts& fonts) {
   bool close = false;
-  ++app.frames;
-  // Keep the Files check fresh while the launcher sits open.
-  if (app.frames - app.filesFrame >= 120) RefreshFiles(app);
+  app.PollCatalog();
+  CheckFiles(app);
   const ImGuiViewport* viewport = ImGui::GetMainViewport();
   ImGui::SetNextWindowPos(viewport->WorkPos);
   ImGui::SetNextWindowSize(viewport->WorkSize);
@@ -917,11 +1426,17 @@ bool DrawFrame(App& app, const Fonts& fonts) {
   const ImGuiStyle& style = ImGui::GetStyle();
   const float line = ImGui::GetTextLineHeightWithSpacing();
   const float launch_height = ImGui::GetFrameHeight() * 1.6f;
-  const float footer = launch_height + line * 4 + style.ItemSpacing.y * 4;
+  const float footer = launch_height + line * 5 + style.ItemSpacing.y * 5;
   if (ImGui::BeginTabBar("##tabs")) {
     if (ImGui::BeginTabItem("Player")) {
       ImGui::BeginChild("##player", ImVec2(0, -footer), ImGuiChildFlags_AlwaysUseWindowPadding);
       DrawPlayerTab(app);
+      ImGui::EndChild();
+      ImGui::EndTabItem();
+    }
+    if (ImGui::BeginTabItem("Avatar")) {
+      ImGui::BeginChild("##avatar", ImVec2(0, -footer), ImGuiChildFlags_AlwaysUseWindowPadding);
+      DrawAvatarTab(app);
       ImGui::EndChild();
       ImGui::EndTabItem();
     }
@@ -948,8 +1463,9 @@ bool DrawFrame(App& app, const Fonts& fonts) {
   ImGui::PopStyleColor();
   ImGui::SetCursorPosY(std::max(ImGui::GetCursorPosY(), status_top + line * 2));
 
-  ImGui::BeginDisabled(!app.files.ok());
-  if (ShowButton("LAUNCH", ImVec2(ImGui::GetContentRegionAvail().x, launch_height))) {
+  const bool can_launch = app.files.ok() && app.HasAvatar();
+  ImGui::BeginDisabled(!can_launch);
+  if (ShowButton("LAUNCH", ImVec2(ImGui::GetContentRegionAvail().x, launch_height), can_launch)) {
     if (auto saved = app.Save(); !saved) {
       app.Report(saved.error());
     } else if (auto launched = LaunchGame(app.paths); !launched) {
@@ -960,15 +1476,23 @@ bool DrawFrame(App& app, const Fonts& fonts) {
   }
   ImGui::EndDisabled();
 
-  if (app.files.ok()) {
-    SectionLabel("Gamertag and settings are saved automatically when you press Launch.");
+  if (!app.files.ok()) {
+    ImGui::TextColored(kError, "Missing files. See the Files tab before launching.");
+  } else if (!app.HasAvatar()) {
+    ImGui::TextColored(kError, "Choose an avatar on the Avatar tab before launching.");
   } else {
-    ImGui::TextColored(kError, "Missing files - see the Files tab before launching.");
+    SectionLabel("Launch saves your gamertag, avatar and settings.");
   }
 
   LinkText("1vs100.fans", kWebsiteUrl);
   ImGui::SameLine(0, style.ItemSpacing.x * 3);
+  LinkText("Documentation", kDocsUrl);
+  ImGui::SameLine(0, style.ItemSpacing.x * 3);
+  LinkText("GitHub", kGithubUrl);
+  ImGui::SameLine(0, style.ItemSpacing.x * 3);
   LinkText("Discord", kDiscordUrl);
+  ImGui::AlignTextToFramePadding();
+  SectionLabel("1 vs 100 Reborn, build " ONEVS100_BUILD_VERSION);
   {
     const float closeWidth = ImGui::CalcTextSize("Close").x + style.FramePadding.x * 2;
     ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - closeWidth);
@@ -982,6 +1506,8 @@ bool DrawFrame(App& app, const Fonts& fonts) {
 
 int main(int, char**) {
   SDL_SetHint(SDL_HINT_APP_NAME, "1 vs 100 Launcher");
+  // The click that focuses the window also presses what is under the pointer.
+  SDL_SetHint(SDL_HINT_MOUSE_FOCUS_CLICKTHROUGH, "1");
   if (!SDL_Init(SDL_INIT_VIDEO)) {
     SDL_Log("SDL_Init failed: %s", SDL_GetError());
     return 1;
@@ -991,7 +1517,7 @@ int main(int, char**) {
                           : 1.0f;
   SDL_Window* window = nullptr;
   SDL_Renderer* renderer = nullptr;
-  if (!SDL_CreateWindowAndRenderer("1 vs 100", static_cast<int>(600 * scale), static_cast<int>(600 * scale), 0,
+  if (!SDL_CreateWindowAndRenderer("1 vs 100", static_cast<int>(800 * scale), static_cast<int>(900 * scale), 0,
                                    &window, &renderer)) {
     SDL_Log("Window creation failed: %s", SDL_GetError());
     SDL_Quit();
@@ -1010,38 +1536,47 @@ int main(int, char**) {
   App app;
   app.paths = MakePaths();
   app.window = window;
-  app.dialog_event = SDL_RegisterEvents(1);
-  if (app.dialog_event == static_cast<Uint32>(-1)) {
-    SDL_Log("No user event for the avatar file dialog; the picker is disabled.");
-    app.status = {"Avatar file picker unavailable in this build.", true};
+  app.renderer = renderer;
+  // SDL_RegisterEvents returns 0 when no event types are left.
+  if (const Uint32 type = SDL_RegisterEvents(1)) app.dialog_event = type;
+  if (!app.dialog_event) {
+    SDL_Log("No user event for the file dialogs; they are disabled.");
+    app.status = {"File dialogs are unavailable in this build.", true};
   }
   app.Load();
 
   bool running = true;
   while (running) {
     SDL_Event event;
-    // Idle until input arrives; the UI has no animation.
-    if (SDL_WaitEventTimeout(&event, 500)) {
+    // Idle until input arrives; the UI has no animation. Poll faster while the avatar pack loads.
+    if (SDL_WaitEventTimeout(&event, app.Busy() ? 50 : 500)) {
       do {
         ImGui_ImplSDL3_ProcessEvent(&event);
         if (event.type == SDL_EVENT_QUIT) running = false;
-        if (app.dialog_event != static_cast<Uint32>(-1) && event.type == app.dialog_event)
-          HandleAvatarChosen(app, event.user);
+        // Coming back from a file manager is when new files usually appear.
+        if (event.type == SDL_EVENT_WINDOW_FOCUS_GAINED) RefreshFiles(app);
+        if (app.dialog_event && event.type == *app.dialog_event)
+          HandleFileChosen(app, event.user);
       } while (SDL_PollEvent(&event));
     }
     if (SDL_GetWindowFlags(window) & SDL_WINDOW_MINIMIZED) continue;
 
-    ImGui_ImplSDLRenderer3_NewFrame();
-    ImGui_ImplSDL3_NewFrame();
-    ImGui::NewFrame();
-    if (DrawFrame(app, fonts)) running = false;
-    ImGui::Render();
-    SDL_SetRenderDrawColor(renderer, 0x0d, 0x0b, 0x1f, 255);
-    SDL_RenderClear(renderer);
-    ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), renderer);
-    SDL_RenderPresent(renderer);
+    // ImGui applies one press or release per frame, so a quick click needs a
+    // second frame to land before the loop goes idle again.
+    for (int pass = 0; pass < 2 && running; ++pass) {
+      ImGui_ImplSDLRenderer3_NewFrame();
+      ImGui_ImplSDL3_NewFrame();
+      ImGui::NewFrame();
+      if (DrawFrame(app, fonts)) running = false;
+      ImGui::Render();
+      SDL_SetRenderDrawColor(renderer, 0x0d, 0x0b, 0x1f, 255);
+      SDL_RenderClear(renderer);
+      ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), renderer);
+      SDL_RenderPresent(renderer);
+    }
   }
 
+  if (app.preview) SDL_DestroyTexture(app.preview);
   ImGui_ImplSDLRenderer3_Shutdown();
   ImGui_ImplSDL3_Shutdown();
   ImGui::DestroyContext();
