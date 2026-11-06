@@ -1,8 +1,8 @@
 # 1vs100-PC native D3D12 renderer - status, issues, testing
 
 Single reference for the native renderer port (CrashCourse2Recomp lineage).
-Supersedes the scattered notes in `docs/d3d-renderer-port.md`,
-`docs/strip-analysis.md`, and session scratchpads; those remain as history.
+Supersedes the scattered notes in `docs/d3d-renderer-port.md`
+and session scratchpads; those remain as history.
 
 ## 1. Goal
 
