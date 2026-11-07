@@ -69,7 +69,7 @@ Windows only: `ONEVS100_DUALSENSE_HID=1` reads a USB DualSense directly as a bac
 
 ### Settings reference
 
-`onevs100.toml` next to the executable holds flat `name = value` keys; every key also works as a `--name=value` flag. The launcher sets `gameserver_host`, `fullscreen`, `native_renderer` and the keyboard keys itself. Its "Show all settings" switch lists every other key for editing. Hand-written comments do not survive a Launch.
+`onevs100.toml` next to the executable holds flat `name = value` keys; every key also works as a `--name=value` flag. The launcher sets `gameserver_host`, `fullscreen`, `native_renderer`, `gpu_allow_invalid_fetch_constants` and the keyboard keys itself. Its "Show all settings" switch lists every other key for editing. Hand-written comments do not survive a Launch.
 
 | Setting | Default | What it does |
 |---|---|---|
@@ -77,6 +77,7 @@ Windows only: `ONEVS100_DUALSENSE_HID=1` reads a USB DualSense directly as a bac
 | `content` | `content` | game/show/episode package(s), used in place |
 | `fullscreen` | `true` | fullscreen or windowed |
 | `native_renderer` | `false`, shipped `true` | Windows and Linux x86-64: draw with the game's own renderer instead of the emulated GPU |
+| `gpu_allow_invalid_fetch_constants` | `true` | emulated GPU: use fetch constants it calls invalid; off leaves the Press Start scene black |
 | `mnk_mode` / `mnk_mouse` / `mnk_sensitivity` / `mnk_passthrough` | off | keyboard-pad emulation (above) |
 | `input_backend` | `sdl` | `sdl` or (Windows) `xinput` |
 | `keybind_*` | see table | keyboard remap |

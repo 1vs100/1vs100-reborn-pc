@@ -44,8 +44,8 @@ constexpr const char* kSonaGamertagUrl = "https://360sona.com/sona/v1/gamertag/"
 constexpr uint32_t kPreviewWidth = 240, kPreviewHeight = 320;
 constexpr float kTurnStep = 3.14159265f / 12.0f;  // 15 degrees per arrow press
 // Keys the launcher edits through its own controls; the advanced list leaves them out.
-constexpr std::array<std::string_view, 5> kManagedKeys = {"gameserver_host", "fullscreen", "mnk_mode", "mnk_mouse",
-                                                          "content"};
+constexpr std::array<std::string_view, 6> kManagedKeys = {"gameserver_host", "fullscreen", "mnk_mode", "mnk_mouse",
+                                                          "content", "gpu_allow_invalid_fetch_constants"};
 // The game builds its native renderer only where a DXC release exists.
 #if defined(_WIN32) || (defined(__linux__) && defined(__x86_64__))
 constexpr bool kHasNativeRenderer = true;
@@ -314,6 +314,9 @@ struct Settings {
   bool keyboard = false;
   bool mouse_look = false;
   bool native_renderer = false;
+  // The game turns this on itself when the key is missing; off leaves the Press Start scene black on the
+  // emulated renderer.
+  bool allow_invalid_fetch_constants = true;
   std::vector<ConfigEntry> others;
   // Keys removed from `others` since loading, so saving drops them from the file.
   std::vector<std::string> removed;
@@ -336,6 +339,8 @@ std::expected<Settings, Error> LoadSettings(const fs::path& config) {
   if (auto mouse_look = table["mnk_mouse"].value<bool>()) settings.mouse_look = *mouse_look;
   if (auto native = table["native_renderer"].value<bool>(); native && kHasNativeRenderer)
     settings.native_renderer = *native;
+  if (auto fetch = table["gpu_allow_invalid_fetch_constants"].value<bool>())
+    settings.allow_invalid_fetch_constants = *fetch;
   for (const auto& [key, node] : table) {
     if (ManagedKey(key.str())) continue;
     if (auto entry = EntryFromNode(std::string(key.str()), node)) settings.others.push_back(std::move(*entry));
@@ -369,6 +374,7 @@ std::expected<void, Error> SaveSettings(const fs::path& config, const Settings& 
   table.insert_or_assign("mnk_mode", settings.keyboard);
   table.insert_or_assign("mnk_mouse", settings.mouse_look);
   if (kHasNativeRenderer) table.insert_or_assign("native_renderer", settings.native_renderer);
+  table.insert_or_assign("gpu_allow_invalid_fetch_constants", settings.allow_invalid_fetch_constants);
   std::ofstream out(config, std::ios::trunc);
   out << table << '\n';
   out.flush();
@@ -738,6 +744,7 @@ struct App {
   bool keyboard = false;
   bool mouse_look = false;
   bool native_renderer = false;
+  bool allow_invalid_fetch_constants = true;
   Status status;
   SDL_Window* window = nullptr;
   // SDL's user event for file dialog results; none when SDL ran out of event types.
@@ -904,6 +911,7 @@ struct App {
     keyboard = settings->keyboard;
     mouse_look = settings->mouse_look;
     native_renderer = settings->native_renderer;
+    allow_invalid_fetch_constants = settings->allow_invalid_fetch_constants;
     others = std::move(settings->others);
     RefreshFiles(*this);
   }
@@ -924,6 +932,7 @@ struct App {
     out.keyboard = keyboard;
     out.mouse_look = mouse_look;
     out.native_renderer = native_renderer;
+    out.allow_invalid_fetch_constants = allow_invalid_fetch_constants;
     out.others = others;
     out.removed = removed;
     if (auto saved = SaveSettings(paths.config, out); !saved) return saved;
@@ -1302,6 +1311,7 @@ void DrawSettingsTab(App& app) {
   SectionLabel("DISPLAY");
   ImGui::Checkbox("Windowed mode", &app.windowed);
   if (kHasNativeRenderer) ImGui::Checkbox("Native renderer", &app.native_renderer);
+  ImGui::Checkbox("Allow invalid fetch constants", &app.allow_invalid_fetch_constants);
 
   ImGui::Dummy(ImVec2(0, 6));
   SectionLabel("CONTROLS");
