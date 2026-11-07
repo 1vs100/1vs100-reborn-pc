@@ -136,7 +136,10 @@ void InstallConfiguredContent() {
   auto* content = REX_KERNEL_STATE()->content_manager();
   size_t registered = 0;
   for (const auto& package : packages) {
-    if (!rex::filesystem::StfsContainerDevice::ReadPackageHeader(package)) continue;
+    const auto header = rex::filesystem::StfsContainerDevice::ReadPackageHeader(package);
+    if (!header) continue;
+    // Only add-on packages register here; the game and the avatar pack are opened elsewhere.
+    if (header->metadata.content_type != rex::system::XContentType::kMarketplaceContent) continue;
     const auto result = content->RegisterPackage(package);
     if (result == X_ERROR_ALREADY_EXISTS) {
       REXKRNL_INFO("content: {} not used, a package with the same content id is registered", package.filename());
