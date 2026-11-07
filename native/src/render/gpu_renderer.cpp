@@ -1934,7 +1934,9 @@ plume::RenderPipeline* Backend::DrawPipeline(const DrawRecord& r, uint32_t sampl
   }
   const auto geometry = GeometryExpansion(s.geometry);
   if (geometry != GeometryExpansion::kNone) {
-    desc.geometryShader = Shader(BuiltinShader(geometry == GeometryExpansion::kRectList ? "rect_expand" : "point_expand"), false);
+    const ShaderEntry* gs =
+        r.gs ? r.gs : BuiltinShader(geometry == GeometryExpansion::kRectList ? "rect_expand" : "point_expand");
+    desc.geometryShader = Shader(gs, false);
     if (!desc.geometryShader) { slot->ready.store(true, std::memory_order_release); return nullptr; }
   } else if (s.clip_planes) {
     desc.geometryShader = Shader(BuiltinShader("clip_planes"), false);
@@ -1951,8 +1953,8 @@ plume::RenderPipeline* Backend::DrawPipeline(const DrawRecord& r, uint32_t sampl
     case xenos::PrimitiveType::kTriangleStrip: desc.primitiveTopology = plume::RenderPrimitiveTopology::TRIANGLE_STRIP; break;
     default: desc.primitiveTopology = plume::RenderPrimitiveTopology::TRIANGLE_LIST; break;
   }
-  // Rectangles are never culled on Xenos.
-  desc.cullMode = geometry == GeometryExpansion::kRectList ? plume::RenderCullMode::NONE
+  // Points and rectangles are never culled on Xenos; their expanded quads have a fixed winding.
+  desc.cullMode = geometry != GeometryExpansion::kNone ? plume::RenderCullMode::NONE
                   : s.cull == 1                            ? plume::RenderCullMode::FRONT
                   : s.cull == 2                            ? plume::RenderCullMode::BACK
                                                            : plume::RenderCullMode::NONE;

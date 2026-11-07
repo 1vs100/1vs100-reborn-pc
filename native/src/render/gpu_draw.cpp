@@ -912,7 +912,6 @@ std::vector<uint32_t> Expand(xenos::PrimitiveType type, const std::vector<uint32
 
 std::atomic<bool> g_warn_ucp_shape{false};
 std::atomic<bool> g_warn_ucp_cull{false};
-std::atomic<bool> g_warn_dxbc_geometry{false};
 std::atomic<bool> g_warn_ucp_scale{false};
 std::atomic<bool> g_warn_blend_color{false};
 
@@ -1103,6 +1102,7 @@ struct DrawWork : PreparedDrawState {
   ResourceDesc depth;
   const ShaderEntry* vs = nullptr;
   const ShaderEntry* ps = nullptr;
+  const ShaderEntry* gs = nullptr;
   std::shared_ptr<DrawConstants> constants;
   std::shared_ptr<const FloatConstantBlock> vs_constants, ps_constants;
   std::vector<LiteralConstant> literals;
@@ -1146,6 +1146,7 @@ void PrepareDraw(DrawWork& work) {
   r.depth = work.depth;
   r.vs = work.vs;
   r.ps = work.ps;
+  r.gs = work.gs;
   auto c = work.constants;
   // Only the registers the snapshot holds: the others are stale and no shader of this draw reads them.
   const auto swap = [](const FloatConstantBlock& block, float* to) {
@@ -1302,7 +1303,12 @@ void PrepareDraw(DrawWork& work) {
   r.depth_clip = !clip.clip_disable;
 
 #if defined(_WIN32)
-  if (DxbcPath()) FillDxbcExtras(*device, a.type, c->dxbc);
+  if (DxbcPath()) {
+    FillDxbcExtras(*device, a.type, c->dxbc);
+    // One guest pixel is 2/w in NDC, and the GS takes half the diameter.
+    c->dxbc.point_screen_diameter_to_ndc_radius[0] = 1.0f / w;
+    c->dxbc.point_screen_diameter_to_ndc_radius[1] = 1.0f / h;
+  }
 #endif
   // User clip planes go through the pack's clip_planes GS, which takes triangles only; the DXBC VS clips itself.
   if (clip.ucp_ena && !clip.clip_disable && !DxbcPath()) {
@@ -1512,10 +1518,6 @@ bool Build(PPCContext& ctx, uint8_t* base, const DrawArgs& a, DrawRecord& r, con
   }
 #if defined(_WIN32)
   if (DxbcPath()) {
-    if (geometry != GeometryExpansion::kNone) {
-      Once(g_warn_dxbc_geometry, "point and rectangle lists are not drawn on the shader model 5.1 path");
-      return true;
-    }
     const auto& control = device->m_ControlPacket;
     dxbc::DrawShaderState state;
     state.program_cntl = device->m_ProgramPacket.ProgramControl.raw;
@@ -1523,13 +1525,14 @@ bool Build(PPCContext& ctx, uint8_t* base, const DrawArgs& a, DrawRecord& r, con
     state.interpolator_cntl = device->m_ProgramPacket.InterpolatorControl.raw;
     state.clip_cntl = control.ClipControl.raw;
     state.msaa_samples = uint32_t(device->m_DestinationPacket.SurfaceInfo.get().msaa_samples);
-    state.point_list = a.type == xenos::PrimitiveType::kPointList;
+    state.geometry = geometry;
     const auto colorcontrol = control.ColorControl.get();
     state.coverage_depends_on_alpha = colorcontrol.alpha_test_enable || colorcontrol.alpha_to_mask_enable;
     const auto shaders = dxbc::Translate(vs->guest, ps ? ps->guest : nullptr, state);
     if (!shaders.vs) return false;
     r.vs = shaders.vs;
     r.ps = shaders.ps;
+    r.gs = shaders.gs;
   }
 #endif
   s.topology = uint8_t(host_type);
@@ -1712,6 +1715,7 @@ bool Build(PPCContext& ctx, uint8_t* base, const DrawArgs& a, DrawRecord& r, con
   work->depth = r.depth;
   work->vs = r.vs;
   work->ps = r.ps;
+  work->gs = r.gs;
   work->constants = c;
   work->disable_cull = snap && !REXCVAR_GET(gpu_replay_cull);
   work->convert_constants = parallel_constants;

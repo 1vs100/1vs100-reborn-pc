@@ -209,6 +209,7 @@ struct DxbcSystemExtras {
   uint32_t alpha_to_mask = 0;
   uint32_t user_clip_plane_count = 0;
   float user_clip_planes[6][4] = {};        // enabled PA_CL_UCP planes, packed
+  float point_screen_diameter_to_ndc_radius[2] = {};  // read by the point list geometry shader
 };
 
 struct DrawConstants {
@@ -241,6 +242,7 @@ struct DrawRecord {
   PipelineState state{};
   const ShaderEntry* vs = nullptr;
   const ShaderEntry* ps = nullptr;
+  const ShaderEntry* gs = nullptr;  // DXBC point and rectangle list expansion
   std::array<ResourceDesc, 4> color{};
   ResourceDesc depth{};
   float viewport[6] = {};             // x, y, w, h, min z, max z in target pixels

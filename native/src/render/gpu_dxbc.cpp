@@ -8,6 +8,7 @@
 #include <unordered_map>
 
 #include <rex/graphics/pipeline/shader/dxbc.h>
+#include <rex/graphics/pipeline/shader/dxbc_geometry_shader.h>
 #include <rex/graphics/pipeline/shader/dxbc_translator.h>
 #include <rex/graphics/registers.h>
 #include <rex/logging.h>
@@ -32,6 +33,7 @@ namespace {
 bool g_active = false;
 std::mutex g_mutex;
 std::unordered_map<uint64_t, std::unique_ptr<GuestShader>> g_shaders;  // by stage and microcode hash
+std::unordered_map<uint32_t, std::unique_ptr<ShaderEntry>> g_geometry;   // by DxbcGeometryShaderKey
 uint32_t g_next_id = 0x20000000u;
 
 gfx::DxbcShaderTranslator& Translator() {
@@ -103,6 +105,26 @@ const ShaderEntry* TranslateOne(GuestShader& guest, Modification modification) {
   return &e;
 }
 
+const ShaderEntry* GeometryShader(GeometryExpansion geometry, Modification vm, Modification pm) {
+  const auto type = geometry == GeometryExpansion::kPointList ? gfx::DxbcGeometryShaderType::kPointList
+                                                                : gfx::DxbcGeometryShaderType::kRectangleList;
+  gfx::DxbcGeometryShaderKey key;
+  if (!gfx::GetDxbcGeometryShaderKey(type, vm, pm, key)) return nullptr;
+  auto& slot = g_geometry[key.key];
+  if (slot) return slot.get();
+  std::vector<uint32_t> code;
+  gfx::CreateDxbcGeometryShader(key, code);
+  slot = std::make_unique<ShaderEntry>();
+  slot->id = g_next_id++;
+  slot->stage = ShaderStage::kGeometry;
+  slot->runtime_hash = key.key;
+  slot->code.resize(code.size() * sizeof(uint32_t));
+  std::memcpy(slot->code.data(), code.data(), slot->code.size());
+  REXGPU_INFO("[gpu] dxbc {} list geometry shader {:08X}: {} bytes",
+              geometry == GeometryExpansion::kPointList ? "point" : "rectangle", key.key, slot->code.size());
+  return slot.get();
+}
+
 }  // namespace
 
 void SetActive(bool active) { g_active = active; }
@@ -159,11 +181,21 @@ DrawShaders Translate(const GuestShader* vs, const GuestShader* ps, const DrawSh
   vm.vertex.user_clip_plane_cull = planes && clip.ucp_cull_only_ena ? 1 : 0;
   vm.vertex.point_ps_ucp_mode = clip.ps_ucp_mode;
   vm.vertex.vertex_kill_and = (vs_shader.writes_point_size_edge_flag_kill_vertex() & 0b100) && !clip.vtx_kill_or;
-  vm.vertex.output_point_size = (vs_shader.writes_point_size_edge_flag_kill_vertex() & 0b001) && state.point_list;
+  const bool point_list = state.geometry == GeometryExpansion::kPointList;
+  vm.vertex.output_point_size = (vs_shader.writes_point_size_edge_flag_kill_vertex() & 0b001) && point_list;
 
   DrawShaders out;
   out.vs = TranslateOne(const_cast<GuestShader&>(*vs), vm);
-  if (!out.vs || !ps) return out;
+  if (!out.vs) return out;
+  if (!ps) {
+    if (state.geometry != GeometryExpansion::kNone) {
+      // As the SDK: no pixel shader, no interpolators.
+      Modification pm(0);
+      out.gs = GeometryShader(state.geometry, vm, pm);
+      if (!out.gs) out.vs = nullptr;
+    }
+    return out;
+  }
 
   const gfx::Shader& ps_shader = *ps->shader;
   Modification pm(translator.GetDefaultPixelShaderModification(
@@ -176,7 +208,7 @@ DrawShaders Translate(const GuestShader* vs, const GuestShader* ps, const DrawSh
   if (param_gen_pos < xenos::kMaxInterpolators) {
     pm.pixel.param_gen_enable = 1;
     pm.pixel.param_gen_interpolator = param_gen_pos;
-    pm.pixel.param_gen_point = state.point_list ? 1 : 0;
+    pm.pixel.param_gen_point = point_list ? 1 : 0;
   }
   using DepthStencilMode = Modification::DepthStencilMode;
   pm.pixel.depth_stencil_mode =
@@ -184,7 +216,8 @@ DrawShaders Translate(const GuestShader* vs, const GuestShader* ps, const DrawSh
           ? DepthStencilMode::kEarlyHint
           : DepthStencilMode::kNoModifiers;
   out.ps = TranslateOne(const_cast<GuestShader&>(*ps), pm);
-  if (!out.ps) out.vs = nullptr;
+  if (out.ps && state.geometry != GeometryExpansion::kNone) out.gs = GeometryShader(state.geometry, vm, pm);
+  if (!out.ps || (state.geometry != GeometryExpansion::kNone && !out.gs)) out.vs = nullptr;
   return out;
 }
 
@@ -201,10 +234,13 @@ void WriteSystemConstants(const SystemConstants& native, const DxbcSystemExtras&
   std::memcpy(s.user_clip_planes, extras.user_clip_planes, sizeof(s.user_clip_planes));
   std::memcpy(s.ndc_scale, native.ndc_scale, sizeof(s.ndc_scale));
   std::memcpy(s.ndc_offset, native.ndc_offset, sizeof(s.ndc_offset));
-  s.point_vertex_diameter_min = native.point_size[2];
-  s.point_vertex_diameter_max = native.point_size[3];
-  s.point_constant_diameter[0] = native.point_size[0];
-  s.point_constant_diameter[1] = native.point_size[1];
+  // The native constants hold twice the diameter that the SDK's point geometry shader takes.
+  s.point_vertex_diameter_min = native.point_size[2] * 0.5f;
+  s.point_vertex_diameter_max = native.point_size[3] * 0.5f;
+  s.point_constant_diameter[0] = native.point_size[0] * 0.5f;
+  s.point_constant_diameter[1] = native.point_size[1] * 0.5f;
+  std::memcpy(s.point_screen_diameter_to_ndc_radius, extras.point_screen_diameter_to_ndc_radius,
+              sizeof(s.point_screen_diameter_to_ndc_radius));
   std::memcpy(s.texture_swizzled_signs, extras.texture_swizzled_signs, sizeof(s.texture_swizzled_signs));
   std::memcpy(s.sample_count_log2, extras.sample_count_log2, sizeof(s.sample_count_log2));
   s.alpha_test_reference = native.alpha_test_reference;

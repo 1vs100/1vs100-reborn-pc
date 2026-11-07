@@ -393,6 +393,7 @@ if(WIN32)
         ${_rex_graphics}/pipeline/shader/translator.cpp
         ${_rex_graphics}/pipeline/shader/translator_disasm.cpp
         ${_rex_graphics}/pipeline/shader/dxbc.cpp
+        ${_rex_graphics}/pipeline/shader/dxbc_geometry_shader.cpp
         ${_rex_graphics}/pipeline/shader/dxbc_translator.cpp
         ${_rex_graphics}/pipeline/shader/dxbc_translator_alu.cpp
         ${_rex_graphics}/pipeline/shader/dxbc_translator_fetch.cpp

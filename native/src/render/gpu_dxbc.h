@@ -33,13 +33,14 @@ struct DrawShaderState {
   uint32_t clip_cntl = 0;         // PA_CL_CLIP_CNTL
   uint32_t interpolator_cntl = 0; // SQ_INTERPOLATOR_CNTL
   uint32_t msaa_samples = 0;      // RB_SURFACE_INFO.msaa_samples
-  bool point_list = false;
+  GeometryExpansion geometry = GeometryExpansion::kNone;
   bool coverage_depends_on_alpha = false;  // alpha test or alpha to coverage
 };
 
 struct DrawShaders {
   const ShaderEntry* vs = nullptr;
   const ShaderEntry* ps = nullptr;  // null when the draw has no pixel shader
+  const ShaderEntry* gs = nullptr;  // set for point and rectangle lists
 };
 
 // Guest thread: the translations for this draw state, translating on first use. vs is null on failure.
