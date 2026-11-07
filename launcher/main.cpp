@@ -46,6 +46,12 @@ constexpr float kTurnStep = 3.14159265f / 12.0f;  // 15 degrees per arrow press
 // Keys the launcher edits through its own controls; the advanced list leaves them out.
 constexpr std::array<std::string_view, 5> kManagedKeys = {"gameserver_host", "fullscreen", "mnk_mode", "mnk_mouse",
                                                           "content"};
+// The game builds its native renderer only where a DXC release exists.
+#if defined(_WIN32) || (defined(__linux__) && defined(__x86_64__))
+constexpr bool kHasNativeRenderer = true;
+#else
+constexpr bool kHasNativeRenderer = false;
+#endif
 constexpr const char* kDefaultContent = "content";
 constexpr size_t kGamertagMax = 15;
 // Content families the game looks for (native/src/content_install.cpp and the
@@ -296,6 +302,8 @@ bool ValidConfigKey(std::string_view key) {
 }
 
 bool ManagedKey(std::string_view key) {
+  // Without the checkbox the key stays in the advanced list, for builds that enable the renderer.
+  if (kHasNativeRenderer && key == "native_renderer") return true;
   return std::find(kManagedKeys.begin(), kManagedKeys.end(), key) != kManagedKeys.end();
 }
 
@@ -305,6 +313,7 @@ struct Settings {
   std::string content = "content";
   bool keyboard = false;
   bool mouse_look = false;
+  bool native_renderer = false;
   std::vector<ConfigEntry> others;
   // Keys removed from `others` since loading, so saving drops them from the file.
   std::vector<std::string> removed;
@@ -325,6 +334,8 @@ std::expected<Settings, Error> LoadSettings(const fs::path& config) {
   if (auto content = table["content"].value<std::string>()) settings.content = *content;
   if (auto keyboard = table["mnk_mode"].value<bool>()) settings.keyboard = *keyboard;
   if (auto mouse_look = table["mnk_mouse"].value<bool>()) settings.mouse_look = *mouse_look;
+  if (auto native = table["native_renderer"].value<bool>(); native && kHasNativeRenderer)
+    settings.native_renderer = *native;
   for (const auto& [key, node] : table) {
     if (ManagedKey(key.str())) continue;
     if (auto entry = EntryFromNode(std::string(key.str()), node)) settings.others.push_back(std::move(*entry));
@@ -357,6 +368,7 @@ std::expected<void, Error> SaveSettings(const fs::path& config, const Settings& 
   table.insert_or_assign("fullscreen", !settings.windowed);
   table.insert_or_assign("mnk_mode", settings.keyboard);
   table.insert_or_assign("mnk_mouse", settings.mouse_look);
+  if (kHasNativeRenderer) table.insert_or_assign("native_renderer", settings.native_renderer);
   std::ofstream out(config, std::ios::trunc);
   out << table << '\n';
   out.flush();
@@ -725,6 +737,7 @@ struct App {
   bool windowed = false;
   bool keyboard = false;
   bool mouse_look = false;
+  bool native_renderer = false;
   Status status;
   SDL_Window* window = nullptr;
   // SDL's user event for file dialog results; none when SDL ran out of event types.
@@ -890,6 +903,7 @@ struct App {
     contentSetting = settings->content;
     keyboard = settings->keyboard;
     mouse_look = settings->mouse_look;
+    native_renderer = settings->native_renderer;
     others = std::move(settings->others);
     RefreshFiles(*this);
   }
@@ -909,6 +923,7 @@ struct App {
     out.content = contentSetting;
     out.keyboard = keyboard;
     out.mouse_look = mouse_look;
+    out.native_renderer = native_renderer;
     out.others = others;
     out.removed = removed;
     if (auto saved = SaveSettings(paths.config, out); !saved) return saved;
@@ -1286,6 +1301,7 @@ void DrawSettingsTab(App& app) {
   ImGui::Dummy(ImVec2(0, 6));
   SectionLabel("DISPLAY");
   ImGui::Checkbox("Windowed mode", &app.windowed);
+  if (kHasNativeRenderer) ImGui::Checkbox("Native renderer", &app.native_renderer);
 
   ImGui::Dummy(ImVec2(0, 6));
   SectionLabel("CONTROLS");
