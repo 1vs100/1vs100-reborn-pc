@@ -37,8 +37,9 @@ root="$stage/1vs100"
 mkdir -p "$root/content"
 cp "$build_dir/onevs100" "$build_dir/launcher" "$root/"
 cp "$build_dir/librexruntime.so" "$build_dir/librexgpu-xenos.so" "$root/"
-# DXC exists for x86_64 only; other architectures build without the native renderer.
-if [ -f "$build_dir/libdxcompiler.so" ]; then
+# The x86-64 executable links libdxcompiler.so. DXC exists for x86-64 only, so
+# other architectures build with a stub translator and ship no DXC.
+if file -L "$build_dir/onevs100" | grep -q x86-64; then
   cp "$build_dir/libdxcompiler.so" "$build_dir/libdxil.so" "$root/"
 fi
 cp "$build_dir/onevs100.toml" "$build_dir/RUN.md" "$build_dir/manifest.txt" "$root/"

@@ -16,7 +16,7 @@ build_dir=$(realpath "$1")
 mkdir -p "$(dirname "$2")"
 out_file=$(cd "$(dirname "$2")" && pwd)/$(basename "$2")
 
-for f in onevs100.exe launcher.exe rexruntime.dll rexgpu-xenos.dll onevs100.toml RUN.md manifest.txt; do
+for f in onevs100.exe launcher.exe rexruntime.dll rexgpu-xenos.dll dxcompiler.dll dxil.dll onevs100.toml RUN.md manifest.txt; do
   if [ ! -f "$build_dir/$f" ]; then
     echo "missing $build_dir/$f" >&2
     exit 1
@@ -37,7 +37,7 @@ trap 'rm -rf "$stage"' EXIT
 root="$stage/1vs100"
 mkdir -p "$root/content"
 cp "$build_dir/onevs100.exe" "$build_dir/launcher.exe" "$root/"
-cp "$build_dir/rexruntime.dll" "$build_dir/rexgpu-xenos.dll" "$root/"
+cp "$build_dir/rexruntime.dll" "$build_dir/rexgpu-xenos.dll" "$build_dir/dxcompiler.dll" "$build_dir/dxil.dll" "$root/"
 cp "$build_dir/onevs100.toml" "$build_dir/RUN.md" "$build_dir/manifest.txt" "$root/"
 if [ -f "$build_dir/content/.keep" ]; then
   cp "$build_dir/content/.keep" "$root/content/"

@@ -3,7 +3,7 @@
 #
 # Usage: make_setup.sh <build_dir> <out_dir> [version]
 #
-# Stages the 8 files from the windows CI artifact into a temp stage/
+# Stages the files from the windows package into a temp stage/
 # then runs ISCC. Needs ISCC on PATH (windows runner with Inno Setup 6).
 # userdata is never staged; first run creates userdata/profiles.
 set -euo pipefail
@@ -27,7 +27,7 @@ if ! [[ "$version" =~ ^[0-9]+(\.[0-9]+){0,3}$ ]]; then
 fi
 export MSYS2_ARG_CONV_EXCL='*'
 
-for f in onevs100.exe launcher.exe rexruntime.dll rexgpu-xenos.dll onevs100.toml RUN.md manifest.txt; do
+for f in onevs100.exe launcher.exe rexruntime.dll rexgpu-xenos.dll dxcompiler.dll dxil.dll onevs100.toml RUN.md manifest.txt; do
   if [ ! -f "$build_dir/$f" ]; then
     echo "missing $build_dir/$f" >&2
     exit 1
@@ -49,7 +49,7 @@ trap 'rm -rf "$stage"' EXIT
 stage_win=$(cd "$stage" && pwd -W 2>/dev/null || echo "$stage")
 mkdir -p "$stage/stage/content"
 cp "$build_dir/onevs100.exe" "$build_dir/launcher.exe" "$stage/stage/"
-cp "$build_dir/rexruntime.dll" "$build_dir/rexgpu-xenos.dll" "$stage/stage/"
+cp "$build_dir/rexruntime.dll" "$build_dir/rexgpu-xenos.dll" "$build_dir/dxcompiler.dll" "$build_dir/dxil.dll" "$stage/stage/"
 cp "$build_dir/onevs100.toml" "$build_dir/RUN.md" "$build_dir/manifest.txt" "$stage/stage/"
 if [ -f "$build_dir/content/.keep" ]; then
   cp "$build_dir/content/.keep" "$stage/stage/content/"

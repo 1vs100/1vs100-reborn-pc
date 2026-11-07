@@ -1,6 +1,6 @@
 ; Per-user installer. userdata and user packs survive upgrade and uninstall.
-; Build with tools/packaging/windows/make_setup.sh which stages the 8 files
-; from the windows CI artifact into stage/ then runs ISCC.
+; Build with tools/packaging/windows/make_setup.sh which stages the files
+; from the windows package into stage/ then runs ISCC.
 #define MyAppName "1 vs 100"
 #ifndef MyAppVersion
 #define MyAppVersion "0.1.0"
@@ -36,6 +36,8 @@ Source: "stage\onevs100.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "stage\launcher.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "stage\rexruntime.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "stage\rexgpu-xenos.dll"; DestDir: "{app}"; Flags: ignoreversion
+Source: "stage\dxcompiler.dll"; DestDir: "{app}"; Flags: ignoreversion
+Source: "stage\dxil.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "stage\RUN.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "stage\manifest.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "stage\onevs100.toml"; DestDir: "{app}"; Flags: onlyifdoesntexist uninsneveruninstall

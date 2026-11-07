@@ -298,10 +298,8 @@ function(onevs100_fetch_dxc _url _sha256 _archive_name)
     file(WRITE "${_stamp}" "${_url} ${_sha256}")
 endfunction()
 
-# The desktop exe carries no static dxcompiler/dxil import (checked with
-# llvm-readobj --coff-imports); the shader translator loads them with
-# LoadLibraryW and falls back without them. The .lib below is a build input
-# only, so the zip and installer ship no DXC DLLs.
+# The executable imports dxcompiler, and dxcompiler loads dxil to sign DXIL,
+# so the Windows packages must ship both.
 if(ONEVS100_NATIVE_GPU)
   if(WIN32)
     onevs100_fetch_dxc("${ONEVS100_DXC_WIN_URL}" "${ONEVS100_DXC_WIN_SHA256}"
