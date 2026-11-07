@@ -19,6 +19,7 @@
 #include "online_service.h"
 #include "xma_kick.h"
 #include "avatar_view/avatar_dialog.h"
+#include "crash_report.h"
 #include "fatal_dialog.h"
 #include "avatar_native/native_provider.h"
 #include "guest_memory_ops.h"
@@ -216,9 +217,9 @@ class Onevs100App : public rex::ReXApp {
     avatar_dialog_ = std::make_unique<avatar_view::AvatarDialog>(drawer, immediate_drawer());
 #if REX_PLATFORM_WINRT
     // A packaged crash leaves its report for the next launch: no dialog
-    // runs on the faulting thread. The box owns itself and closes on tap.
+    // runs on the faulting thread.
     if (auto pending = fatal_dialog::TakePending()) {
-      rex::ui::ImGuiDialog::ShowMessageBox(drawer, "1 vs 100", *pending);
+      crash_report_ = crash_report::Show(drawer, std::move(*pending));
     }
 #endif
     if (onevs100::render::display::FpsCounter()) {
@@ -263,6 +264,7 @@ class Onevs100App : public rex::ReXApp {
 #endif
     fps_overlay_.reset();
     avatar_dialog_.reset();
+    crash_report_.reset();
     rex::audio::StopXmaKicker();
   }
   // void OnConfigurePaths(rex::PathConfig& paths) override {}
@@ -288,6 +290,7 @@ class Onevs100App : public rex::ReXApp {
 
   std::unique_ptr<rex::ui::DebugOverlayDialog> fps_overlay_;
   std::unique_ptr<avatar_view::AvatarDialog> avatar_dialog_;
+  std::unique_ptr<rex::ui::ImGuiDialog> crash_report_;
 
 #if ONEVS100_NATIVE_GPU
   std::atomic<bool> overlay_queued_{false};

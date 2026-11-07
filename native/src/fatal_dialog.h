@@ -53,14 +53,13 @@ inline std::optional<std::string> TakePending() {
     std::filesystem::remove(path, error);
     return std::nullopt;
   }
-  std::ifstream in(path, std::ios::binary);
-  if (!in) {
-    std::filesystem::remove(path, error);
-    return std::nullopt;
-  }
   std::string text(size_t(size), '\0');
-  in.read(text.data(), std::streamsize(size));
-  text.resize(size_t(in.gcount()));
+  {
+    // Closed before the remove: Windows refuses to delete a file that is still open.
+    std::ifstream in(path, std::ios::binary);
+    in.read(text.data(), std::streamsize(size));
+    text.resize(size_t(in.gcount()));
+  }
   std::filesystem::remove(path, error);
   if (text.empty()) return std::nullopt;
   return text;

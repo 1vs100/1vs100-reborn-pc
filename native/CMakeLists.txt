@@ -56,6 +56,7 @@ set(ONEVS100_SOURCES
     src/avatar_native/native_assets.cc
     src/avatar_view/avatar_view.cpp
     src/avatar_view/avatar_dialog.cpp
+    src/crash_report.cpp
     src/exit_probe.cpp
     src/fatal_dialog.cpp
     src/platform_compat.cpp

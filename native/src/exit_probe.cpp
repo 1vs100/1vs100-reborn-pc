@@ -4,6 +4,7 @@
 #include <string_view>
 #include "native_controls.h"
 #include "avatar_view/avatar_view.h"
+#include "crash_report.h"
 #include <algorithm>
 #include <cstdlib>
 #include <string>
@@ -60,8 +61,11 @@ REX_HOOK_RAW(sub_82324730) {
   if (ctx.r3.u32 == 0 && output) {
     const auto stick = Stronger(static_cast<int16_t>(REX_LOAD_U16(output + 8)),
                                 static_cast<int16_t>(REX_LOAD_U16(output + 12)));
-    if (avatar_view::FilterPad(user, REX_LOAD_U16(output + 4), stick)) {
-      // The game sees idle pads while the Avatar view has them.
+    const uint16_t buttons = REX_LOAD_U16(output + 4);
+    // The Avatar view sees an idle pad while the crash report holds it, so no press carries over.
+    const bool report = crash_report::FilterPad(user, buttons);
+    if (avatar_view::FilterPad(user, report ? 0 : buttons, report ? int16_t(0) : stick) || report) {
+      // The game sees idle pads while the crash report or the Avatar view has them.
       for (uint32_t offset = 4; offset < 16; ++offset) REX_STORE_U8(output + offset, 0);
     }
   }
