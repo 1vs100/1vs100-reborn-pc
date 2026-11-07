@@ -23,7 +23,6 @@
 
 #include "render/gpu.h"
 #include "render/gpu_tracker.h"
-#include "render/guest/d3d_device.h"
 
 REXCVAR_DEFINE_BOOL(render_edge_log, false, "GPU", "Log the guest registers of the D3D edge calls");
 
@@ -327,37 +326,3 @@ ONEVS100_WATCH(sub_822F6380, kEndTiling)
 ONEVS100_WATCH(sub_822F6060, kBeginZPass)
 ONEVS100_WATCH(sub_822F6838, kEndZPass)
 ONEVS100_WATCH(sub_822F40F8, kDrawIndexedTessellatedVertices)
-
-// Temporary hang hunt: trace BlockOnFence entry/exit with the waited fence and
-// the published/completed counters. Boot stalls with no draws and no edge
-// traffic, so an entry without a matching exit names the stuck wait. The
-// sub_822D8578 = BlockOnFence(dev=r3, waited=r4) reading is inferred from its
-// caller, not verified, and "done" means the call returned, not that the
-// fence was satisfied (a timeout exit looks identical). Remove once found.
-namespace {
-std::atomic<uint32_t> g_wait_traced{0};
-}
-
-REX_HOOK_RAW(sub_822D8578) {
-  const uint32_t waited = ctx.r4.u32;
-  const uint32_t dev = ctx.r3.u32;
-  const uint32_t n = g_wait_traced.fetch_add(1, std::memory_order_relaxed);
-  if (n < 32) {
-    uint32_t published = 0;
-    uint32_t completion = 0;
-    if (const auto* device =
-            REX_KERNEL_MEMORY()->TranslateVirtual<const onevs100::render::guest::D3DDevice*>(dev)) {
-      published = uint32_t(device->fence_next);
-      if (const auto* buf = REX_KERNEL_MEMORY()->TranslateVirtual<const rex::be<uint32_t>*>(
-              uint32_t(device->writeback_page))) {
-        completion = uint32_t(buf[0]);
-      }
-    }
-    REXKRNL_WARN("[gpu] wait BlockOnFence#{} dev={:x} waited={} published={} completion={}", n, dev,
-                 waited, published, completion);
-  }
-  __imp__sub_822D8578(ctx, base);
-  if (n < 32) {
-    REXKRNL_WARN("[gpu] wait BlockOnFence#{} done", n);
-  }
-}
