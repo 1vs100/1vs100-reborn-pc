@@ -432,6 +432,8 @@ struct ContentFile {
   bool present = false;
   bool valid = false;
   std::string note;
+  // A short-named twin of a manifest file; the game uses the full name.
+  bool duplicate = false;
 };
 
 struct ManifestEntry {
@@ -994,19 +996,28 @@ void RefreshFiles(App& app) {
         check.files.push_back(std::move(file));
       }
       // Files the manifest does not know about.
+      const size_t manifestFiles = check.files.size();
       for (const auto& entry : fs::directory_iterator(check.dir, ec)) {
         std::error_code entryEc;
         if (!entry.is_regular_file(entryEc)) continue;
         const std::string name = PathText(entry.path().filename());
         bool known = false;
-        for (const auto& file : check.files) {
-          const auto shortName = ShortContentName(file.name);
-          if (SameFileName(file.name, name) || (shortName && SameFileName(*shortName, name))) {
+        std::optional<ContentFile> duplicate;
+        for (size_t i = 0; i < check.files.size(); ++i) {
+          const ContentFile& file = check.files[i];
+          if (SameFileName(file.name, name)) {
             known = true;
             break;
           }
+          const auto shortName = ShortContentName(file.name);
+          if (i < manifestFiles && shortName && SameFileName(*shortName, name))
+            duplicate = ContentFile{name, file.role, true, false, "duplicate of " + file.name + ", not used", true};
         }
         if (known) continue;
+        if (duplicate) {
+          check.files.push_back(std::move(*duplicate));
+          continue;
+        }
         check.files.push_back(ClassifyFile(entry.path()));
       }
       std::sort(check.files.begin(), check.files.end(), [](const ContentFile& a, const ContentFile& b) {
@@ -1471,7 +1482,7 @@ void DrawFilesTab(App& app) {
   // One pack is enough to play, so a partial set is a caution, not an error.
   auto packSummary = [&](const char* label, FileRole role, size_t found) {
     const size_t expected = static_cast<size_t>(
-        std::count_if(check.files.begin(), check.files.end(), [&](const ContentFile& file) { return file.role == role; }));
+        std::count_if(check.files.begin(), check.files.end(), [&](const ContentFile& file) { return file.role == role && !file.duplicate; }));
     const std::string detail = std::to_string(found) + " of " + std::to_string(expected) + " found";
     FileRow(found == expected ? Indicator::Ok : found ? Indicator::Caution : Indicator::Missing, label, detail);
     drawRole(role);

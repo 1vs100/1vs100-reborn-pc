@@ -9,6 +9,7 @@
 #include <fmt/std.h>
 #include <rex/platform.h>
 #include <rex/system/kernel_state.h>
+#include <algorithm>
 #include <system_error>
 #include <vector>
 
@@ -121,17 +122,25 @@ std::vector<std::filesystem::path> FindAvatarPacks() {
 void InstallConfiguredContent() {
   const std::string source = REXCVAR_GET(content);
   if (source.empty()) return;
-  const auto packages = ConfiguredPackages();
+  auto packages = ConfiguredPackages();
   if (packages.empty()) {
     REXKRNL_ERROR("content: no package files at {}", source);
     return;
   }
+  // The first of "<id>58" and "<id>" registers and the other is refused, so
+  // longer names go first and the full name wins, as the launcher reports.
+  std::stable_sort(packages.begin(), packages.end(), [](const auto& a, const auto& b) {
+    return a.filename().native().size() > b.filename().native().size();
+  });
+  using rex::X_RESULT;  // X_ERROR_* expand to an unqualified X_RESULT cast.
   auto* content = REX_KERNEL_STATE()->content_manager();
   size_t registered = 0;
   for (const auto& package : packages) {
     if (!rex::filesystem::StfsContainerDevice::ReadPackageHeader(package)) continue;
     const auto result = content->RegisterPackage(package);
-    if (result) {
+    if (result == X_ERROR_ALREADY_EXISTS) {
+      REXKRNL_INFO("content: {} not used, a package with the same content id is registered", package.filename());
+    } else if (result) {
       REXKRNL_ERROR("content: {} failed ({:08X})", package, result);
     } else {
       REXKRNL_INFO("content: {} registered", package.filename());
