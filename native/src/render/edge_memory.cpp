@@ -147,11 +147,13 @@ REX_HOOK_RAW(sub_82477460) {
 }
 
 // XGSetTextureHeader 0x82476D20 (Width, Height, Levels, Usage, Format, Pool, BaseOffset,
-// MipOffset, Pitch, pTexture, pBaseSize, pMipSize); pTexture is the tenth argument, the
-// stack slot at r1+0x58. A header built here already owns its data through BaseOffset and
-// MipOffset with no XGOffset call to register it, so the range is registered here.
+// MipOffset, Pitch, pTexture, pBaseSize, pMipSize); pTexture is the tenth argument. Stack
+// arguments take 8-byte slots from r1+0x50 and the caller stores the 32-bit value in the low
+// word, so the tenth is at r1+0x5C. A header built here already owns its data through
+// BaseOffset and MipOffset with no XGOffset call to register it, so the range is registered
+// here.
 REX_HOOK_RAW(sub_82476D20) {
-  const uint32_t texture = *REX_KERNEL_MEMORY()->TranslateVirtual<rex::be<uint32_t>*>(ctx.r1.u32 + 0x58);
+  const uint32_t texture = *REX_KERNEL_MEMORY()->TranslateVirtual<rex::be<uint32_t>*>(ctx.r1.u32 + 0x5C);
   __imp__sub_82476D20(ctx, base);
   if (!onevs100::render::Enabled()) {
     return;
