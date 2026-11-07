@@ -78,7 +78,8 @@ add_executable(onevs100-launcher WIN32
   ${imgui_SOURCE_DIR}/backends/imgui_impl_sdl3.cpp
   ${imgui_SOURCE_DIR}/backends/imgui_impl_sdlrenderer3.cpp)
 target_include_directories(onevs100-launcher PRIVATE
-  ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends ${CMAKE_CURRENT_BINARY_DIR}/generated)
+  ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends ${CMAKE_CURRENT_BINARY_DIR}/generated
+  ${CMAKE_CURRENT_SOURCE_DIR}/../native/src)
 target_compile_definitions(onevs100-launcher PRIVATE IMGUI_DISABLE_DEMO_WINDOWS)
 # Only main.cpp shows the version, so only it rebuilds when the version changes.
 set_source_files_properties(main.cpp PROPERTIES

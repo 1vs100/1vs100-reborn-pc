@@ -1,4 +1,4 @@
-# Equivalence and speed tests for the renderer's capture helpers, and the avatar code parser. Standalone, so it builds without the SDK:
+# Equivalence and speed tests for the renderer's capture helpers, the avatar code parser, and content package names. Standalone, so it builds without the SDK:
 #   cmake -S native/tests -B build/tests -DCMAKE_BUILD_TYPE=Release && cmake --build build/tests && ctest --test-dir build/tests -V
 cmake_minimum_required(VERSION 3.25)
 project(onevs100_tests LANGUAGES C CXX)
@@ -40,3 +40,7 @@ add_subdirectory(../src/avatar_native onevs100_avatar)
 add_executable(sona_code_test sona_code_test.cpp)
 target_link_libraries(sona_code_test PRIVATE onevs100_avatar)
 add_test(NAME sona_code COMMAND sona_code_test ${CMAKE_CURRENT_SOURCE_DIR}/fixtures)
+
+add_executable(content_name_test content_name_test.cpp)
+target_include_directories(content_name_test PRIVATE ../src)
+add_test(NAME content_name COMMAND content_name_test)

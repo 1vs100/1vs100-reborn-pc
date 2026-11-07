@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <charconv>
 #include <chrono>
 #include <cstdint>
@@ -23,9 +24,11 @@
 #include <iterator>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <utility>
 
+#include "content_name.h"
 #include "font_data.h"
 #include "xna_avatar_format.h"
 
@@ -436,6 +439,13 @@ struct ManifestEntry {
   std::string name;
   uint64_t size = 0;
 };
+
+// File names compare without case, as the runtime and Windows do.
+bool SameFileName(std::string_view a, std::string_view b) {
+  return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin(), [](char x, char y) {
+           return std::tolower(static_cast<unsigned char>(x)) == std::tolower(static_cast<unsigned char>(y));
+         });
+}
 
 // Shared with the UWP onboarding (package/manifest.txt): "<sha256> <size>
 // <kind> <path>". The launcher matches content entries by file name and
@@ -960,9 +970,18 @@ void RefreshFiles(App& app) {
                     : entry.kind == "show"   ? FileRole::Show
                     : entry.kind == "avatar" ? FileRole::Avatar
                                              : FileRole::Episode;
-        const fs::path full = check.dir / PathFromUtf8(entry.name.c_str());
+        fs::path full = check.dir / PathFromUtf8(entry.name.c_str());
         std::error_code entryEc;
         file.present = fs::is_regular_file(full, entryEc);
+        const auto shortName = ShortContentName(entry.name);
+        if (!file.present && shortName) {
+          const fs::path shortPath = check.dir / PathFromUtf8(std::string(*shortName).c_str());
+          if (fs::is_regular_file(shortPath, entryEc)) {
+            full = shortPath;
+            file.name = *shortName;
+            file.present = true;
+          }
+        }
         if (!file.present) {
           file.note = "not found";
         } else if (fs::file_size(full, entryEc) != entry.size) {
@@ -980,11 +999,13 @@ void RefreshFiles(App& app) {
         if (!entry.is_regular_file(entryEc)) continue;
         const std::string name = PathText(entry.path().filename());
         bool known = false;
-        for (const auto& file : check.files)
-          if (file.name == name) {
+        for (const auto& file : check.files) {
+          const auto shortName = ShortContentName(file.name);
+          if (SameFileName(file.name, name) || (shortName && SameFileName(*shortName, name))) {
             known = true;
             break;
           }
+        }
         if (known) continue;
         check.files.push_back(ClassifyFile(entry.path()));
       }

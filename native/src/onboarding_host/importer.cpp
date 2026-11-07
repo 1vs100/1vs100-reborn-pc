@@ -8,6 +8,8 @@
 #include <winrt/windows.storage.fileproperties.h>
 #include <winrt/windows.storage.streams.h>
 
+#include "content_name.h"
+
 namespace onboarding {
 namespace {
 
@@ -38,7 +40,7 @@ void ImportCandidates(FileStore& store, Catalog& catalog, const std::vector<Cand
   std::vector<std::pair<FileIndex, StorageFile>> work;
   std::vector<bool> taken(manifest.entries().size());
   for (const auto& candidate : candidates) {
-    auto index = manifest.Match(candidate.relative_path);
+    auto index = MatchContentPath(manifest, candidate.relative_path);
     if (!index || taken[*index]) continue;
     taken[*index] = true;
     work.emplace_back(*index, candidate.file);

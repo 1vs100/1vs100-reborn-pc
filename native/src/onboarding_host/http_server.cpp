@@ -13,6 +13,7 @@
 #include <winrt/windows.foundation.h>
 #include <winrt/windows.storage.streams.h>
 
+#include "content_name.h"
 #include "onboarding/web.h"
 
 namespace onboarding {
@@ -244,7 +245,7 @@ void HttpServer::HandleConnection(StreamSocket socket) {
       connection.SendJson(400, "Bad Request", "invalid path");
       return;
     }
-    auto index = catalog_.manifest().Match(path);
+    auto index = MatchContentPath(catalog_.manifest(), path);
     if (!index) {
       if (auto cl = request->headers.find("content-length"); cl != request->headers.end()) {
         uint64_t n = 0;

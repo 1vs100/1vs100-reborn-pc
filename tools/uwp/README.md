@@ -18,7 +18,7 @@ The Store build cross-compiles from Linux with clang-cl. It needs an [msvc-wine]
 
 `package/manifest.txt` is the single file list for both this onboarding and the desktop launcher's Files tab. Lines are `<sha256-hex> <size> <kind> <relative/path>`, with paths relative to the user-data root (`content/...`).
 
-Content packages are named `<content id>58`, the name the game looks for. Edit the file by hand and keep it identical to the table in the 1vs100-reborn-x360 INSTALL.md. It is embedded in the UWP build and shipped in the desktop release archives for the launcher.
+Content packages are named `<content id>58`, the name the game looks for. Files without the trailing `58` are accepted too. Edit the file by hand and keep it identical to the table in the 1vs100-reborn-x360 INSTALL.md. It is embedded in the UWP build and shipped in the desktop release archives for the launcher.
 
 ## Code layout
 
