@@ -2,6 +2,7 @@
 //
 //   GET  /                     upload page
 //   GET  /status               JSON with per-file state and totals
+//   POST /match                picked paths, one per line; JSON manifest paths
 //   PUT  /upload/<path>        request body is the file, path is URL-encoded
 //
 // One request per connection (Connection: close), no TLS. Only reachable on

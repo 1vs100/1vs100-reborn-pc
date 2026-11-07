@@ -40,6 +40,8 @@ constexpr uint64_t kMinBytesPerSecond = 32 * 1024;
 // Rejected uploads are read to the end up to this size, so the browser gets
 // the answer instead of a connection reset.
 constexpr uint64_t kMaxDrainBytes = 256ull * 1024 * 1024;
+// A /match request lists picked file paths; a folder of a few thousand fits.
+constexpr uint64_t kMaxMatchBytes = 1024 * 1024;
 
 struct Request {
   std::string method;
@@ -232,6 +234,30 @@ void HttpServer::HandleConnection(StreamSocket socket) {
     }
     if (request->method == "GET" && target == "/status") {
       connection.Send(200, "OK", "application/json", StatusJson(catalog_.Take()));
+      return;
+    }
+    if (request->method == "POST" && target == "/match") {
+      uint64_t length = 0;
+      const auto cl = request->headers.find("content-length");
+      if (cl == request->headers.end() ||
+          std::from_chars(cl->second.data(), cl->second.data() + cl->second.size(), length).ec != std::errc() ||
+          length > kMaxMatchBytes) {
+        connection.Drain(length - std::min<uint64_t>(length, request->body_prefix.size()));
+        connection.SendJson(400, "Bad Request", "send at most 1 MiB of paths with Content-Length");
+        return;
+      }
+      const auto deadline = std::chrono::steady_clock::now() + kBodyBaseTime;
+      std::string body = std::move(request->body_prefix);
+      while (body.size() < length) {
+        if (std::chrono::steady_clock::now() > deadline) return;
+        std::string chunk = connection.ReadSome(static_cast<uint32_t>(length - body.size()));
+        if (chunk.empty()) return;
+        body += chunk;
+      }
+      body.resize(length);
+      const Manifest& manifest = catalog_.manifest();
+      connection.Send(200, "OK", "application/json",
+                      MatchJson(manifest, body, [&](std::string_view path) { return MatchContentPath(manifest, path); }));
       return;
     }
     constexpr std::string_view kUploadPrefix = "/upload/";
