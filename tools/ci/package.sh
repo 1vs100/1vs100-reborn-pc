@@ -17,16 +17,18 @@ case $target in
   windows) "$pack/make_win_zip.sh" "$build" "$out/$name.zip" ;;
   mac-arm64|mac-amd64) "$pack/make_mac_app.sh" "$build" "$out/$name.zip" "$version" ;;
   uwp)
-    "$ci/deps.sh" makemsix
+    "$ci/deps.sh" makemsix vclibs
     if [ -n "${CERT_PFX_B64:-}" ]; then
       CERT_PFX=$(mktemp)
       export CERT_PFX
       trap 'rm -f "$CERT_PFX"' EXIT
       echo "$CERT_PFX_B64" | base64 -d > "$CERT_PFX"
     fi
-    MAKEMSIX=${DEPS_DIR:-$root/build/deps}/makemsix/bin/makemsix \
+    deps=${DEPS_DIR:-$root/build/deps}
+    MAKEMSIX=$deps/makemsix/bin/makemsix VCLIBS_APPX=$deps/vclibs/Microsoft.VCLibs.x64.14.00.appx \
       "$root/tools/package_uwp.sh" "$build" "$out/uwp"
     mv "$out/uwp/onevs100.appx" "$out/$name.appx"
+    mv "$out/uwp/Microsoft.VCLibs.x64.14.00.appx" "$out/"
     rm -rf "$out/uwp"
     ;;
   *)

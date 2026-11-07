@@ -158,7 +158,7 @@ jobs:
         with:
           target: uwp
           codegen-key: ${{ needs.codegen-key.outputs.key }}
-          deps: xwin msvc sdl3-uwp makemsix
+          deps: xwin msvc sdl3-uwp makemsix vclibs
 
   # The image is x86_64 only, so this target installs the same packages on
   # the runner.
