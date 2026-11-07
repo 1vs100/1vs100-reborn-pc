@@ -20,6 +20,8 @@ OutputBaseFilename=1vs100-{#MyAppVersion}-setup
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
+; The shortcut goes straight into the Start menu, so there is no folder to choose.
+DisableProgramGroupPage=yes
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
