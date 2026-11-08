@@ -118,8 +118,14 @@ Paths MakePaths() {
   // Do NOT SDL_free the result: this SDL version caches the base path and
   // frees it in SDL_Quit, so freeing here double-frees on shutdown.
   const char* base_path = SDL_GetBasePath();
-  const fs::path base =
-      base_path ? PathFromUtf8(base_path) : fs::current_path();
+  fs::path base = base_path ? PathFromUtf8(base_path) : fs::current_path();
+#ifdef __APPLE__
+  // In a bundle SDL_GetBasePath is Contents/Resources; the executables are in Contents/MacOS.
+  const fs::path dir = base.has_filename() ? base : base.parent_path();
+  if (dir.filename() == "Resources" && dir.parent_path().filename() == "Contents") {
+    base = dir.parent_path() / "MacOS";
+  }
+#endif
   // Same rule as PlayerDataFolder in native/src/local_profile.cpp.
   const char* player_data = SDL_getenv("ONEVS100_PLAYER_DATA");
   const fs::path data = (player_data && *player_data) ? PathFromUtf8(player_data) : base / "userdata";

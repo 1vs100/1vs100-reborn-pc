@@ -3,8 +3,9 @@
 #
 # Usage: make_mac_app.sh <build_dir> <out_file> [version]
 #
-# Bundle stays flat in Contents/MacOS so SDL_GetBasePath and
-# GetExecutableFolder agree. userdata is never shipped;
+# Bundle stays flat in Contents/MacOS. The game locates its files through
+# the executable folder; the launcher redirects SDL_GetBasePath
+# (Contents/Resources) to the MacOS folder. userdata is never shipped;
 # first run creates userdata/profiles.
 set -euo pipefail
 
