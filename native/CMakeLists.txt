@@ -117,8 +117,11 @@ else()
         src/local_profile_dialog_posix.cpp
         src/native_controls_posix.cpp
         src/native_video_posix.cpp
-        src/video_driver_posix.cpp
     )
+    # SDL uses Cocoa on macOS.
+    if(NOT APPLE)
+        list(APPEND ONEVS100_SOURCES src/video_driver_posix.cpp)
+    endif()
 endif()
 
 if(WINDOWS_STORE)
