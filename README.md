@@ -1,12 +1,17 @@
 # 1 vs 100 PC
 
+[![build](https://github.com/1vs100/1vs100-reborn-pc/actions/workflows/build.yaml/badge.svg)](https://github.com/1vs100/1vs100-reborn-pc/actions/workflows/build.yaml)
+[![docs](https://img.shields.io/badge/docs-docs.1vs100.fans-blue?logo=readthedocs&logoColor=white)](https://docs.1vs100.fans)
+[![download](https://img.shields.io/github/v/release/1vs100/1vs100-reborn-pc?include_prereleases&label=download)](https://github.com/1vs100/1vs100-reborn-pc/releases/latest)
+[![license](https://img.shields.io/github/license/1vs100/1vs100-reborn-pc)](LICENSE)
+[![discord](https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/tV3ajhwFTf)
+
+Brought to you by @Avcracy and @tuxuser
+ 
 - Play the Xbox 360 game show 1 vs 100 on Windows, Linux or macOS.
 - Play online on the community server, together with Xbox players.
 - Use your own Avatar and gamertag.
 - Bring your own game files. This project ships no game content.
-
-- Website: [1vs100.fans](https://1vs100.fans)
-- Help and chat: [Discord](https://discord.gg/tV3ajhwFTf)
 
 ## Play
 
@@ -16,7 +21,7 @@
 
 The [PC setup guide](https://docs.1vs100.fans/pc/) walks you through each step with screenshots, and covers controls and common problems.
 
-The game is still early. Expect bugs, and please report them on [Discord](https://discord.gg/tV3ajhwFTf).
+The game is still early. Expect bugs, and please report them.
 
 ## Privacy
 
@@ -28,4 +33,9 @@ The PC version is the Xbox 360 game rebuilt with the [ReXGlue](https://github.co
 
 ## Licenses
 
-Our code is under the [MIT License](LICENSE). Third-party parts keep their own licenses. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). 1 vs 100, Xbox, Xbox 360 and Xbox LIVE are trademarks of their owners. This is an unofficial fan project, not affiliated with or endorsed by Microsoft or the game's developers.
+Our code is under the [MIT License](LICENSE). Third-party parts keep their own licenses.
+See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+## Disclaimer
+
+1 vs 100, Xbox, Xbox 360 and Xbox LIVE are trademarks of their owners. This is an unofficial fan project, not affiliated with or endorsed by Microsoft or the game's developers.
