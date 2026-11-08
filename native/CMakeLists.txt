@@ -48,6 +48,7 @@ set(ONEVS100_SOURCES
     src/guest_printf.cpp
     src/offline_profile.cpp
     src/local_profile.cpp
+    src/writable_folder.cpp
     src/dialogue_hook.cpp
     src/native_room_hook.cpp
     src/avatar_probe.cpp

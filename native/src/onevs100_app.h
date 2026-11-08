@@ -13,6 +13,7 @@
 #include <functional>
 #include <optional>
 #include "local_profile.h"
+#include "writable_folder.h"
 #include "content_install.h"
 #include "gameserver_redirect.h"
 #include "matchmaking_client.h"
@@ -89,22 +90,26 @@ class Onevs100App : public rex::ReXApp {
     }
 #endif
   }
+  void OnConfigureLogging(rex::LogConfig& config) override {
+    config.log_dir = WritableFolder() / "logs";
+  }
   void OnConfigurePaths(rex::PathConfig& paths) override {
-    auto folder = rex::filesystem::GetExecutableFolder();
-    if (paths.game_data_root.empty()) paths.game_data_root = folder / "assets";
-#if REX_PLATFORM_WINRT
-    // The package install folder is read-only. A config shipped in the package
-    // seeds the writable one on first run.
-    const auto shipped_config = folder / "onevs100.toml";
-    folder = rex::filesystem::GetUserFolder();
-    std::error_code error;
-    if (!std::filesystem::exists(folder / "onevs100.toml", error) &&
-        std::filesystem::exists(shipped_config, error)) {
-      std::filesystem::copy_file(shipped_config, folder / "onevs100.toml", error);
-      if (error) {
-        config_seed_error_ = error;
+    const auto install = rex::filesystem::GetExecutableFolder();
+    if (paths.game_data_root.empty()) paths.game_data_root = install / "assets";
+    const auto folder = WritableFolder();
+    if (folder != install) {
+      // The config shipped with the game seeds the writable one on first run.
+      const auto shipped_config = install / "onevs100.toml";
+      std::error_code error;
+      if (!std::filesystem::exists(folder / "onevs100.toml", error) &&
+          std::filesystem::exists(shipped_config, error)) {
+        std::filesystem::copy_file(shipped_config, folder / "onevs100.toml", error);
+        if (error) {
+          config_seed_error_ = error;
+        }
       }
     }
+#if REX_PLATFORM_WINRT
     // First run: get the game files onto the device (browser upload or USB)
     // before anything tries to use them. Skipped silently when the manifest
     // already verifies; if the user quits, the game reports the missing
@@ -117,7 +122,6 @@ class Onevs100App : public rex::ReXApp {
              std::to_string(version.Build) + "." + std::to_string(version.Revision)},
         onboarding::MakeWinrtPlatform());
 #endif
-    // All development saves/cache/config stay beside this isolated build.
 #ifdef _WIN32
     death_marker::SetDirectory(folder);
 #if REX_PLATFORM_WINRT
@@ -148,7 +152,7 @@ class Onevs100App : public rex::ReXApp {
         const auto folder = rex::filesystem::GetExecutableFolder();
         std::string reason;
         const std::string at =
-            scan.source.empty() ? (folder / "content").string() : scan.source.string();
+            scan.source.empty() ? (WritableFolder() / "content").string() : scan.source.string();
         if (!scan.dirExists) {
           REXKRNL_ERROR("onevs100: no game files found: content folder '{}' does not exist",
                         scan.source);
@@ -162,16 +166,11 @@ class Onevs100App : public rex::ReXApp {
           reason = "'" + scan.source.string() + "' holds " + std::to_string(scan.files) +
                    " file(s), none is the game package";
         }
-        // The scan resolves the setting against the user folder on UWP and the
-        // executable folder elsewhere; the hint names that same place.
-#if REX_PLATFORM_WINRT
-        const std::string into =
-            "into '" + at + "' (files directly inside, no subfolders)";
-#else
-        const std::string into = "into '" + at +
-                                 "' (files directly inside, no subfolders), or unpack default.xex and its media into '" +
-                                 (folder / "assets").string() + "'";
-#endif
+        // An install folder that is not the writable folder (package, app bundle) stays read-only.
+        std::string into = "into '" + at + "' (files directly inside, no subfolders)";
+        if (WritableFolder() == folder) {
+          into += ", or unpack default.xex and its media into '" + (folder / "assets").string() + "'";
+        }
         REXKRNL_ERROR("onevs100: copy the untouched game package plus show/episode packages {}", into);
         fatal_dialog::FatalError("1 vs 100",
                                  "No game files found: " + reason +
@@ -184,7 +183,7 @@ class Onevs100App : public rex::ReXApp {
   void OnPostInitLogging() override {
     // Logging starts after OnConfigurePaths.
     if (config_seed_error_) {
-      REXLOG_WARN("Could not copy the shipped config to LocalState: {}",
+      REXLOG_WARN("Could not copy the shipped config to {}: {}", config_path_,
                   config_seed_error_.message());
     }
   }

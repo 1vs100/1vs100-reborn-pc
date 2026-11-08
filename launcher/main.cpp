@@ -80,8 +80,12 @@ constexpr const char* kGameExecutable = "onevs100";
 #endif
 
 struct Paths {
+  // Folder holding the game and the files shipped with it.
   fs::path base;
+  // Folder for the config, player data and the default content folder.
+  fs::path data;
   fs::path game;
+  fs::path shipped_config;
   fs::path config;
   fs::path profiles;
   fs::path gamertag;
@@ -112,26 +116,6 @@ std::string PathText(const fs::path& path) {
 #else
   return path.string();
 #endif
-}
-
-Paths MakePaths() {
-  // Do NOT SDL_free the result: this SDL version caches the base path and
-  // frees it in SDL_Quit, so freeing here double-frees on shutdown.
-  const char* base_path = SDL_GetBasePath();
-  fs::path base = base_path ? PathFromUtf8(base_path) : fs::current_path();
-#ifdef __APPLE__
-  // In a bundle SDL_GetBasePath is Contents/Resources; the executables are in Contents/MacOS.
-  const fs::path dir = base.has_filename() ? base : base.parent_path();
-  if (dir.filename() == "Resources" && dir.parent_path().filename() == "Contents") {
-    base = dir.parent_path() / "MacOS";
-  }
-#endif
-  // Same rule as PlayerDataFolder in native/src/local_profile.cpp.
-  const char* player_data = SDL_getenv("ONEVS100_PLAYER_DATA");
-  const fs::path data = (player_data && *player_data) ? PathFromUtf8(player_data) : base / "userdata";
-  const fs::path profiles = data / "profiles";
-  return {base, base / kGameExecutable, base / "onevs100.toml", profiles, profiles / "local-name.txt",
-          profiles / "avatar.bin"};
 }
 
 // Same rules as ValidName in native/src/local_profile.cpp.
@@ -212,7 +196,8 @@ enum class ErrorKind {
   WriteFailed,
   AvatarUnreadable,
   GameMissing,
-  LaunchFailed
+  LaunchFailed,
+  DataFolderUnavailable
 };
 
 struct Error {
@@ -233,7 +218,56 @@ std::string Describe(const Error& error) {
     case ErrorKind::AvatarUnreadable: return "Cannot read " + path + ": " + error.detail;
     case ErrorKind::GameMissing: return "Game not found: " + path;
     case ErrorKind::LaunchFailed: return "Cannot start the game: " + error.detail;
+    case ErrorKind::DataFolderUnavailable: return "Cannot create the Application Support folder: " + error.detail;
   }
+  return {};
+}
+
+std::expected<Paths, Error> MakePaths() {
+  // Do NOT SDL_free the result: this SDL version caches the base path and
+  // frees it in SDL_Quit, so freeing here double-frees on shutdown.
+  const char* base_path = SDL_GetBasePath();
+  fs::path base = base_path ? PathFromUtf8(base_path) : fs::current_path();
+  fs::path data = base;
+#ifdef __APPLE__
+  // In a bundle SDL_GetBasePath is Contents/Resources; the executables are in Contents/MacOS.
+  // Same rule as WritableFolder in native/src/writable_folder.cpp.
+  const fs::path dir = base.has_filename() ? base : base.parent_path();
+  if (dir.filename() == "Resources" && dir.parent_path().filename() == "Contents") {
+    base = dir.parent_path() / "MacOS";
+    char* pref = SDL_GetPrefPath("", "1vs100");
+    if (!pref) return std::unexpected(Error{ErrorKind::DataFolderUnavailable, {}, SDL_GetError()});
+    data = PathFromUtf8(pref);
+    SDL_free(pref);
+    if (!data.has_filename()) data = data.parent_path();
+  }
+#endif
+  // Same rule as PlayerDataFolder in native/src/local_profile.cpp.
+  const char* player_data = SDL_getenv("ONEVS100_PLAYER_DATA");
+  const fs::path player = (player_data && *player_data) ? PathFromUtf8(player_data) : data / "userdata";
+  const fs::path profiles = player / "profiles";
+  return Paths{.base = base,
+               .data = data,
+               .game = base / kGameExecutable,
+               .shipped_config = base / "onevs100.toml",
+               .config = data / "onevs100.toml",
+               .profiles = profiles,
+               .gamertag = profiles / "local-name.txt",
+               .avatar = profiles / "avatar.bin"};
+}
+
+// A separate data folder starts with the shipped config, as the game does on
+// first run, and an empty default content folder for the player to fill.
+std::expected<void, Error> PrepareDataFolder(const Paths& paths) {
+  if (paths.data == paths.base) return {};
+  std::error_code ec;
+  if (!fs::exists(paths.config, ec) && fs::exists(paths.shipped_config, ec)) {
+    fs::copy_file(paths.shipped_config, paths.config, ec);
+    if (ec) return std::unexpected(Error{ErrorKind::WriteFailed, paths.config, ec.message()});
+  }
+  const fs::path content = paths.data / kDefaultContent;
+  fs::create_directories(content, ec);
+  if (ec) return std::unexpected(Error{ErrorKind::WriteFailed, content, ec.message()});
   return {};
 }
 
@@ -598,7 +632,7 @@ ContentFile ClassifyFile(const fs::path& path) {
 fs::path ResolveContentDir(const Paths& paths, const std::string& setting) {
   const std::string raw = setting.empty() ? "content" : setting;
   fs::path dir = PathFromUtf8(raw.c_str());
-  if (dir.is_relative()) dir = paths.base / dir;
+  if (dir.is_relative()) dir = paths.data / dir;
   return dir;
 }
 
@@ -916,6 +950,7 @@ struct App {
 
   void Load() {
     if (auto name = LoadGamertag(paths.gamertag)) SDL_strlcpy(gamertag.data(), name->c_str(), gamertag.size());
+    if (auto prepared = PrepareDataFolder(paths); !prepared) Report(prepared.error());
     auto settings = LoadSettings(paths.config);
     if (!settings) {
       SDL_strlcpy(host.data(), kDefaultHost, host.size());
@@ -1211,7 +1246,7 @@ void DrawAvatarTab(App& app) {
   if (ImGui::Button("Export...")) {
     static const SDL_DialogFileFilter filters[] = {{"Avatar manifest", "bin"}};
     export_request.app = &app;
-    const std::string location = PathText(app.paths.base / "avatarmanifest.bin");
+    const std::string location = PathText(app.paths.data / "avatarmanifest.bin");
     SDL_ShowSaveFileDialog(OnFileChosen, &export_request, app.window, filters, 1, location.c_str());
   }
   ImGui::EndDisabled();
@@ -1359,6 +1394,17 @@ void DrawSettingsTab(App& app) {
   ImGui::EndDisabled();
 
   ImGui::Dummy(ImVec2(0, 6));
+  SectionLabel("DATA FOLDER");
+  ImGui::TextWrapped("%s", PathText(app.paths.data).c_str());
+  const fs::path player = app.paths.profiles.parent_path();
+  if (player == app.paths.data / "userdata") {
+    SectionLabel("Holds onevs100.toml, userdata and the default content folder.");
+  } else {
+    SectionLabel("Holds onevs100.toml and the default content folder. Player data (ONEVS100_PLAYER_DATA):");
+    ImGui::TextWrapped("%s", PathText(player).c_str());
+  }
+
+  ImGui::Dummy(ImVec2(0, 6));
   ImGui::Checkbox("Show all settings", &app.advanced);
   if (app.advanced) DrawAdvancedSettings(app);
 }
@@ -1464,9 +1510,9 @@ void DrawFilesTab(App& app) {
   if (ImGui::Button("Reset")) app.SetContentFolder(kDefaultContent);
   ImGui::EndDisabled();
   ImGui::SameLine();
-  SectionLabel("Default: the content folder next to the launcher.");
+  SectionLabel("Default: the content folder next to onevs100.toml.");
   if (!check.dirOk) {
-    FileRow(Indicator::Missing, "Folder missing", "create it next to the launcher and add the game packages");
+    FileRow(Indicator::Missing, "Folder missing", "create it and add the game packages");
   } else if (check.files.empty()) {
     FileRow(Indicator::Missing, "No files", "copy the untouched game, show and episode packages here");
   }
@@ -1630,6 +1676,14 @@ int main(int, char**) {
     SDL_Log("SDL_Init failed: %s", SDL_GetError());
     return 1;
   }
+  auto paths = MakePaths();
+  if (!paths) {
+    const std::string text = Describe(paths.error());
+    SDL_Log("%s", text.c_str());
+    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "1 vs 100", text.c_str(), nullptr);
+    SDL_Quit();
+    return 1;
+  }
   const float scale = SDL_GetDisplayContentScale(SDL_GetPrimaryDisplay()) > 0
                           ? SDL_GetDisplayContentScale(SDL_GetPrimaryDisplay())
                           : 1.0f;
@@ -1652,7 +1706,7 @@ int main(int, char**) {
   ImGui_ImplSDLRenderer3_Init(renderer);
 
   App app;
-  app.paths = MakePaths();
+  app.paths = std::move(*paths);
   app.window = window;
   app.renderer = renderer;
   // SDL_RegisterEvents returns 0 when no event types are left.

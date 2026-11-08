@@ -1,5 +1,6 @@
 #include "local_profile.h"
 #include "local_profile_internal.h"
+#include "writable_folder.h"
 #include <rex/system/kernel_state.h>
 #include <rex/system/xam/user_profile.h>
 #include <rex/filesystem.h>
@@ -140,19 +141,14 @@ uint64_t LocalXuid() {
 }
 std::filesystem::path PlayerDataFolder() {
   // ONEVS100_PLAYER_DATA lets every copy on this PC share one profile
-  // and saved stats (the launcher sets it); otherwise userdata beside the game.
+  // and saved stats (the launcher sets it); otherwise userdata in WritableFolder.
 #ifdef _WIN32
   wchar_t value[1024] = {};
   if (GetEnvironmentVariableW(L"ONEVS100_PLAYER_DATA", value, 1024) && value[0]) return std::filesystem::path(value);
 #else
   if (const std::string value = Environment("ONEVS100_PLAYER_DATA"); !value.empty()) return value;
 #endif
-#if REX_PLATFORM_WINRT
-  // The package install folder is read-only.
-  return rex::filesystem::GetUserFolder() / "userdata";
-#else
-  return rex::filesystem::GetExecutableFolder() / "userdata";
-#endif
+  return WritableFolder() / "userdata";
 }
 void InitializeLocalProfile() {
 #if REX_PLATFORM_WINRT
