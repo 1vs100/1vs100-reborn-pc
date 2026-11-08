@@ -3,9 +3,9 @@
 #
 # Usage: make_mac_app.sh <build_dir> <out_file> [version]
 #
-# Bundle stays flat in Contents/MacOS so SDL_GetBasePath and
-# GetExecutableFolder agree. userdata is never shipped;
-# first run creates userdata/profiles.
+# Bundle stays flat in Contents/MacOS. The game and launcher write config,
+# userdata and content to ~/Library/Application Support/1vs100, seeding
+# onevs100.toml from the bundled copy, so the bundle stays read-only.
 set -euo pipefail
 
 if [ $# -lt 2 ] || [ $# -gt 3 ]; then
@@ -39,10 +39,6 @@ if [ "$dylib_found" -ne 1 ]; then
   echo "missing $build_dir/*.dylib" >&2
   exit 1
 fi
-if [ ! -d "$build_dir/content" ]; then
-  echo "missing $build_dir/content" >&2
-  exit 1
-fi
 
 if [ -e "$build_dir/userdata" ]; then
   echo "refusing to pack userdata in $build_dir" >&2
@@ -60,13 +56,10 @@ fi
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
 app="$stage/1vs100.app/Contents/MacOS"
-mkdir -p "$app/content" "$stage/1vs100.app/Contents/Resources"
+mkdir -p "$app" "$stage/1vs100.app/Contents/Resources"
 cp "$build_dir/onevs100" "$build_dir/launcher" "$app/"
 cp "$build_dir"/*.dylib "$app/"
 cp "$build_dir/onevs100.toml" "$build_dir/RUN.md" "$build_dir/manifest.txt" "$app/"
-if [ -f "$build_dir/content/.keep" ]; then
-  cp "$build_dir/content/.keep" "$app/content/"
-fi
 # SDK stages the Vulkan runtime under vulkan/ next to the executable.
 # Preserve that subtree so DetectMacOSVulkanRuntimePaths finds it
 # via executable_dir/vulkan. The ICD library_path is relative

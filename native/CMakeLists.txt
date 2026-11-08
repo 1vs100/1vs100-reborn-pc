@@ -48,6 +48,7 @@ set(ONEVS100_SOURCES
     src/guest_printf.cpp
     src/offline_profile.cpp
     src/local_profile.cpp
+    src/writable_folder.cpp
     src/dialogue_hook.cpp
     src/native_room_hook.cpp
     src/avatar_probe.cpp
@@ -117,8 +118,11 @@ else()
         src/local_profile_dialog_posix.cpp
         src/native_controls_posix.cpp
         src/native_video_posix.cpp
-        src/video_driver_posix.cpp
     )
+    # SDL uses Cocoa on macOS.
+    if(NOT APPLE)
+        list(APPEND ONEVS100_SOURCES src/video_driver_posix.cpp)
+    endif()
 endif()
 
 if(WINDOWS_STORE)

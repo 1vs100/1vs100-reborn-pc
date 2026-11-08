@@ -2,6 +2,7 @@
 // packages) kept in their original form. A file, or a folder of package files. Packages are registered with the content manager and
 // mounted when the title opens them.
 #include "content_install.h"
+#include "writable_folder.h"
 #include <rex/cvar.h>
 #include <rex/filesystem.h>
 #include <rex/filesystem/devices/stfs_container_device.h>
@@ -15,7 +16,7 @@
 
 REXCVAR_DEFINE_STRING(content, "content", "Content",
                       "Content package file, or folder of package files, to load at startup. "
-                      "Relative paths resolve against the executable folder");
+                      "Relative paths resolve against the folder that holds onevs100.toml");
 
 namespace {
 
@@ -27,12 +28,7 @@ std::vector<std::filesystem::path> ConfiguredPackages() {
   // The setting is UTF-8; a plain path() conversion would use the Windows code page.
   std::filesystem::path source = rex::to_path(REXCVAR_GET(content));
   if (source.empty()) return {};
-#if REX_PLATFORM_WINRT
-  // The install folder is read-only; user content lives in LocalState.
-  if (source.is_relative()) source = rex::filesystem::GetUserFolder() / source;
-#else
-  if (source.is_relative()) source = rex::filesystem::GetExecutableFolder() / source;
-#endif
+  if (source.is_relative()) source = WritableFolder() / source;
   std::error_code error;
   std::vector<std::filesystem::path> packages;
   if (std::filesystem::is_directory(source, error)) {
@@ -49,11 +45,7 @@ std::vector<std::filesystem::path> ConfiguredPackages() {
 ContentScan ScanContentPackages() {
   std::filesystem::path source = rex::to_path(REXCVAR_GET(content));
   if (source.empty()) return {source, false, 0};
-#if REX_PLATFORM_WINRT
-  if (source.is_relative()) source = rex::filesystem::GetUserFolder() / source;
-#else
-  if (source.is_relative()) source = rex::filesystem::GetExecutableFolder() / source;
-#endif
+  if (source.is_relative()) source = WritableFolder() / source;
   std::error_code error;
   if (!std::filesystem::is_directory(source, error)) return {source, false, 0};
   size_t files = 0;
