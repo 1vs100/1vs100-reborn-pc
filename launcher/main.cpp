@@ -47,8 +47,9 @@ constexpr const char* kSonaGamertagUrl = "https://360sona.com/sona/v1/gamertag/"
 constexpr uint32_t kPreviewWidth = 240, kPreviewHeight = 320;
 constexpr float kTurnStep = 3.14159265f / 12.0f;  // 15 degrees per arrow press
 // Keys the launcher edits through its own controls; the advanced list leaves them out.
-constexpr std::array<std::string_view, 6> kManagedKeys = {"gameserver_host", "fullscreen", "mnk_mode", "mnk_mouse",
-                                                          "content", "gpu_allow_invalid_fetch_constants"};
+constexpr std::array<std::string_view, 8> kManagedKeys = {
+    "gameserver_host", "fullscreen", "mnk_mode", "mnk_mouse", "content", "gpu_allow_invalid_fetch_constants",
+    "log_level", "lua_print_log"};
 // The game builds its native renderer only where a DXC release exists.
 #if defined(_WIN32) || (defined(__linux__) && defined(__x86_64__))
 constexpr bool kHasNativeRenderer = true;
@@ -350,6 +351,32 @@ bool ManagedKey(std::string_view key) {
   return std::find(kManagedKeys.begin(), kManagedKeys.end(), key) != kManagedKeys.end();
 }
 
+// The game's log levels, most detail first, as onevs100.toml names them.
+enum class LogLevel { Trace, Debug, Info, Warn, Error, Critical, Off };
+constexpr std::array<LogLevel, 7> kLogLevels = {LogLevel::Trace, LogLevel::Debug,    LogLevel::Info, LogLevel::Warn,
+                                                LogLevel::Error, LogLevel::Critical, LogLevel::Off};
+
+const char* LogLevelName(LogLevel level) {
+  switch (level) {
+    case LogLevel::Trace: return "trace";
+    case LogLevel::Debug: return "debug";
+    case LogLevel::Info: return "info";
+    case LogLevel::Warn: return "warn";
+    case LogLevel::Error: return "error";
+    case LogLevel::Critical: return "critical";
+    case LogLevel::Off: return "off";
+  }
+  std::unreachable();
+}
+
+// Exactly the values the log_level cvar allows; the game refuses any other and logs at info.
+std::optional<LogLevel> ParseLogLevel(std::string_view text) {
+  for (const LogLevel level : kLogLevels) {
+    if (text == LogLevelName(level)) return level;
+  }
+  return std::nullopt;
+}
+
 struct Settings {
   std::string host;
   bool windowed = false;
@@ -360,6 +387,9 @@ struct Settings {
   // The game turns this on itself when the key is missing; off leaves the Press Start scene black on the
   // emulated renderer.
   bool allow_invalid_fetch_constants = true;
+  // None: the key is absent, and the game logs at info.
+  std::optional<LogLevel> log_level;
+  bool lua_print_log = false;
   std::vector<ConfigEntry> others;
   // Keys removed from `others` since loading, so saving drops them from the file.
   std::vector<std::string> removed;
@@ -384,6 +414,8 @@ std::expected<Settings, Error> LoadSettings(const fs::path& config) {
     settings.native_renderer = *native;
   if (auto fetch = table["gpu_allow_invalid_fetch_constants"].value<bool>())
     settings.allow_invalid_fetch_constants = *fetch;
+  if (auto level = table["log_level"].value<std::string>()) settings.log_level = ParseLogLevel(*level);
+  if (auto lua = table["lua_print_log"].value<bool>()) settings.lua_print_log = *lua;
   for (const auto& [key, node] : table) {
     if (ManagedKey(key.str())) continue;
     if (auto entry = EntryFromNode(std::string(key.str()), node)) settings.others.push_back(std::move(*entry));
@@ -418,6 +450,11 @@ std::expected<void, Error> SaveSettings(const fs::path& config, const Settings& 
   table.insert_or_assign("mnk_mouse", settings.mouse_look);
   if (kHasNativeRenderer) table.insert_or_assign("native_renderer", settings.native_renderer);
   table.insert_or_assign("gpu_allow_invalid_fetch_constants", settings.allow_invalid_fetch_constants);
+  if (settings.log_level)
+    table.insert_or_assign("log_level", LogLevelName(*settings.log_level));
+  else
+    table.erase("log_level");
+  table.insert_or_assign("lua_print_log", settings.lua_print_log);
   std::ofstream out(config, std::ios::trunc);
   out << table << '\n';
   out.flush();
@@ -797,6 +834,8 @@ struct App {
   bool mouse_look = false;
   bool native_renderer = false;
   bool allow_invalid_fetch_constants = true;
+  std::optional<LogLevel> log_level;
+  bool lua_print_log = false;
   Status status;
   SDL_Window* window = nullptr;
   // SDL's user event for file dialog results; none when SDL ran out of event types.
@@ -965,6 +1004,8 @@ struct App {
     mouse_look = settings->mouse_look;
     native_renderer = settings->native_renderer;
     allow_invalid_fetch_constants = settings->allow_invalid_fetch_constants;
+    log_level = settings->log_level;
+    lua_print_log = settings->lua_print_log;
     others = std::move(settings->others);
     RefreshFiles(*this);
   }
@@ -986,6 +1027,8 @@ struct App {
     out.mouse_look = mouse_look;
     out.native_renderer = native_renderer;
     out.allow_invalid_fetch_constants = allow_invalid_fetch_constants;
+    out.log_level = log_level;
+    out.lua_print_log = lua_print_log;
     out.others = others;
     out.removed = removed;
     if (auto saved = SaveSettings(paths.config, out); !saved) return saved;
@@ -1392,6 +1435,20 @@ void DrawSettingsTab(App& app) {
   ImGui::BeginDisabled(!app.keyboard);
   ImGui::Checkbox("Mouse aims the right stick", &app.mouse_look);
   ImGui::EndDisabled();
+
+  ImGui::Dummy(ImVec2(0, 6));
+  SectionLabel("LOGS");
+  ImGui::SetNextItemWidth(ImGui::CalcTextSize("default (info)").x * 2);
+  if (ImGui::BeginCombo("Log level", app.log_level ? LogLevelName(*app.log_level) : "default (info)")) {
+    if (ImGui::Selectable("default (info)", !app.log_level)) app.log_level.reset();
+    for (const LogLevel level : kLogLevels) {
+      if (ImGui::Selectable(LogLevelName(level), app.log_level == level)) app.log_level = level;
+    }
+    ImGui::EndCombo();
+  }
+  ImGui::Checkbox("Write the game's Lua output to the log", &app.lua_print_log);
+  SectionLabel("debug and trace make the log much larger. Turn them on to report a problem.");
+  ImGui::TextWrapped("%s", PathText(app.paths.data / "logs").c_str());
 
   ImGui::Dummy(ImVec2(0, 6));
   SectionLabel("DATA FOLDER");

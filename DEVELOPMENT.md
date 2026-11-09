@@ -82,7 +82,8 @@ Windows only: `ONEVS100_DUALSENSE_HID=1` reads a USB DualSense directly as a bac
 | `input_backend` | `sdl` | `sdl` or (Windows) `xinput` |
 | `keybind_*` | see table | keyboard remap |
 | `audio_backend` | `sdl` | audio driver |
-| `lua_print_log` | `false` | write the title's Lua `print` output to the log |
+| `log_level` | `info` | `trace`, `debug`, `info`, `warn`, `error`, `critical` or `off`. The launcher's Logs section sets it. |
+| `lua_print_log` | `false` | write the title's Lua `print` output to the log. The launcher's Logs section sets it. |
 
 Environment overrides: `ONEVS100_PLAYER_DATA`, `ONEVS100_PROFILE_SLOT`, `ONEVS100_PROFILE_XUID`, `ONEVS100_DUALSENSE_HID`, `ONEVS100_MOUSE_PANEL`, and `SDL_VIDEO_DRIVER` on Linux. Gamertag and avatar live in `userdata/profiles/` (`local-name.txt`, `avatar.bin`). The remaining `vulkan_*` / `d3d12_*` / `gpu_*` knobs come from the ReXGlue SDK and keep their tested defaults. The debug-show switches (skins, Host Tool, debug menu) are on the dev launcher's Debug tab.
 [docs/gameserver-mode.md](docs/gameserver-mode.md) has the developer details.
