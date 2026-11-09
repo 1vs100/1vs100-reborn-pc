@@ -92,6 +92,9 @@ class Onevs100App : public rex::ReXApp {
   }
   void OnConfigureLogging(rex::LogConfig& config) override {
     config.log_dir = WritableFolder() / "logs";
+    // UTC as the gameserver logs it, so the two files read side by side.
+    config.file_pattern = "%Y-%m-%dT%H:%M:%S.%fZ [%l] [%n] [t%t] %v";
+    config.file_time_type = spdlog::pattern_time_type::utc;
   }
   void OnConfigurePaths(rex::PathConfig& paths) override {
     const auto install = rex::filesystem::GetExecutableFolder();
