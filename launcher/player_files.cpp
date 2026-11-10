@@ -122,8 +122,15 @@ std::expected<void, Error> PrepareDataFolder(const Paths& paths) {
   if (paths.data == paths.base) return {};
   std::error_code ec;
   if (!fs::exists(paths.config, ec) && fs::exists(paths.shipped_config, ec)) {
-    fs::copy_file(paths.shipped_config, paths.config, ec);
-    if (ec) return std::unexpected(Error{ErrorKind::WriteFailed, paths.config, ec.message()});
+    // Atomic, since a partial copy would stay: the copy only runs while the file is missing.
+    std::ifstream in(paths.shipped_config, std::ios::binary);
+    const std::string shipped((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    // A read error ends the copy early without setting a stream flag.
+    const uintmax_t size = fs::file_size(paths.shipped_config, ec);
+    if (!in.is_open() || ec || shipped.size() != size)
+      return std::unexpected(Error{ErrorKind::ConfigUnreadable, paths.shipped_config, "cannot read file"});
+    if (auto written = WriteFileAtomically(paths.config, shipped); !written)
+      return std::unexpected(Error{ErrorKind::WriteFailed, paths.config, written.error().reason});
   }
   const fs::path content = paths.data / kDefaultContent;
   fs::create_directories(content, ec);
@@ -146,10 +153,8 @@ std::expected<void, Error> SaveGamertag(const Paths& paths, const std::string& n
   std::error_code ec;
   fs::create_directories(paths.profiles, ec);
   if (ec) return std::unexpected(Error{ErrorKind::WriteFailed, paths.profiles, ec.message()});
-  std::ofstream out(paths.gamertag, std::ios::trunc | std::ios::binary);
-  out << name << '\n';
-  out.flush();
-  if (!out) return std::unexpected(Error{ErrorKind::WriteFailed, paths.gamertag, "write error"});
+  if (auto written = WriteFileAtomically(paths.gamertag, name + "\n"); !written)
+    return std::unexpected(Error{ErrorKind::WriteFailed, paths.gamertag, written.error().reason});
   return {};
 }
 
@@ -157,10 +162,9 @@ std::expected<void, Error> WriteBytes(const fs::path& target, const uint8_t* dat
   std::error_code ec;
   fs::create_directories(target.parent_path(), ec);
   if (ec) return std::unexpected(Error{ErrorKind::WriteFailed, target.parent_path(), ec.message()});
-  std::ofstream out(target, std::ios::trunc | std::ios::binary);
-  out.write(reinterpret_cast<const char*>(data), std::streamsize(size));
-  out.flush();
-  if (!out) return std::unexpected(Error{ErrorKind::WriteFailed, target, "write error"});
+  const std::string_view bytes(reinterpret_cast<const char*>(data), size);
+  if (auto written = WriteFileAtomically(target, bytes); !written)
+    return std::unexpected(Error{ErrorKind::WriteFailed, target, written.error().reason});
   return {};
 }
 
@@ -176,5 +180,3 @@ fs::path ResolveContentDir(const Paths& paths, const std::string& setting) {
   if (dir.is_relative()) dir = paths.data / dir;
   return dir;
 }
-
-

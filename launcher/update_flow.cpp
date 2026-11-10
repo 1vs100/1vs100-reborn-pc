@@ -3,7 +3,7 @@
 #include <SDL3/SDL_log.h>
 
 #include <expected>
-#include <fstream>
+#include <sstream>
 #include <system_error>
 
 #include "files.h"
@@ -50,10 +50,10 @@ std::expected<std::optional<bool>, SettingsError> LoadCheckOnStart(const std::fi
 std::expected<void, SettingsError> SaveCheckOnStart(const std::filesystem::path& file, bool on) {
   toml::table table;
   table.insert_or_assign(kCheckKey, on);
-  std::ofstream out(file, std::ios::trunc);
-  out << table << '\n';
-  out.flush();
-  if (!out) return std::unexpected(SettingsError{SettingsError::Kind::WriteFailed, file, "write error"});
+  std::ostringstream text;
+  text << table << '\n';
+  if (auto written = WriteFileAtomically(file, text.str()); !written)
+    return std::unexpected(SettingsError{SettingsError::Kind::WriteFailed, file, written.error().reason});
   return {};
 }
 

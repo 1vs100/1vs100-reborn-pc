@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <charconv>
 #include <cstdlib>
-#include <fstream>
+#include <sstream>
 #include <system_error>
 #include <utility>
 
@@ -171,10 +171,9 @@ std::expected<void, ConfigError> SaveSettings(const fs::path& config, const Sett
   else
     table.erase("log_level");
   table.insert_or_assign("lua_print_log", settings.lua_print_log);
-  std::ofstream out(config, std::ios::trunc);
-  out << table << '\n';
-  out.flush();
-  if (!out) return std::unexpected(ConfigError{ConfigError::Kind::WriteFailed, config, "write error"});
+  std::ostringstream text;
+  text << table << '\n';
+  if (auto written = WriteFileAtomically(config, text.str()); !written)
+    return std::unexpected(ConfigError{ConfigError::Kind::WriteFailed, config, written.error().reason});
   return {};
 }
-
