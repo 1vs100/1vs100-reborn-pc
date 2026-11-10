@@ -757,6 +757,7 @@ namespace plume {
         bool isValid() const;
         bool beginCapture() override;
         bool endCapture() override;
+        bool isLost() const override;
 
         MTL::CounterSet* findTimestampCounterSet() const;
 

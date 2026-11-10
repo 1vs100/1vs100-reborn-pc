@@ -5,6 +5,7 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <cstdlib>
 #include <cstring>
 #include <cstdio>
 #include <deque>
@@ -29,8 +30,11 @@
 #include <rex/graphics/xenos.h>
 #include <rex/hash.h>
 #include <rex/logging.h>
+#include <rex/logging/api.h>
+#include <rex/platform.h>
 #include <fmt/std.h>
 
+#include "fatal_dialog.h"
 #include "render/gpu.h"
 #include "render/display_settings.h"
 #include "render/gpu_draw.h"
@@ -552,6 +556,8 @@ class Backend {
   void WaitAll();
   bool BuildSwapChainTargets();
   void RebuildSwapChain();
+  // A removed device fails every later call, so the picture cannot come back: tell the player and end the game.
+  void StopIfDeviceLost();
 
   std::unique_ptr<plume::RenderInterface> interface_;
   std::unique_ptr<plume::RenderDevice> device_;
@@ -906,6 +912,7 @@ void Backend::RebuildSwapChain() {
   swap_framebuffers_.clear();
   render_semaphores_.clear();
   if (!swap_chain_->resize() || !BuildSwapChainTargets()) {
+    StopIfDeviceLost();
     // A zero-size window (minimized) is not a failure: needsResize() rebuilds once it has a size again.
     if (!swap_chain_->getWidth() || !swap_chain_->getHeight()) {
       swap_chain_failures_ = 0;
@@ -921,6 +928,22 @@ void Backend::RebuildSwapChain() {
     swap_chain_failures_ = 0;
   }
   REXGPU_DEBUG("[gpu] swap chain {}x{}", swap_chain_->getWidth(), swap_chain_->getHeight());
+}
+
+void Backend::StopIfDeviceLost() {
+  if (!device_->isLost()) return;
+  REXGPU_ERROR("[gpu] the graphics driver removed the GPU device; the game cannot continue");
+#if REX_PLATFORM_WINRT
+  constexpr const char* kLogHint = "See the log in the user folder.";
+#else
+  constexpr const char* kLogHint = "See the log in logs/ beside the executable.";
+#endif
+  fatal_dialog::FatalError("1 vs 100", std::string("The graphics driver stopped the GPU device, so the game has to "
+                                                   "close. Updating the graphics driver may help. ") +
+                                           kLogHint);
+  // Lines logged while the dialog was open, such as a DRED report from a compile thread.
+  rex::FlushLogging();
+  std::_Exit(1);
 }
 
 void Backend::Destroy() {
@@ -1427,6 +1450,7 @@ void Backend::Execute(const SwapRecord& r) {
     StatTimer acquire_timer{g_stats.present};
     presentable = !swap_framebuffers_.empty() && swap_chain_->acquireTexture(acquire_semaphores_[slot_].get(), &index);
     if (!presentable && !swap_framebuffers_.empty()) {
+      StopIfDeviceLost();
       RebuildSwapChain();
       BeginList();
       list = lists_[slot_].get();
@@ -1499,7 +1523,10 @@ void Backend::Execute(const SwapRecord& r) {
     const int vsync = g_vsync_request.exchange(-1, std::memory_order_acq_rel);
     if (vsync >= 0) swap_chain_->setVsyncEnabled(vsync != 0);
     StatTimer present_timer{g_stats.present};
-    if (!swap_chain_->present(index, signals, 1)) resize_requested_.store(true, std::memory_order_release);
+    if (!swap_chain_->present(index, signals, 1)) {
+      StopIfDeviceLost();
+      resize_requested_.store(true, std::memory_order_release);
+    }
   } else {
     FlushTransitions();
     Unbind();

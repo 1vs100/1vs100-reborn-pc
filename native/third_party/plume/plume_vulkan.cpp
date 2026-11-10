@@ -2315,6 +2315,7 @@ namespace plume {
             const std::scoped_lock queueLock(*commandQueue->queue->mutex);
             res = vkQueuePresentKHR(commandQueue->queue->vk, &presentInfo);
         }
+        commandQueue->device->noteResult(res);
 
 #if defined(__APPLE__)
         // Under MoltenVK, VK_SUBOPTIMAL_KHR does not result in a valid state for rendering. We intentionally
@@ -2517,6 +2518,7 @@ namespace plume {
 
         VulkanCommandSemaphore *interfaceSemaphore = static_cast<VulkanCommandSemaphore *>(signalSemaphore);
         VkResult res = vkAcquireNextImageKHR(commandQueue->device->vk, vk, UINT64_MAX, interfaceSemaphore->vk, VK_NULL_HANDLE, textureIndex);
+        commandQueue->device->noteResult(res);
         if ((res != VK_SUCCESS) && (res != VK_SUBOPTIMAL_KHR)) {
             return false;
         }
@@ -3692,6 +3694,7 @@ namespace plume {
             const std::scoped_lock queueLock(*queue->mutex);
             res = vkQueueSubmit(queue->vk, 1, &submitInfo, submitFence);
         }
+        device->noteResult(res);
 
         if (res != VK_SUCCESS) {
             fprintf(stderr, "vkQueueSubmit failed with error code 0x%X.\n", res);
@@ -3704,6 +3707,7 @@ namespace plume {
 
         VulkanCommandFence *interfaceFence = static_cast<VulkanCommandFence *>(fence);
         VkResult res = vkWaitForFences(device->vk, 1, &interfaceFence->vk, VK_TRUE, UINT64_MAX);
+        device->noteResult(res);
         if (res != VK_SUCCESS) {
             fprintf(stderr, "vkWaitForFences failed with error code 0x%X.\n", res);
             return;
@@ -4616,6 +4620,14 @@ namespace plume {
     bool VulkanDevice::endCapture() {
         assert(false && "Captures are not currently implemented in Vulkan.");
         return false;
+    }
+
+    bool VulkanDevice::isLost() const {
+        return lost.load(std::memory_order_relaxed);
+    }
+
+    void VulkanDevice::noteResult(VkResult res) {
+        if (res == VK_ERROR_DEVICE_LOST) lost.store(true, std::memory_order_relaxed);
     }
 
     // VulkanInterface

@@ -255,6 +255,8 @@ namespace plume {
         virtual RenderSampleCounts getSampleCountsSupported(RenderFormat format) const = 0;
         virtual bool beginCapture() = 0;
         virtual bool endCapture() = 0;
+        // REXGLUE: true once the driver has removed the device. Nothing recovers it; every later call fails.
+        virtual bool isLost() const = 0;
     };
 
     struct RenderInterface {

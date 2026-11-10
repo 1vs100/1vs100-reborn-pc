@@ -67,3 +67,6 @@ their HRESULT and `GetDeviceRemovedReason()`; the renderer routes `Report` into 
 Local patch: the first of those failures on a removed device also reports what DRED recorded (with
 `REXGLUE_DRED=1`): each command list the GPU did not finish, the operation it stopped at, and a page fault with the
 allocations around it.
+
+Local patch: `RenderDevice::isLost()` reports a removed device. D3D12 asks `GetDeviceRemovedReason()`; Vulkan records
+`VK_ERROR_DEVICE_LOST` from submit, present, acquire and fence waits.

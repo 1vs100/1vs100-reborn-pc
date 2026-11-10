@@ -9,6 +9,7 @@
 
 #include "plume_render_interface.h"
 
+#include <atomic>
 #include <mutex>
 #include <set>
 #include <unordered_map>
@@ -456,6 +457,10 @@ namespace plume {
         bool isValid() const;
         bool beginCapture() override;
         bool endCapture() override;
+        bool isLost() const override;
+        // REXGLUE: records VK_ERROR_DEVICE_LOST from submit, present, acquire and fence waits for isLost().
+        void noteResult(VkResult res);
+        std::atomic<bool> lost{ false };
     };
 
     struct VulkanInterface : RenderInterface {

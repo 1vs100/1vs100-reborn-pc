@@ -4646,6 +4646,10 @@ namespace plume {
         return false;
     }
 
+    bool D3D12Device::isLost() const {
+        return FAILED(d3d->GetDeviceRemovedReason());
+    }
+
     // D3D12Interface
 
     D3D12Interface::D3D12Interface() {
