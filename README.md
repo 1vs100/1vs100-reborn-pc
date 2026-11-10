@@ -27,6 +27,8 @@ The game is still early. Expect bugs, and please report them.
 
 The game never contacts Xbox LIVE or other Microsoft services. It talks only to the game server set in the launcher. Your profile, Avatar and stats stay on your computer.
 
+A self-updating copy of the launcher asks GitHub for a newer release when it starts, so you can update with one click. You can turn this off in the launcher's Settings tab.
+
 ## Development
 
 The PC version is the Xbox 360 game rebuilt with the [ReXGlue](https://github.com/rexglue/rexglue-sdk) static recompiler. Building it, running it by hand, all settings and the code layout are in [DEVELOPMENT.md](DEVELOPMENT.md).

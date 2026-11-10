@@ -22,6 +22,7 @@
 #include <fstream>
 #include <future>
 #include <iterator>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -29,7 +30,10 @@
 #include <utility>
 
 #include "content_name.h"
+#include "files.h"
 #include "font_data.h"
+#include "update_flow.h"
+#include "updater.h"
 #include "xna_avatar_format.h"
 
 namespace fs = std::filesystem;
@@ -90,36 +94,13 @@ struct Paths {
   fs::path game;
   fs::path shipped_config;
   fs::path config;
+  // Settings only the launcher reads; the game warns about unknown keys in config.
+  fs::path launcher_config;
   fs::path profiles;
   fs::path gamertag;
   fs::path avatar;
 };
 
-// SDL hands out UTF-8. Windows paths are UTF-16 and the Windows toolchain
-// builds without char8_t, so convert through SDL_iconv there.
-fs::path PathFromUtf8(const char* text) {
-#ifdef _WIN32
-  auto* wide = reinterpret_cast<wchar_t*>(SDL_iconv_string("UTF-16LE", "UTF-8", text, SDL_strlen(text) + 1));
-  fs::path path(wide ? wide : L"");
-  SDL_free(wide);
-  return path;
-#else
-  return fs::path(text);
-#endif
-}
-
-std::string PathText(const fs::path& path) {
-#ifdef _WIN32
-  const std::wstring& wide = path.native();
-  char* utf8 = SDL_iconv_string("UTF-8", "UTF-16LE", reinterpret_cast<const char*>(wide.c_str()),
-                                (wide.size() + 1) * sizeof(wchar_t));
-  std::string text(utf8 ? utf8 : "");
-  SDL_free(utf8);
-  return text;
-#else
-  return path.string();
-#endif
-}
 
 // Same rules as ValidName in native/src/local_profile.cpp.
 bool GamertagChar(unsigned char c) {
@@ -177,20 +158,6 @@ bool ValidHost(std::string_view host) {
 
 // toml++ parse_file takes a narrow path, which breaks on non-ASCII Windows
 // install paths. Read through the wide-aware fs::path instead.
-std::expected<toml::table, std::string> ParseTomlFile(const fs::path& config) {
-  std::ifstream in(config, std::ios::binary);
-  if (!in) {
-    std::error_code ec;
-    (void)fs::exists(config, ec);
-    return std::unexpected(ec ? ec.message() : std::string("cannot open file"));
-  }
-  std::string contents((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-  try {
-    return toml::parse(contents, PathText(config));
-  } catch (const toml::parse_error& e) {
-    return std::unexpected(std::string(e.description()));
-  }
-}
 
 enum class ErrorKind {
   InvalidGamertag,
@@ -233,26 +200,34 @@ bool IsVelopackInstall(const fs::path& executable_folder) {
   return fs::is_regular_file(executable_folder / "sq.version", ec);
 }
 
-std::expected<Paths, Error> MakePaths() {
+// Works before SDL_Init.
+fs::path ExecutableFolder() {
   // Do NOT SDL_free the result: this SDL version caches the base path and
   // frees it in SDL_Quit, so freeing here double-frees on shutdown.
   const char* base_path = SDL_GetBasePath();
   fs::path base = base_path ? PathFromUtf8(base_path) : fs::current_path();
   if (!base.has_filename()) base = base.parent_path();
-  fs::path shipped = base;
+#ifdef __APPLE__
+  // In a bundle SDL_GetBasePath is Contents/Resources; the executables are in Contents/MacOS.
+  if (base.filename() == "Resources" && base.parent_path().filename() == "Contents") {
+    base = base.parent_path() / "MacOS";
+  }
+#endif
+  return base;
+}
+
+bool InAppBundle(const fs::path& executable_folder) {
+  return executable_folder.filename() == "MacOS" && executable_folder.parent_path().filename() == "Contents";
+}
+
+std::expected<Paths, Error> MakePaths() {
+  const fs::path base = ExecutableFolder();
   // The install folder is replaced as a whole or is read-only: an app bundle
   // or a Velopack install. Same rule as WritableFolder in
   // native/src/writable_folder.cpp.
-  bool replaced = false;
-#ifdef __APPLE__
-  // In a bundle SDL_GetBasePath is Contents/Resources, which holds the shipped files; the executables are in
-  // Contents/MacOS. Same rule as ShippedFolder in native/src/writable_folder.cpp.
-  if (base.filename() == "Resources" && base.parent_path().filename() == "Contents") {
-    base = base.parent_path() / "MacOS";
-    replaced = true;
-  }
-#endif
-  if (IsVelopackInstall(base)) replaced = true;
+  const bool replaced = InAppBundle(base) || IsVelopackInstall(base);
+  // codesign accepts only code in Contents/MacOS. Same rule as ShippedFolder in native/src/writable_folder.cpp.
+  const fs::path shipped = InAppBundle(base) ? base.parent_path() / "Resources" : base;
   fs::path data = base;
   if (replaced) {
     char* pref = SDL_GetPrefPath("", "1vs100");
@@ -271,6 +246,7 @@ std::expected<Paths, Error> MakePaths() {
                .game = base / kGameExecutable,
                .shipped_config = shipped / "onevs100.toml",
                .config = data / "onevs100.toml",
+               .launcher_config = data / "launcher.toml",
                .profiles = profiles,
                .gamertag = profiles / "local-name.txt",
                .avatar = profiles / "avatar.bin"};
@@ -881,11 +857,18 @@ struct App {
   std::vector<uint8_t> previewPixels;
   std::array<char, 8192> code{};
   std::array<char, 128> xboxGamertag{};
+  updater::Flow update;
   void Report(const Error& error) { status = {Describe(error), true}; }
   void Report(std::string text) { status = {std::move(text), false}; }
   void ReportError(std::string text) { status = {std::move(text), true}; }
+  void Show(const updater::Notice& notice) {
+    if (notice.kind == updater::NoticeKind::Background && !status.text.empty()) return;
+    status = {notice.text, notice.kind == updater::NoticeKind::Error};
+  }
 
   bool Busy() { return catalogLoad.valid(); }
+  // Background work whose result the UI waits for.
+  bool NeedsFastPoll() { return Busy() || update.Busy(); }
 
   // The pack table is large, so it loads off the UI thread the first time the Avatar tab opens.
   void StartCatalog() {
@@ -1469,6 +1452,16 @@ void DrawSettingsTab(App& app) {
   SectionLabel("debug and trace make the log much larger. Turn them on to report a problem.");
   ImGui::TextWrapped("%s", PathText(app.paths.data / "logs").c_str());
 
+  if (app.update.IsOpen()) {
+    ImGui::Dummy(ImVec2(0, 6));
+    SectionLabel("UPDATES");
+    bool check = app.update.CheckOnStart();
+    if (ImGui::Checkbox("Check for updates when the launcher starts", &check)) {
+      if (auto failed = app.update.SetCheckOnStart(check)) app.Show(*failed);
+    }
+    SectionLabel("Asks GitHub for the newest release. Nothing is installed until you press Update.");
+  }
+
   ImGui::Dummy(ImVec2(0, 6));
   SectionLabel("DATA FOLDER");
   ImGui::TextWrapped("%s", PathText(app.paths.data).c_str());
@@ -1641,7 +1634,9 @@ void DrawFilesTab(App& app) {
 
 // Returns true when the launcher should close.
 bool DrawFrame(App& app, const Fonts& fonts) {
-  bool close = false;
+  const updater::PollResult polled = app.update.Poll();
+  if (polled.notice) app.Show(*polled.notice);
+  bool close = polled.exit;
   app.PollCatalog();
   CheckFiles(app);
   const ImGuiViewport* viewport = ImGui::GetMainViewport();
@@ -1703,7 +1698,8 @@ bool DrawFrame(App& app, const Fonts& fonts) {
   ImGui::PopStyleColor();
   ImGui::SetCursorPosY(std::max(ImGui::GetCursorPosY(), status_top + line * 2));
 
-  const bool can_launch = app.files.ok() && app.HasAvatar();
+  // Velopack stops every process in the install when it applies an update.
+  const bool can_launch = app.files.ok() && app.HasAvatar() && !app.update.Downloading();
   ImGui::BeginDisabled(!can_launch);
   if (ShowButton("LAUNCH", ImVec2(ImGui::GetContentRegionAvail().x, launch_height), can_launch)) {
     if (auto saved = app.Save(); !saved) {
@@ -1732,9 +1728,27 @@ bool DrawFrame(App& app, const Fonts& fonts) {
   ImGui::SameLine(0, style.ItemSpacing.x * 3);
   LinkText("Discord", kDiscordUrl);
   ImGui::AlignTextToFramePadding();
-  SectionLabel("1 vs 100 Reborn, build " ONEVS100_BUILD_VERSION);
+  SectionLabel("1 vs 100 Reborn " ONEVS100_RELEASE_VERSION ", build " ONEVS100_BUILD_VERSION);
   {
     const float closeWidth = ImGui::CalcTextSize("Close").x + style.FramePadding.x * 2;
+    std::string update_label;
+    if (app.update.Downloading()) {
+      update_label = "Downloading " + std::to_string(app.update.DownloadPercent()) + "%";
+    } else if (auto available = app.update.Available()) {
+      update_label = "Update to " + available->text;
+    }
+    if (!update_label.empty()) {
+      // A fixed ID, since the label changes with the progress.
+      update_label += "###update";
+      // Sized for the widest progress text so the button does not move.
+      const float updateWidth =
+          std::max(ImGui::CalcTextSize(update_label.c_str(), nullptr, true).x, ImGui::CalcTextSize("Downloading 100%").x) +
+          style.FramePadding.x * 2;
+      ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - closeWidth - style.ItemSpacing.x - updateWidth);
+      ImGui::BeginDisabled(app.update.Busy());
+      if (ImGui::Button(update_label.c_str())) app.update.StartDownload();
+      ImGui::EndDisabled();
+    }
     ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - closeWidth);
     if (ImGui::Button("Close")) close = true;
   }
@@ -1745,6 +1759,8 @@ bool DrawFrame(App& app, const Fonts& fonts) {
 }  // namespace
 
 int main(int, char**) {
+  // Velopack opens its own log file, so only its installs run its hooks.
+  if (IsVelopackInstall(ExecutableFolder())) updater::RunStartupHooks();
   SDL_SetHint(SDL_HINT_APP_NAME, "1 vs 100 Launcher");
   // The click that focuses the window also presses what is under the pointer.
   SDL_SetHint(SDL_HINT_MOUSE_FOCUS_CLICKTHROUGH, "1");
@@ -1792,12 +1808,15 @@ int main(int, char**) {
     app.status = {"File dialogs are unavailable in this build.", true};
   }
   app.Load();
+  if (IsVelopackInstall(app.paths.base)) {
+    if (auto failed = app.update.Open(app.paths.launcher_config, app.paths.game)) app.Show(*failed);
+  }
 
   bool running = true;
   while (running) {
     SDL_Event event;
     // Idle until input arrives; the UI has no animation. Poll faster while the avatar pack loads.
-    if (SDL_WaitEventTimeout(&event, app.Busy() ? 50 : 500)) {
+    if (SDL_WaitEventTimeout(&event, app.NeedsFastPoll() ? 50 : 500)) {
       do {
         ImGui_ImplSDL3_ProcessEvent(&event);
         if (event.type == SDL_EVENT_QUIT) running = false;

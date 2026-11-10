@@ -47,6 +47,10 @@ Microsoft DirectXShaderCompiler binaries (`thirdparty/dxc-bin`, LLVM/MIT).
 
 `native/third_party/glm` is [GLM](https://github.com/g-truc/glm), MIT.
 
+## Velopack (MIT)
+
+The launcher links the prebuilt C library of [Velopack](https://github.com/velopack/velopack), downloaded at build time, and the installers carry its updater. Its Rust dependencies keep their own licenses.
+
 ## Not included, used at build or run time
 
 - **ReXGlue SDK** (the static recompiler and runtime): obtained separately under its own license.
