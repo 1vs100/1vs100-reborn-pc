@@ -1,0 +1,78 @@
+== manifest
+entry game ffffffffffffffffffffffffffffffffffffffff58 1280
+entry launch 222222222222222222222222222222222222222258 1024
+entry show 333333333333333333333333333333333333333358 1024
+entry episode 444444444444444444444444444444444444444458 1024
+entry avatar AvatarAssetPack.toc 5
+== with manifest
+dir_ok yes
+manifest_ok yes
+ok no
+has_game yes
+has_launch yes
+show_count 0
+episode_count 0
+show_episode_count 0
+has_avatar yes
+listing 10 files
+file ffffffffffffffffffffffffffffffffffffffff role=game present=yes valid=no duplicate=yes note="duplicate of ffffffffffffffffffffffffffffffffffffffff58, not used"
+file ffffffffffffffffffffffffffffffffffffffff58 role=game present=yes valid=yes duplicate=no note=""
+file game_media.pkg role=game present=yes valid=yes duplicate=no note=""
+file 2222222222222222222222222222222222222222 role=launch present=yes valid=yes duplicate=no note=""
+file 333333333333333333333333333333333333333358 role=show present=yes valid=no duplicate=no note="wrong size"
+file 444444444444444444444444444444444444444458 role=episode present=yes valid=no duplicate=no note="not a package"
+file AvatarAssetPack.toc role=avatar present=yes valid=yes duplicate=no note=""
+file game_neither.pkg role=other present=yes valid=yes duplicate=no note=""
+file other.pkg role=other present=yes valid=yes duplicate=no note=""
+file readme.txt role=invalid present=yes valid=no duplicate=no note="not a package"
+avatar_pack AvatarAssetPack.toc
+== without manifest
+dir_ok yes
+manifest_ok no
+ok yes
+has_game yes
+has_launch yes
+show_count 0
+episode_count 0
+show_episode_count 1
+has_avatar yes
+listing 10 files
+file 2222222222222222222222222222222222222222 role=launch present=yes valid=yes duplicate=no note=""
+file 333333333333333333333333333333333333333358 role=show_episode present=yes valid=yes duplicate=no note=""
+file 444444444444444444444444444444444444444458 role=invalid present=yes valid=no duplicate=no note="not a package"
+file AvatarAssetPack.toc role=avatar present=yes valid=yes duplicate=no note=""
+file ffffffffffffffffffffffffffffffffffffffff role=game present=yes valid=yes duplicate=no note=""
+file ffffffffffffffffffffffffffffffffffffffff58 role=game present=yes valid=yes duplicate=no note=""
+file game_media.pkg role=game present=yes valid=yes duplicate=no note=""
+file game_neither.pkg role=other present=yes valid=yes duplicate=no note=""
+file other.pkg role=other present=yes valid=yes duplicate=no note=""
+file readme.txt role=invalid present=yes valid=no duplicate=no note="not a package"
+avatar_pack AvatarAssetPack.toc
+== complete with manifest
+dir_ok yes
+manifest_ok yes
+ok yes
+has_game yes
+has_launch yes
+show_count 1
+episode_count 1
+show_episode_count 2
+has_avatar yes
+listing 5 files
+file ffffffffffffffffffffffffffffffffffffffff58 role=game present=yes valid=yes duplicate=no note=""
+file 222222222222222222222222222222222222222258 role=launch present=yes valid=yes duplicate=no note=""
+file 333333333333333333333333333333333333333358 role=show present=yes valid=yes duplicate=no note=""
+file 444444444444444444444444444444444444444458 role=episode present=yes valid=yes duplicate=no note=""
+file AvatarAssetPack.toc role=avatar present=yes valid=yes duplicate=no note=""
+avatar_pack AvatarAssetPack.toc
+== missing folder
+dir_ok no
+manifest_ok no
+ok no
+has_game no
+has_launch no
+show_count 0
+episode_count 0
+show_episode_count 0
+has_avatar no
+listing none

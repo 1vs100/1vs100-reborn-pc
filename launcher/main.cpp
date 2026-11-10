@@ -10,7 +10,6 @@
 
 #include <algorithm>
 #include <array>
-#include <cctype>
 #include <charconv>
 #include <chrono>
 #include <cstdint>
@@ -29,7 +28,7 @@
 #include <system_error>
 #include <utility>
 
-#include "content_name.h"
+#include "content_check.h"
 #include "files.h"
 #include "font_data.h"
 #include "update_flow.h"
@@ -62,21 +61,6 @@ constexpr bool kHasNativeRenderer = false;
 #endif
 constexpr const char* kDefaultContent = "content";
 constexpr size_t kGamertagMax = 15;
-// Content families the game looks for (native/src/content_install.cpp and the
-// observed 1vs100 packages: show/episode packs share 584A07DC, the launch
-// content uses 584A07E4).
-constexpr uint32_t kGameTitleId = 0x584A07D1;
-constexpr uint32_t kGameMediaId = 0x20FFDD23;
-constexpr uint32_t kLaunchTitleId = 0x584A07E4;
-constexpr uint32_t kShowEpisodeTitleId = 0x584A07DC;
-constexpr uint32_t kAvatarTitleId = 0xFFFE07DF;
-// STFS header fields (big-endian u32): magic "LIVE"/"PIRS"/"CON " at 0, content_type at
-// 0x344, media_id at 0x354, title_id at 0x360.
-constexpr uint32_t kStfsLive = 0x4C495645, kStfsPirs = 0x50495253, kStfsCon = 0x434F4E20;
-constexpr size_t kStfsHeaderPeek = 0x400;
-constexpr size_t kStfsContentTypeOff = 0x344;
-constexpr size_t kStfsMediaIdOff = 0x354;
-constexpr size_t kStfsTitleIdOff = 0x360;
 
 #ifdef _WIN32
 constexpr const char* kGameExecutable = "onevs100.exe";
@@ -496,171 +480,6 @@ std::expected<std::vector<uint8_t>, Error> ReadBytes(const fs::path& source) {
   return std::vector<uint8_t>((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 }
 
-enum class FileRole { Game, Launch, Show, Episode, ShowEpisode, Avatar, Other, Invalid };
-
-struct ContentFile {
-  std::string name;
-  FileRole role = FileRole::Invalid;
-  bool present = false;
-  bool valid = false;
-  std::string note;
-  // A short-named twin of a manifest file; the game uses the full name.
-  bool duplicate = false;
-};
-
-struct ManifestEntry {
-  std::string kind;
-  std::string name;
-  uint64_t size = 0;
-};
-
-// File names compare without case, as the runtime and Windows do.
-bool SameFileName(std::string_view a, std::string_view b) {
-  return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin(), [](char x, char y) {
-           return std::tolower(static_cast<unsigned char>(x)) == std::tolower(static_cast<unsigned char>(y));
-         });
-}
-
-// Shared with the UWP onboarding (package/manifest.txt): "<sha256> <size>
-// <kind> <path>". The launcher matches content entries by file name and
-// size; the onboarding additionally verifies hashes.
-std::optional<std::vector<ManifestEntry>> LoadManifest(const fs::path& file) {
-  std::ifstream in(file);
-  if (!in) return std::nullopt;
-  std::vector<ManifestEntry> entries;
-  std::string line;
-  auto trim_cr = [](std::string& s) {
-    if (!s.empty() && s.back() == '\r') s.pop_back();
-  };
-  while (std::getline(in, line)) {
-    trim_cr(line);
-    if (line.empty() || line.front() == '#') continue;
-    const size_t a = line.find(' ');
-    const size_t b = a == std::string::npos ? a : line.find(' ', a + 1);
-    const size_t c = b == std::string::npos ? b : line.find(' ', b + 1);
-    if (c == std::string::npos) continue;
-    const std::string sha = line.substr(0, a);
-    const std::string sizeText = line.substr(a + 1, b - a - 1);
-    const std::string kind = line.substr(b + 1, c - b - 1);
-    const std::string path = line.substr(c + 1);
-    if (sha.size() != 64 || sizeText.empty() || path.empty() || path.front() == '/') continue;
-    bool hex = true, digits = true;
-    for (char ch : sha)
-      if (!((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F'))) hex = false;
-    for (char ch : sizeText)
-      if (!(ch >= '0' && ch <= '9')) digits = false;
-    if (!hex || !digits) continue;
-    if (kind != "game" && kind != "launch" && kind != "show" && kind != "episode" &&
-        kind != "avatar") {
-      continue;
-    }
-    uint64_t size = 0;
-    try {
-      size = std::stoull(sizeText);
-    } catch (...) {
-      continue;
-    }
-    const size_t slash = path.find_last_of('/');
-    entries.push_back({kind, slash == std::string::npos ? path : path.substr(slash + 1), size});
-  }
-  if (entries.empty()) return std::nullopt;
-  return entries;
-}
-
-// What a folder holds, by listing alone: cheap enough to compare every few seconds.
-struct FolderEntry {
-  std::string name;
-  uintmax_t size = 0;
-  fs::file_time_type modified;
-  bool operator==(const FolderEntry&) const = default;
-};
-
-// nullopt when the folder is missing.
-std::optional<std::vector<FolderEntry>> ListFolder(const fs::path& dir) {
-  std::error_code ec;
-  if (!fs::is_directory(dir, ec)) return std::nullopt;
-  std::vector<FolderEntry> entries;
-  for (const auto& entry : fs::directory_iterator(dir, ec)) {
-    std::error_code entry_ec;
-    if (!entry.is_regular_file(entry_ec)) continue;
-    entries.push_back({PathText(entry.path().filename()), entry.file_size(entry_ec), entry.last_write_time(entry_ec)});
-  }
-  std::sort(entries.begin(), entries.end(), [](const FolderEntry& a, const FolderEntry& b) { return a.name < b.name; });
-  return entries;
-}
-
-struct FilesCheck {
-  fs::path dir;
-  std::optional<std::vector<FolderEntry>> listing;
-  bool dirOk = false;
-  bool manifestOk = false;
-  std::vector<ContentFile> files;
-  bool hasGame = false;
-  bool hasLaunch = false;
-  size_t showCount = 0;
-  size_t episodeCount = 0;
-  size_t showEpisodeCount = 0;
-  bool hasAvatar = false;
-  // Every avatar file that looks right; the catalog tries them in order.
-  std::vector<fs::path> avatarPacks;
-  bool ok() const {
-    if (!dirOk || !hasGame || !hasLaunch || !hasAvatar) return false;
-    if (manifestOk) return showCount > 0 && episodeCount > 0;
-    return showEpisodeCount > 0;
-  }
-};
-
-uint32_t ReadBigEndian32(const unsigned char* p) {
-  return (uint32_t(p[0]) << 24) | (uint32_t(p[1]) << 16) | (uint32_t(p[2]) << 8) | uint32_t(p[3]);
-}
-
-// Minimal STFS header peek: enough to classify a package the way the game
-// does (title id, media id, container type). Full parsing lives in the game.
-std::optional<std::array<uint32_t, 3>> PeekStfsHeader(const fs::path& file) {
-  std::ifstream in(file, std::ios::binary);
-  if (!in) return std::nullopt;
-  unsigned char head[kStfsHeaderPeek] = {};
-  in.read(reinterpret_cast<char*>(head), sizeof(head));
-  if (static_cast<size_t>(in.gcount()) < kStfsTitleIdOff + 4) return std::nullopt;
-  const uint32_t magic = ReadBigEndian32(head);
-  if (magic != kStfsLive && magic != kStfsPirs && magic != kStfsCon) return std::nullopt;
-  return std::array<uint32_t, 3>{ReadBigEndian32(head + kStfsContentTypeOff),
-                                 ReadBigEndian32(head + kStfsMediaIdOff),
-                                 ReadBigEndian32(head + kStfsTitleIdOff)};
-}
-
-bool IsGameContainer(uint32_t type) {
-  return type == 0x00001000 ||  // Xbox360Title
-         type == 0x00004000 ||  // InstalledGame
-         type == 0x00007000;    // GamesOnDemand
-}
-
-FileRole ClassifyPackage(uint32_t title, uint32_t media, uint32_t type) {
-  // Same precedence as FindGamePackage in native/src/content_install.cpp.
-  if (title == kGameTitleId && (media == kGameMediaId || IsGameContainer(type))) return FileRole::Game;
-  if (title == kLaunchTitleId) return FileRole::Launch;
-  if (title == kShowEpisodeTitleId) return FileRole::ShowEpisode;
-  if (title == kAvatarTitleId) return FileRole::Avatar;
-  return FileRole::Other;
-}
-
-// Same rules as FindAvatarPack in native/src/content_install.cpp.
-ContentFile ClassifyFile(const fs::path& path) {
-  ContentFile file;
-  file.name = PathText(path.filename());
-  file.present = true;
-  if (auto header = PeekStfsHeader(path)) {
-    file.valid = true;
-    file.role = ClassifyPackage((*header)[2], (*header)[1], (*header)[0]);
-  } else if (file.name == "AvatarAssetPack.toc") {
-    file.valid = true;
-    file.role = FileRole::Avatar;
-  } else {
-    file.note = "not a package";
-  }
-  return file;
-}
-
 fs::path ResolveContentDir(const Paths& paths, const std::string& setting) {
   const std::string raw = setting.empty() ? "content" : setting;
   fs::path dir = PathFromUtf8(raw.c_str());
@@ -1041,101 +860,7 @@ struct App {
 
 void RefreshFiles(App& app) {
   app.filesChecked = std::chrono::steady_clock::now();
-  FilesCheck check;
-  check.dir = ResolveContentDir(app.paths, app.contentSetting);
-  check.listing = ListFolder(check.dir);
-  std::error_code ec;
-  check.dirOk = fs::is_directory(check.dir, ec);
-  if (check.dirOk) {
-    auto manifest = LoadManifest(app.paths.shipped / "manifest.txt");
-    check.manifestOk = manifest.has_value();
-    if (manifest) {
-      for (const auto& entry : *manifest) {
-        ContentFile file;
-        file.name = entry.name;
-        file.role = entry.kind == "game"    ? FileRole::Game
-                    : entry.kind == "launch" ? FileRole::Launch
-                    : entry.kind == "show"   ? FileRole::Show
-                    : entry.kind == "avatar" ? FileRole::Avatar
-                                             : FileRole::Episode;
-        fs::path full = check.dir / PathFromUtf8(entry.name.c_str());
-        std::error_code entryEc;
-        file.present = fs::is_regular_file(full, entryEc);
-        const auto shortName = ShortContentName(entry.name);
-        if (!file.present && shortName) {
-          const fs::path shortPath = check.dir / PathFromUtf8(std::string(*shortName).c_str());
-          if (fs::is_regular_file(shortPath, entryEc)) {
-            full = shortPath;
-            file.name = *shortName;
-            file.present = true;
-          }
-        }
-        if (!file.present) {
-          file.note = "not found";
-        } else if (fs::file_size(full, entryEc) != entry.size) {
-          file.note = "wrong size";
-        } else if (file.role != FileRole::Avatar && !PeekStfsHeader(full)) {
-          file.note = "not a package";
-        } else {
-          file.valid = true;
-        }
-        check.files.push_back(std::move(file));
-      }
-      // Files the manifest does not know about.
-      const size_t manifestFiles = check.files.size();
-      for (const auto& entry : fs::directory_iterator(check.dir, ec)) {
-        std::error_code entryEc;
-        if (!entry.is_regular_file(entryEc)) continue;
-        const std::string name = PathText(entry.path().filename());
-        bool known = false;
-        std::optional<ContentFile> duplicate;
-        for (size_t i = 0; i < check.files.size(); ++i) {
-          const ContentFile& file = check.files[i];
-          if (SameFileName(file.name, name)) {
-            known = true;
-            break;
-          }
-          const auto shortName = ShortContentName(file.name);
-          if (i < manifestFiles && shortName && SameFileName(*shortName, name))
-            duplicate = ContentFile{name, file.role, true, false, "duplicate of " + file.name + ", not used", true};
-        }
-        if (known) continue;
-        if (duplicate) {
-          check.files.push_back(std::move(*duplicate));
-          continue;
-        }
-        check.files.push_back(ClassifyFile(entry.path()));
-      }
-      std::sort(check.files.begin(), check.files.end(), [](const ContentFile& a, const ContentFile& b) {
-        if ((a.role == FileRole::Game) != (b.role == FileRole::Game))
-          return a.role == FileRole::Game;
-        if ((a.role == FileRole::Launch) != (b.role == FileRole::Launch))
-          return a.role == FileRole::Launch;
-        return a.name < b.name;
-      });
-    } else {
-      for (const auto& entry : fs::directory_iterator(check.dir, ec)) {
-        std::error_code entryEc;
-        if (!entry.is_regular_file(entryEc)) continue;
-        check.files.push_back(ClassifyFile(entry.path()));
-      }
-      std::sort(check.files.begin(), check.files.end(),
-                [](const ContentFile& a, const ContentFile& b) { return a.name < b.name; });
-    }
-    for (const auto& file : check.files) {
-      if (!file.valid) continue;
-      if (file.role == FileRole::Game) check.hasGame = true;
-      if (file.role == FileRole::Launch) check.hasLaunch = true;
-      if (file.role == FileRole::Show) ++check.showCount;
-      if (file.role == FileRole::Episode) ++check.episodeCount;
-      if (file.role == FileRole::ShowEpisode) ++check.showEpisodeCount;
-      if (file.role == FileRole::Avatar) {
-        check.hasAvatar = true;
-        check.avatarPacks.push_back(check.dir / PathFromUtf8(file.name.c_str()));
-      }
-    }
-    check.showEpisodeCount += check.showCount + check.episodeCount;
-  }
+  FilesCheck check = CheckContent(ResolveContentDir(app.paths, app.contentSetting), app.paths.shipped / "manifest.txt");
   // A load that failed may work with what is there now, such as a package that finished copying.
   if (!app.catalog && check.avatarPacks != app.files.avatarPacks) app.catalogFailed = false;
   app.files = std::move(check);
