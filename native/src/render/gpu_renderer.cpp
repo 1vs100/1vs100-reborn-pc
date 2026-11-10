@@ -639,6 +639,10 @@ class Backend {
   std::map<std::array<uint32_t, 5>, std::unique_ptr<plume::RenderFramebuffer>> draw_framebuffers_;
 
   std::atomic<bool> resize_requested_{false};
+  // Failed rebuilds in a row; while nonzero, presents stop and the rebuild is retried after a delay that doubles up
+  // to a minute.
+  uint32_t swap_chain_failures_ = 0;
+  std::chrono::steady_clock::time_point swap_chain_retry_{};
   std::unique_ptr<rex::ui::RenderDocAPI> renderdoc_ = rex::ui::RenderDocAPI::CreateIfConnected();
 };
 
@@ -889,10 +893,21 @@ void Backend::RebuildSwapChain() {
   swap_framebuffers_.clear();
   render_semaphores_.clear();
   if (!swap_chain_->resize() || !BuildSwapChainTargets()) {
-    if (swap_chain_->getWidth() && swap_chain_->getHeight()) REXGPU_ERROR("[gpu] swap chain resize failed");
-  } else {
-    REXGPU_DEBUG("[gpu] swap chain {}x{}", swap_chain_->getWidth(), swap_chain_->getHeight());
+    // A zero-size window (minimized) is not a failure: needsResize() rebuilds once it has a size again.
+    if (!swap_chain_->getWidth() || !swap_chain_->getHeight()) {
+      swap_chain_failures_ = 0;
+      return;
+    }
+    if (swap_chain_failures_++ == 0) REXGPU_ERROR("[gpu] swap chain resize failed; retrying");
+    swap_chain_retry_ =
+        std::chrono::steady_clock::now() + std::chrono::seconds(1u << std::min(swap_chain_failures_ - 1, 6u));
+    return;
   }
+  if (swap_chain_failures_) {
+    REXGPU_INFO("[gpu] swap chain rebuilt after {} failed attempts", swap_chain_failures_);
+    swap_chain_failures_ = 0;
+  }
+  REXGPU_DEBUG("[gpu] swap chain {}x{}", swap_chain_->getWidth(), swap_chain_->getHeight());
 }
 
 void Backend::Destroy() {
@@ -1386,7 +1401,9 @@ void Backend::Execute(const ResolveRecord& r) {
 void Backend::Execute(const SwapRecord& r) {
   BeginList();
   HostResource* front = Get(r.front);
-  if (resize_requested_.exchange(false, std::memory_order_acq_rel) || swap_chain_->needsResize()) {
+  // A failed rebuild leaves the window size matched, so needsResize() alone would never try again.
+  const bool retry = swap_chain_failures_ && std::chrono::steady_clock::now() >= swap_chain_retry_;
+  if (resize_requested_.exchange(false, std::memory_order_acq_rel) || swap_chain_->needsResize() || retry) {
     RebuildSwapChain();
     BeginList();
   }
