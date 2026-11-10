@@ -1796,15 +1796,16 @@ void ShaderRecompiler::emitRexglueDeclarations(const uint8_t* shaderData)
     {
         // Container-less generation: the whole guest register file by
         // absolute index; out-of-range dynamic reads return 0 like the
-        // named multi-register tail clamp.
+        // named multi-register tail clamp. Indices compare as uint since a0
+        // reaches -256, and D3D12 does not bounds-check a root CBV.
         out += "#ifndef __spirv__\n";
         println("cbuffer XeFloatConstants : register(b1, space0)");
         out += "{\n";
         out += "\tfloat4 xe_fcfile[256];\n";
         out += "};\n\n";
-        println("#define xe_fcfile_read(INDEX) select((INDEX) < 256, xe_fcfile[min(INDEX, 255)], 0.0)");
+        println("#define xe_fcfile_read(INDEX) select(uint(INDEX) < 256, xe_fcfile[min(uint(INDEX), 255)], 0.0)");
         out += "#else\n";
-        println("#define xe_fcfile_read(INDEX) (((INDEX) < 256) ? vk::RawBufferLoad<float4>(XE_PUSH_FLOATS + uint(min(INDEX, 255)) * 16, 4) : (float4)0.0)");
+        println("#define xe_fcfile_read(INDEX) ((uint(INDEX) < 256) ? vk::RawBufferLoad<float4>(XE_PUSH_FLOATS + uint(min(uint(INDEX), 255)) * 16, 4) : (float4)0.0)");
         out += "#endif\n";
         out += "\n";
     }
@@ -1899,7 +1900,9 @@ void ShaderRecompiler::emitRexglueDeclarations(const uint8_t* shaderData)
         {
             const char* constantName = reinterpret_cast<const char*>(constantTableData + constantInfo->name);
             uint32_t tailCount = 256 - constantInfo->registerIndex;
-            println("#define {0}(INDEX) select((INDEX) < {1}, {0}[min(INDEX, {2})], 0.0)", constantName, tailCount, tailCount - 1);
+            // INDEX counts from the constant's first register; a0 may point below it, still inside the file.
+            println("#define {0}(INDEX) select(uint(int(INDEX) + {1}) < 256, {0}[clamp(int(INDEX), -{1}, {2})], 0.0)",
+                constantName, constantInfo->registerIndex.get(), tailCount - 1);
         }
     }
 
@@ -1912,9 +1915,8 @@ void ShaderRecompiler::emitRexglueDeclarations(const uint8_t* shaderData)
         const char* constantName = reinterpret_cast<const char*>(constantTableData + constantInfo->name);
         if (constantInfo->registerCount > 1)
         {
-            uint32_t tailCount = 256 - constantInfo->registerIndex;
-            println("#define {0}(INDEX) (((INDEX) < {1}) ? vk::RawBufferLoad<float4>(XE_PUSH_FLOATS + ({2} + uint(min(INDEX, {3}))) * 16, 4) : (float4)0.0)",
-                constantName, tailCount, constantInfo->registerIndex.get(), tailCount - 1);
+            println("#define {0}(INDEX) ((uint(int(INDEX) + {1}) < 256) ? vk::RawBufferLoad<float4>(XE_PUSH_FLOATS + min(uint(int(INDEX) + {1}), 255u) * 16, 4) : (float4)0.0)",
+                constantName, constantInfo->registerIndex.get());
         }
         else
         {
@@ -2201,10 +2203,10 @@ void ShaderRecompiler::recompile(const uint8_t* shaderData, const std::string_vi
 
             if (constantInfo->registerCount > 1)
             {
-                uint32_t tailCount = (isPixelShader ? 224 : 256) - constantInfo->registerIndex;
+                uint32_t fileCount = isPixelShader ? 224 : 256;
 
-                println("#define {}(INDEX) select((INDEX) < {}, vk::RawBufferLoad<float4>(g_PushConstants.{}ShaderConstants + ({} + min(INDEX, {})) * 16, 0x10), 0.0)",
-                    constantName, tailCount, shaderName, constantInfo->registerIndex.get(), tailCount - 1);
+                println("#define {0}(INDEX) select(uint(int(INDEX) + {2}) < {3}, vk::RawBufferLoad<float4>(g_PushConstants.{1}ShaderConstants + min(uint(int(INDEX) + {2}), {4}u) * 16, 0x10), 0.0)",
+                    constantName, shaderName, constantInfo->registerIndex.get(), fileCount, fileCount - 1);
             }
             else
             {
@@ -2293,8 +2295,9 @@ void ShaderRecompiler::recompile(const uint8_t* shaderData, const std::string_vi
 
             if (constantInfo->registerCount > 1)
             {
-                uint32_t tailCount = (isPixelShader ? 224 : 256) - constantInfo->registerIndex;
-                println("#define {0}(INDEX) select((INDEX) < {1}, {0}[min(INDEX, {2})], 0.0)", constantName, tailCount, tailCount - 1);
+                uint32_t fileCount = isPixelShader ? 224 : 256;
+                println("#define {0}(INDEX) select(uint(int(INDEX) + {1}) < {2}, {0}[clamp(int(INDEX), -{1}, {3})], 0.0)",
+                    constantName, constantInfo->registerIndex.get(), fileCount, fileCount - constantInfo->registerIndex - 1);
             }
         }
     }
