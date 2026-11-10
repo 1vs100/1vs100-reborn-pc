@@ -11,14 +11,10 @@
 #include <array>
 #include <chrono>
 #include <cstdint>
-#include <cstdlib>
 #include <cstring>
 #include <expected>
 #include <filesystem>
-#include <fstream>
-#include <future>
 #include <iterator>
-#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -26,6 +22,7 @@
 #include <utility>
 #include <vector>
 
+#include "avatar_editor.h"
 #include "content_check.h"
 #include "files.h"
 #include "font_data.h"
@@ -33,10 +30,8 @@
 #include "player_files.h"
 #include "update_flow.h"
 #include "updater.h"
-#include "xna_avatar_format.h"
 
 namespace fs = std::filesystem;
-namespace av = xe::kernel::xna::avatar;
 
 namespace {
 
@@ -45,42 +40,7 @@ constexpr const char* kWebsiteUrl = "https://1vs100.fans";
 constexpr const char* kDocsUrl = "https://docs.1vs100.fans";
 constexpr const char* kGithubUrl = "https://github.com/1vs100";
 constexpr const char* kAvatarEditorUrl = "https://360sona.com";
-constexpr const char* kSonaGamertagUrl = "https://360sona.com/sona/v1/gamertag/";
-constexpr uint32_t kPreviewWidth = 240, kPreviewHeight = 320;
 constexpr float kTurnStep = 3.14159265f / 12.0f;  // 15 degrees per arrow press
-
-// An Xbox gamertag as typed, without surrounding spaces.
-class XboxGamertag {
- public:
-  static std::optional<XboxGamertag> Parse(std::string_view text) {
-    while (!text.empty() && text.front() == ' ') text.remove_prefix(1);
-    while (!text.empty() && text.back() == ' ') text.remove_suffix(1);
-    if (text.empty()) return std::nullopt;
-    return XboxGamertag(std::string(text));
-  }
-  const std::string& text() const { return text_; }
-
- private:
-  explicit XboxGamertag(std::string text) : text_(std::move(text)) {}
-  std::string text_;
-};
-
-// The avatar manifest for a gamertag, as a .bin download.
-std::string SonaManifestUrl(const XboxGamertag& gamertag) {
-  static constexpr char kHex[] = "0123456789ABCDEF";
-  std::string url = kSonaGamertagUrl;
-  for (unsigned char c : gamertag.text()) {
-    if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_' ||
-        c == '.' || c == '~') {
-      url += static_cast<char>(c);
-    } else {
-      url += '%';
-      url += kHex[c >> 4];
-      url += kHex[c & 0xF];
-    }
-  }
-  return url + "?client=1vs100rb&format=bin";
-}
 
 struct App;
 void RefreshFiles(App& app);
@@ -257,19 +217,7 @@ struct App {
   bool advanced = false;
   std::array<char, 64> newKey{};
   std::array<char, 512> newValue{};
-  // Avatar tab.
-  SDL_Renderer* renderer = nullptr;
-  std::future<std::unique_ptr<av::Catalog>> catalogLoad;
-  std::unique_ptr<av::Catalog> catalog;
-  bool catalogFailed = false;
-  std::optional<av::Description> avatar;
-  bool avatarUnsaved = false;
-  av::Scene scene;
-  float yaw = 0.0f;
-  bool previewDirty = false;
-  SDL_Texture* preview = nullptr;
-  std::vector<uint8_t> previewPixels;
-  std::array<char, 8192> code{};
+  AvatarEditor avatar;
   std::array<char, 128> xboxGamertag{};
   updater::Flow update;
   void Report(const Error& error) { status = {Describe(error), true}; }
@@ -279,129 +227,13 @@ struct App {
     if (notice.kind == updater::NoticeKind::Background && !status.text.empty()) return;
     status = {notice.text, notice.kind == updater::NoticeKind::Error};
   }
+  void Show(const AvatarEditor::Message& message) {
+    status = {message.text, message.severity == AvatarEditor::Message::Severity::Error};
+  }
 
-  bool Busy() { return catalogLoad.valid(); }
+  bool Busy() { return avatar.Loading(); }
   // Background work whose result the UI waits for.
   bool NeedsFastPoll() { return Busy() || update.Busy(); }
-
-  // The pack table is large, so it loads off the UI thread the first time the Avatar tab opens.
-  void StartCatalog() {
-    if (catalog || catalogFailed || catalogLoad.valid() || !files.hasAvatar) return;
-    catalogLoad = std::async(std::launch::async, [packs = files.avatarPacks] { return av::LoadPackCatalog(packs); });
-  }
-
-  void PollCatalog() {
-    if (!catalogLoad.valid() || catalogLoad.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
-    try {
-      catalog = catalogLoad.get();
-    } catch (const std::exception&) {
-      catalog.reset();
-    }
-    if (!catalog || !catalog->loaded()) {
-      catalog.reset();
-      catalogFailed = true;
-      ReportError("The avatar pack table did not load. See the Files tab.");
-      return;
-    }
-    LoadStoredAvatar();
-    // A code pasted while the pack was loading.
-    if (code[0]) ImportCode();
-  }
-
-  void ImportCode() {
-    const std::string_view text(code.data());
-    const auto decoded = av::DecodeAvatarText(text);
-    if (decoded && (decoded->size() == av::kManifestBytes || decoded->size() == av::kDescriptionBytes)) {
-      ImportAvatar(*decoded);
-    } else if (!text.empty()) {
-      Report("That is not a complete avatar code yet.");
-    }
-  }
-
-  void ShowAvatar(const av::Description& description, bool unsaved) {
-    avatar = description;
-    avatarUnsaved = unsaved;
-    scene = av::BuildScene(*catalog, description);
-    previewDirty = true;
-  }
-
-  void LoadStoredAvatar() {
-    avatar.reset();
-    avatarUnsaved = false;
-    std::error_code ec;
-    if (!fs::is_regular_file(paths.avatar, ec)) return;
-    auto bytes = ReadBytes(paths.avatar);
-    av::Description description;
-    if (!bytes || !av::ParseAnyDescription(catalog.get(), bytes->data(), bytes->size(), &description)) {
-      ReportError("The saved avatar cannot be read. Open or paste a new one.");
-      return;
-    }
-    ShowAvatar(description, false);
-  }
-
-  // A manifest or description file, or its text form.
-  void ImportAvatar(std::vector<uint8_t> bytes) {
-    if (!catalog) {
-      ReportError("The avatar pack table is not loaded yet. See the Files tab.");
-      return;
-    }
-    const auto fits = [](size_t size) { return size == av::kManifestBytes || size == av::kDescriptionBytes; };
-    if (!fits(bytes.size())) {
-      auto decoded = av::DecodeAvatarText(std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size()));
-      if (!decoded) {
-        ReportError("That is neither an avatar file nor an avatar code.");
-        return;
-      }
-      bytes = std::move(*decoded);
-    }
-    av::Description description;
-    if (!fits(bytes.size()) || !av::ParseAnyDescription(catalog.get(), bytes.data(), bytes.size(), &description)) {
-      ReportError("That is not an avatar.");
-      return;
-    }
-    // Marketplace items this PC lacks become similar standard items, as in the game.
-    const size_t similar = av::SubstituteMissingItems(*catalog, &description);
-    ShowAvatar(description, true);
-    Report(similar ? std::to_string(similar) +
-                         " item(s) you do not have became similar standard items. Launch saves this avatar."
-                   : std::string("Launch saves this avatar."));
-  }
-
-  std::expected<void, Error> SaveAvatar() {
-    if (!avatar || !avatarUnsaved) return {};
-    const auto bytes = av::SerializeDescription(*avatar);
-    if (auto written = WriteBytes(paths.avatar, bytes.data(), bytes.size()); !written) return written;
-    avatarUnsaved = false;
-    return {};
-  }
-
-  // The game needs one to start.
-  bool HasAvatar() const {
-    std::error_code ec;
-    return avatar.has_value() || fs::is_regular_file(paths.avatar, ec);
-  }
-
-  void ExportAvatar(const fs::path& target) {
-    // The manifest does not record the owner, so no profile id is needed.
-    const auto bytes = av::SerializeManifest(catalog.get(), *avatar, 0);
-    if (auto written = WriteBytes(target, bytes.data(), bytes.size()); !written) {
-      Report(written.error());
-      return;
-    }
-    Report("Exported to " + PathText(target) + ".");
-  }
-
-  void UpdatePreview() {
-    if (!previewDirty || !avatar || !renderer) return;
-    previewDirty = false;
-    if (!preview) {
-      preview = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STREAMING, kPreviewWidth,
-                                  kPreviewHeight);
-      if (!preview) return;
-    }
-    av::RenderIdle(*catalog, scene, kPreviewWidth, kPreviewHeight, yaw, &previewPixels);
-    SDL_UpdateTexture(preview, nullptr, previewPixels.data(), kPreviewWidth * 4);
-  }
 
   void Load() {
     if (auto name = LoadGamertag(paths.gamertag)) SDL_strlcpy(gamertag.data(), name->c_str(), gamertag.size());
@@ -434,7 +266,7 @@ struct App {
 
   std::expected<void, Error> Save() {
     if (auto saved = SaveGamertag(paths, gamertag.data()); !saved) return saved;
-    if (auto saved = SaveAvatar(); !saved) return saved;
+    if (auto saved = avatar.Save(); !saved) return saved;
     Settings out;
     out.host = host.data();
     out.windowed = windowed;
@@ -457,7 +289,7 @@ void RefreshFiles(App& app) {
   app.filesChecked = std::chrono::steady_clock::now();
   FilesCheck check = CheckContent(ResolveContentDir(app.paths, app.contentSetting), app.paths.shipped / "manifest.txt");
   // A load that failed may work with what is there now, such as a package that finished copying.
-  if (!app.catalog && check.avatarPacks != app.files.avatarPacks) app.catalogFailed = false;
+  if (check.avatarPacks != app.files.avatarPacks) app.avatar.PacksChanged();
   app.files = std::move(check);
 }
 
@@ -496,7 +328,7 @@ void HandleFileChosen(App& app, const SDL_UserEvent& event) {
   SDL_free(chosen);
   const auto kind = static_cast<DialogKind>(reinterpret_cast<intptr_t>(event.data2));
   if (kind == DialogKind::ExportAvatar) {
-    if (app.avatar) app.ExportAvatar(path);
+    if (auto message = app.avatar.Export(path)) app.Show(*message);
     return;
   }
   if (kind == DialogKind::ContentFolder) {
@@ -508,7 +340,7 @@ void HandleFileChosen(App& app, const SDL_UserEvent& event) {
     app.Report(bytes.error());
     return;
   }
-  app.ImportAvatar(std::move(*bytes));
+  if (auto message = app.avatar.Import(std::move(*bytes))) app.Show(*message);
 }
 
 void SectionLabel(const char* text) {
@@ -539,7 +371,7 @@ void Spinner(ImVec2 center) {
 }
 
 void DrawAvatarTab(App& app) {
-  app.StartCatalog();
+  app.avatar.StartCatalog(app.files.avatarPacks);
   const ImGuiStyle& style = ImGui::GetStyle();
   const float preview_width = kPreviewWidth * ImGui::GetFontSize() / 18.0f;
   const float preview_height = preview_width * kPreviewHeight / kPreviewWidth;
@@ -564,19 +396,21 @@ void DrawAvatarTab(App& app) {
 
   ImGui::Dummy(ImVec2(0, 4));
   SectionLabel("SONA CODE");
-  const bool ready = app.catalog != nullptr;
+  const bool ready = app.avatar.Ready();
   // A complete code shows at once, whether typed, pasted with Ctrl+V or with the button.
-  bool changed = ImGui::InputTextMultiline("##code", app.code.data(), app.code.size(),
+  bool changed = ImGui::InputTextMultiline("##code", app.avatar.code.data(), app.avatar.code.size(),
                                            ImVec2(left_width, ImGui::GetTextLineHeight() * 4));
   ImGui::BeginDisabled(!ready);
   if (ImGui::Button("Paste")) {
     char* clipboard = SDL_GetClipboardText();
-    SDL_strlcpy(app.code.data(), clipboard ? clipboard : "", app.code.size());
+    SDL_strlcpy(app.avatar.code.data(), clipboard ? clipboard : "", app.avatar.code.size());
     SDL_free(clipboard);
     changed = true;
   }
   ImGui::EndDisabled();
-  if (changed && ready) app.ImportCode();
+  if (changed && ready) {
+    if (auto message = app.avatar.ImportCode()) app.Show(*message);
+  }
   ImGui::SameLine();
   ImGui::BeginDisabled(!ready || !app.dialog_event);
   if (ImGui::Button("Open file...")) {
@@ -607,7 +441,7 @@ void DrawAvatarTab(App& app) {
 
   ImGui::Dummy(ImVec2(0, 4));
   SectionLabel("YOUR AVATAR");
-  ImGui::BeginDisabled(!app.avatar || !app.dialog_event);
+  ImGui::BeginDisabled(!app.avatar.Shown() || !app.dialog_event);
   if (ImGui::Button("Export...")) {
     static const SDL_DialogFileFilter filters[] = {{"Avatar manifest", "bin"}};
     export_request.app = &app;
@@ -620,9 +454,9 @@ void DrawAvatarTab(App& app) {
     ImGui::TextColored(kError, "The avatar pack table is missing. See the Files tab.");
   } else if (app.Busy()) {
     ImGui::TextUnformatted("Loading the avatar pack...");
-  } else if (!app.avatar) {
+  } else if (!app.avatar.Shown()) {
     ImGui::TextColored(kError, "No avatar yet. Paste a code or open a file.");
-  } else if (app.avatarUnsaved) {
+  } else if (app.avatar.Unsaved()) {
     ImGui::TextColored(kAccent, "New. Launch saves it.");
   } else {
     ImGui::TextUnformatted("Saved.");
@@ -634,16 +468,12 @@ void DrawAvatarTab(App& app) {
   const ImVec2 at = ImGui::GetCursorScreenPos();
   ImGui::GetWindowDrawList()->AddRectFilled(at, ImVec2(at.x + preview_width, at.y + preview_height),
                                             ImGui::GetColorU32(Hex(0x262930)), style.FrameRounding);
-  app.UpdatePreview();
-  if (app.avatar && app.preview) {
-    ImGui::Image(reinterpret_cast<ImTextureID>(app.preview), ImVec2(preview_width, preview_height));
+  if (SDL_Texture* preview = app.avatar.Preview()) {
+    ImGui::Image(reinterpret_cast<ImTextureID>(preview), ImVec2(preview_width, preview_height));
     // Dragging across the preview turns the avatar too.
     if (ImGui::IsItemActive() || (ImGui::IsItemHovered() && ImGui::IsMouseDragging(ImGuiMouseButton_Left))) {
       const float delta = ImGui::GetIO().MouseDelta.x;
-      if (delta != 0.0f) {
-        app.yaw += delta * 0.02f;
-        app.previewDirty = true;
-      }
+      if (delta != 0.0f) app.avatar.Turn(delta * 0.02f);
     }
   } else {
     ImGui::Dummy(ImVec2(preview_width, preview_height));
@@ -651,17 +481,11 @@ void DrawAvatarTab(App& app) {
   }
   const float arrow = ImGui::GetFrameHeight();
   ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (preview_width - arrow * 2 - style.ItemSpacing.x) * 0.5f);
-  ImGui::BeginDisabled(!app.avatar);
+  ImGui::BeginDisabled(!app.avatar.Shown());
   ImGui::PushItemFlag(ImGuiItemFlags_ButtonRepeat, true);
-  if (ImGui::ArrowButton("##left", ImGuiDir_Left)) {
-    app.yaw -= kTurnStep;
-    app.previewDirty = true;
-  }
+  if (ImGui::ArrowButton("##left", ImGuiDir_Left)) app.avatar.Turn(-kTurnStep);
   ImGui::SameLine();
-  if (ImGui::ArrowButton("##right", ImGuiDir_Right)) {
-    app.yaw += kTurnStep;
-    app.previewDirty = true;
-  }
+  if (ImGui::ArrowButton("##right", ImGuiDir_Right)) app.avatar.Turn(kTurnStep);
   ImGui::PopItemFlag();
   ImGui::EndDisabled();
   ImGui::EndGroup();
@@ -957,7 +781,7 @@ bool DrawFrame(App& app, const Fonts& fonts) {
   const updater::PollResult polled = app.update.Poll();
   if (polled.notice) app.Show(*polled.notice);
   bool close = polled.exit;
-  app.PollCatalog();
+  if (auto message = app.avatar.PollCatalog()) app.Show(*message);
   CheckFiles(app);
   const ImGuiViewport* viewport = ImGui::GetMainViewport();
   ImGui::SetNextWindowPos(viewport->WorkPos);
@@ -1019,7 +843,7 @@ bool DrawFrame(App& app, const Fonts& fonts) {
   ImGui::SetCursorPosY(std::max(ImGui::GetCursorPosY(), status_top + line * 2));
 
   // Velopack stops every process in the install when it applies an update.
-  const bool can_launch = app.files.ok() && app.HasAvatar() && !app.update.Downloading();
+  const bool can_launch = app.files.ok() && app.avatar.HasAvatar() && !app.update.Downloading();
   ImGui::BeginDisabled(!can_launch);
   if (ShowButton("LAUNCH", ImVec2(ImGui::GetContentRegionAvail().x, launch_height), can_launch)) {
     if (auto saved = app.Save(); !saved) {
@@ -1034,7 +858,7 @@ bool DrawFrame(App& app, const Fonts& fonts) {
 
   if (!app.files.ok()) {
     ImGui::TextColored(kError, "Missing files. See the Files tab before launching.");
-  } else if (!app.HasAvatar()) {
+  } else if (!app.avatar.HasAvatar()) {
     ImGui::TextColored(kError, "Choose an avatar on the Avatar tab before launching.");
   } else {
     SectionLabel("Launch saves your gamertag, avatar and settings.");
@@ -1120,7 +944,7 @@ int main(int, char**) {
   App app;
   app.paths = std::move(*paths);
   app.window = window;
-  app.renderer = renderer;
+  app.avatar.Init(app.paths.avatar, renderer);
   // SDL_RegisterEvents returns 0 when no event types are left.
   if (const Uint32 type = SDL_RegisterEvents(1)) app.dialog_event = type;
   if (!app.dialog_event) {
@@ -1163,7 +987,7 @@ int main(int, char**) {
     }
   }
 
-  if (app.preview) SDL_DestroyTexture(app.preview);
+  app.avatar.ReleasePreview();
   ImGui_ImplSDLRenderer3_Shutdown();
   ImGui_ImplSDL3_Shutdown();
   ImGui::DestroyContext();

@@ -108,6 +108,7 @@ file(WRITE "${FONT_HEADER}" "#pragma once\ninline constexpr unsigned char kFontD
 
 add_executable(onevs100-launcher WIN32
   main.cpp
+  avatar_editor.cpp
   content_check.cpp
   files.cpp
   game_config.cpp
