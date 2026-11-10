@@ -12,5 +12,6 @@
 std::filesystem::path PathFromUtf8(const char* text);
 std::string PathText(const std::filesystem::path& path);
 
-// The error is the reason, for display.
+// Reads through fs::path, since toml++ parse_file takes a narrow path that
+// breaks on non-ASCII Windows paths. The error is the reason, for display.
 std::expected<toml::table, std::string> ParseTomlFile(const std::filesystem::path& file);

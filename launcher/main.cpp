@@ -6,15 +6,12 @@
 #include <imgui_impl_sdl3.h>
 #include <imgui_impl_sdlrenderer3.h>
 #include <misc/cpp/imgui_stdlib.h>
-#include <toml++/toml.hpp>
 
 #include <algorithm>
 #include <array>
-#include <charconv>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
-#include <vector>
 #include <cstring>
 #include <expected>
 #include <filesystem>
@@ -27,10 +24,12 @@
 #include <string_view>
 #include <system_error>
 #include <utility>
+#include <vector>
 
 #include "content_check.h"
 #include "files.h"
 #include "font_data.h"
+#include "game_config.h"
 #include "update_flow.h"
 #include "updater.h"
 #include "xna_avatar_format.h"
@@ -40,7 +39,6 @@ namespace av = xe::kernel::xna::avatar;
 
 namespace {
 
-constexpr const char* kDefaultHost = "1vs100.fans";
 constexpr const char* kDiscordUrl = "https://discord.gg/tV3ajhwFTf";
 constexpr const char* kWebsiteUrl = "https://1vs100.fans";
 constexpr const char* kDocsUrl = "https://docs.1vs100.fans";
@@ -49,17 +47,6 @@ constexpr const char* kAvatarEditorUrl = "https://360sona.com";
 constexpr const char* kSonaGamertagUrl = "https://360sona.com/sona/v1/gamertag/";
 constexpr uint32_t kPreviewWidth = 240, kPreviewHeight = 320;
 constexpr float kTurnStep = 3.14159265f / 12.0f;  // 15 degrees per arrow press
-// Keys the launcher edits through its own controls; the advanced list leaves them out.
-constexpr std::array<std::string_view, 8> kManagedKeys = {
-    "gameserver_host", "fullscreen", "mnk_mode", "mnk_mouse", "content", "gpu_allow_invalid_fetch_constants",
-    "log_level", "lua_print_log"};
-// The game builds its native renderer only where a DXC release exists.
-#if defined(_WIN32) || (defined(__linux__) && defined(__x86_64__))
-constexpr bool kHasNativeRenderer = true;
-#else
-constexpr bool kHasNativeRenderer = false;
-#endif
-constexpr const char* kDefaultContent = "content";
 constexpr size_t kGamertagMax = 15;
 
 #ifdef _WIN32
@@ -131,18 +118,6 @@ std::string SonaManifestUrl(const XboxGamertag& gamertag) {
   return url + "?client=1vs100rb&format=bin";
 }
 
-bool ValidHost(std::string_view host) {
-  if (host.empty() || host.size() > 253) return false;
-  if (host.find("://") != std::string_view::npos) return false;
-  for (char c : host) {
-    if (c == ' ' || c == '\t' || c == '/' || c == ':' || c == '#' || c == '"' || c == '\'') return false;
-  }
-  return true;
-}
-
-// toml++ parse_file takes a narrow path, which breaks on non-ASCII Windows
-// install paths. Read through the wide-aware fs::path instead.
-
 enum class ErrorKind {
   InvalidGamertag,
   InvalidHost,
@@ -204,6 +179,15 @@ bool InAppBundle(const fs::path& executable_folder) {
   return executable_folder.filename() == "MacOS" && executable_folder.parent_path().filename() == "Contents";
 }
 
+Error ToError(const ConfigError& error) {
+  switch (error.kind) {
+    case ConfigError::Kind::Unreadable: return Error{ErrorKind::ConfigUnreadable, error.file, error.detail};
+    case ConfigError::Kind::InvalidHost: return Error{ErrorKind::InvalidHost, error.file, error.detail};
+    case ConfigError::Kind::WriteFailed: return Error{ErrorKind::WriteFailed, error.file, error.detail};
+  }
+  std::unreachable();
+}
+
 std::expected<Paths, Error> MakePaths() {
   const fs::path base = ExecutableFolder();
   // The install folder is replaced as a whole or is read-only: an app bundle
@@ -248,196 +232,6 @@ std::expected<void, Error> PrepareDataFolder(const Paths& paths) {
   const fs::path content = paths.data / kDefaultContent;
   fs::create_directories(content, ec);
   if (ec) return std::unexpected(Error{ErrorKind::WriteFailed, content, ec.message()});
-  return {};
-}
-
-// One onevs100.toml key outside the launcher's own controls.
-struct ConfigEntry {
-  enum class Kind { Flag, Integer, Number, Text };
-  std::string key;
-  Kind kind = Kind::Text;
-  bool flag = false;
-  int64_t integer = 0;
-  double number = 0;
-  std::string text;
-};
-
-std::optional<ConfigEntry> EntryFromNode(std::string key, const toml::node& node) {
-  ConfigEntry entry;
-  entry.key = std::move(key);
-  if (auto flag = node.value_exact<bool>()) {
-    entry.kind = ConfigEntry::Kind::Flag;
-    entry.flag = *flag;
-  } else if (auto integer = node.value_exact<int64_t>()) {
-    entry.kind = ConfigEntry::Kind::Integer;
-    entry.integer = *integer;
-  } else if (auto number = node.value_exact<double>()) {
-    entry.kind = ConfigEntry::Kind::Number;
-    entry.number = *number;
-  } else if (auto text = node.value_exact<std::string>()) {
-    entry.kind = ConfigEntry::Kind::Text;
-    entry.text = *text;
-  } else {
-    return std::nullopt;
-  }
-  return entry;
-}
-
-// strtod, not from_chars: older libc++ has no floating-point from_chars. Only
-// plain decimals count, so text such as 0x10, inf or nan stays text.
-bool ParseDecimal(std::string_view value, double* out) {
-  if (value.empty() || value.find_first_not_of("0123456789.-eE") != std::string_view::npos) return false;
-  const std::string text(value);
-  char* end = nullptr;
-  *out = std::strtod(text.c_str(), &end);
-  return !text.empty() && end == text.c_str() + text.size();
-}
-
-// Typed the way a TOML value is: true/false, a whole number, a decimal number, else text.
-ConfigEntry EntryFromText(std::string key, std::string_view value) {
-  ConfigEntry entry;
-  entry.key = std::move(key);
-  int64_t integer = 0;
-  double number = 0;
-  const char* end = value.data() + value.size();
-  if (value == "true" || value == "false") {
-    entry.kind = ConfigEntry::Kind::Flag;
-    entry.flag = value == "true";
-  } else if (const auto parsed = std::from_chars(value.data(), end, integer);
-             !value.empty() && parsed.ec == std::errc() && parsed.ptr == end) {
-    entry.kind = ConfigEntry::Kind::Integer;
-    entry.integer = integer;
-  } else if (ParseDecimal(value, &number)) {
-    entry.kind = ConfigEntry::Kind::Number;
-    entry.number = number;
-  } else {
-    entry.kind = ConfigEntry::Kind::Text;
-    entry.text = std::string(value);
-  }
-  return entry;
-}
-
-bool ValidConfigKey(std::string_view key) {
-  if (key.empty()) return false;
-  for (unsigned char c : key)
-    if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_')) return false;
-  return true;
-}
-
-bool ManagedKey(std::string_view key) {
-  // Without the checkbox the key stays in the advanced list, for builds that enable the renderer.
-  if (kHasNativeRenderer && key == "native_renderer") return true;
-  return std::find(kManagedKeys.begin(), kManagedKeys.end(), key) != kManagedKeys.end();
-}
-
-// The game's log levels, most detail first, as onevs100.toml names them.
-enum class LogLevel { Trace, Debug, Info, Warn, Error, Critical, Off };
-constexpr std::array<LogLevel, 7> kLogLevels = {LogLevel::Trace, LogLevel::Debug,    LogLevel::Info, LogLevel::Warn,
-                                                LogLevel::Error, LogLevel::Critical, LogLevel::Off};
-
-const char* LogLevelName(LogLevel level) {
-  switch (level) {
-    case LogLevel::Trace: return "trace";
-    case LogLevel::Debug: return "debug";
-    case LogLevel::Info: return "info";
-    case LogLevel::Warn: return "warn";
-    case LogLevel::Error: return "error";
-    case LogLevel::Critical: return "critical";
-    case LogLevel::Off: return "off";
-  }
-  std::unreachable();
-}
-
-// Exactly the values the log_level cvar allows; the game refuses any other and logs at info.
-std::optional<LogLevel> ParseLogLevel(std::string_view text) {
-  for (const LogLevel level : kLogLevels) {
-    if (text == LogLevelName(level)) return level;
-  }
-  return std::nullopt;
-}
-
-struct Settings {
-  std::string host;
-  bool windowed = false;
-  std::string content = "content";
-  bool keyboard = false;
-  bool mouse_look = false;
-  bool native_renderer = false;
-  // The game turns this on itself when the key is missing; off leaves the Press Start scene black on the
-  // emulated renderer.
-  bool allow_invalid_fetch_constants = true;
-  // None: the key is absent, and the game logs at info.
-  std::optional<LogLevel> log_level;
-  bool lua_print_log = false;
-  std::vector<ConfigEntry> others;
-  // Keys removed from `others` since loading, so saving drops them from the file.
-  std::vector<std::string> removed;
-};
-
-// Missing keys take the game's own defaults, except the host, which the
-// release presets to the community server.
-std::expected<Settings, Error> LoadSettings(const fs::path& config) {
-  Settings settings;
-  settings.host = kDefaultHost;
-  std::error_code ec;
-  if (!fs::exists(config, ec)) return settings;
-  auto parsed = ParseTomlFile(config);
-  if (!parsed) return std::unexpected(Error{ErrorKind::ConfigUnreadable, config, parsed.error()});
-  const toml::table& table = *parsed;
-  if (auto host = table["gameserver_host"].value<std::string>()) settings.host = *host;
-  if (auto fullscreen = table["fullscreen"].value<bool>()) settings.windowed = !*fullscreen;
-  if (auto content = table["content"].value<std::string>()) settings.content = *content;
-  if (auto keyboard = table["mnk_mode"].value<bool>()) settings.keyboard = *keyboard;
-  if (auto mouse_look = table["mnk_mouse"].value<bool>()) settings.mouse_look = *mouse_look;
-  if (auto native = table["native_renderer"].value<bool>(); native && kHasNativeRenderer)
-    settings.native_renderer = *native;
-  if (auto fetch = table["gpu_allow_invalid_fetch_constants"].value<bool>())
-    settings.allow_invalid_fetch_constants = *fetch;
-  if (auto level = table["log_level"].value<std::string>()) settings.log_level = ParseLogLevel(*level);
-  if (auto lua = table["lua_print_log"].value<bool>()) settings.lua_print_log = *lua;
-  for (const auto& [key, node] : table) {
-    if (ManagedKey(key.str())) continue;
-    if (auto entry = EntryFromNode(std::string(key.str()), node)) settings.others.push_back(std::move(*entry));
-  }
-  return settings;
-}
-
-std::expected<void, Error> SaveSettings(const fs::path& config, const Settings& settings) {
-  if (!ValidHost(settings.host))
-    return std::unexpected(Error{ErrorKind::InvalidHost, {}, {}});
-  toml::table table;
-  std::error_code ec;
-  if (fs::exists(config, ec)) {
-    auto parsed = ParseTomlFile(config);
-    if (!parsed)
-      return std::unexpected(Error{ErrorKind::ConfigUnreadable, config, parsed.error()});
-    table = std::move(*parsed);
-  }
-  for (const auto& key : settings.removed) table.erase(key);
-  for (const auto& entry : settings.others) {
-    switch (entry.kind) {
-      case ConfigEntry::Kind::Flag: table.insert_or_assign(entry.key, entry.flag); break;
-      case ConfigEntry::Kind::Integer: table.insert_or_assign(entry.key, entry.integer); break;
-      case ConfigEntry::Kind::Number: table.insert_or_assign(entry.key, entry.number); break;
-      case ConfigEntry::Kind::Text: table.insert_or_assign(entry.key, entry.text); break;
-    }
-  }
-  table.insert_or_assign("gameserver_host", settings.host);
-  table.insert_or_assign("content", settings.content);
-  table.insert_or_assign("fullscreen", !settings.windowed);
-  table.insert_or_assign("mnk_mode", settings.keyboard);
-  table.insert_or_assign("mnk_mouse", settings.mouse_look);
-  if (kHasNativeRenderer) table.insert_or_assign("native_renderer", settings.native_renderer);
-  table.insert_or_assign("gpu_allow_invalid_fetch_constants", settings.allow_invalid_fetch_constants);
-  if (settings.log_level)
-    table.insert_or_assign("log_level", LogLevelName(*settings.log_level));
-  else
-    table.erase("log_level");
-  table.insert_or_assign("lua_print_log", settings.lua_print_log);
-  std::ofstream out(config, std::ios::trunc);
-  out << table << '\n';
-  out.flush();
-  if (!out) return std::unexpected(Error{ErrorKind::WriteFailed, config, "write error"});
   return {};
 }
 
@@ -814,7 +608,7 @@ struct App {
     auto settings = LoadSettings(paths.config);
     if (!settings) {
       SDL_strlcpy(host.data(), kDefaultHost, host.size());
-      Report(settings.error());
+      Report(ToError(settings.error()));
       RefreshFiles(*this);
       return;
     }
@@ -852,7 +646,7 @@ struct App {
     out.lua_print_log = lua_print_log;
     out.others = others;
     out.removed = removed;
-    if (auto saved = SaveSettings(paths.config, out); !saved) return saved;
+    if (auto saved = SaveSettings(paths.config, out); !saved) return std::unexpected(ToError(saved.error()));
     removed.clear();
     return {};
   }

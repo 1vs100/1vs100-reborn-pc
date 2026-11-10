@@ -1,0 +1,129 @@
+== load full
+host play.example.org
+windowed yes
+content D:/packages
+keyboard yes
+mouse_look yes
+allow_invalid_fetch_constants no
+log_level debug
+lua_print_log yes
+other frame_limit integer 60
+other language text "de"
+other ui_scale number 1.250000
+other vsync flag no
+== load missing
+host 1vs100.fans
+windowed no
+content content
+keyboard no
+mouse_look no
+allow_invalid_fetch_constants yes
+log_level none
+lua_print_log no
+== load wrong types
+host 1vs100.fans
+windowed no
+content content
+keyboard no
+mouse_look no
+allow_invalid_fetch_constants yes
+log_level none
+lua_print_log no
+== load broken
+error unreadable broken.toml: Error while parsing string: unescaped control characters other than TAB (U+0009) are explicitly prohibited
+== save full
+saved:
+content = 'D:/packages'
+frame_limit = 30
+fullscreen = true
+gameserver_host = '10.0.0.2'
+gpu_allow_invalid_fetch_constants = false
+language = 'de'
+list = [ 1, 2 ]
+lua_print_log = true
+mnk_mode = true
+mnk_mouse = true
+new_key = 'text value'
+ui_scale = 1.25
+
+[section]
+key = 1
+== save invalid host
+error invalid_host:  refused_host=bad host/name
+file unchanged:
+content = 'D:/packages'
+frame_limit = 30
+fullscreen = true
+gameserver_host = '10.0.0.2'
+gpu_allow_invalid_fetch_constants = false
+language = 'de'
+list = [ 1, 2 ]
+lua_print_log = true
+mnk_mode = true
+mnk_mouse = true
+new_key = 'text value'
+ui_scale = 1.25
+
+[section]
+key = 1
+== save new file
+saved:
+content = 'content'
+fullscreen = true
+gameserver_host = '1vs100.fans'
+gpu_allow_invalid_fetch_constants = true
+lua_print_log = false
+mnk_mode = false
+mnk_mouse = false
+== entry from text
+"true" -> k flag yes
+"false" -> k flag no
+"42" -> k integer 42
+"-7" -> k integer -7
+"3.5" -> k number 3.500000
+"-0.5" -> k number -0.500000
+"1e3" -> k number 1000.000000
+"0x10" -> k text "0x10"
+"inf" -> k text "inf"
+"nan" -> k text "nan"
+"" -> k text ""
+"hello" -> k text "hello"
+"1.2.3" -> k text "1.2.3"
+"99999999999999999999" -> k number 100000000000000000000.000000
+"True" -> k text "True"
+== valid host
+"1vs100.fans" yes
+"192.168.1.10" yes
+"localhost" yes
+"" no
+"a b" no
+"http://x" no
+"host:1234" no
+"a/b" no
+"x#y" no
+"quote"" no
+"it's" no
+length 253 yes
+length 254 no
+== valid config key
+"vsync" yes
+"gpu_x2" yes
+"" no
+"with space" no
+"dash-key" no
+"dot.key" no
+== managed key
+gameserver_host yes
+log_level yes
+vsync no
+== log level
+"trace" -> trace
+"debug" -> debug
+"info" -> info
+"warn" -> warn
+"error" -> error
+"critical" -> critical
+"off" -> off
+"Info" -> none
+"warning" -> none
+"" -> none

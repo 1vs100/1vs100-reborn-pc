@@ -25,3 +25,8 @@ add_executable(content_check_test content_check_test.cpp ${LAUNCHER}/content_che
 target_include_directories(content_check_test PRIVATE ${LAUNCHER} ${LAUNCHER}/../native/src)
 target_link_libraries(content_check_test PRIVATE tomlplusplus::tomlplusplus)
 add_test(NAME content_check COMMAND content_check_test ${FIXTURES})
+
+add_executable(game_config_test game_config_test.cpp ${LAUNCHER}/game_config.cpp ${LAUNCHER}/files.cpp)
+target_include_directories(game_config_test PRIVATE ${LAUNCHER})
+target_link_libraries(game_config_test PRIVATE tomlplusplus::tomlplusplus)
+add_test(NAME game_config COMMAND game_config_test ${FIXTURES})

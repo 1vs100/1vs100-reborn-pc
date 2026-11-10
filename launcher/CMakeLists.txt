@@ -110,6 +110,7 @@ add_executable(onevs100-launcher WIN32
   main.cpp
   content_check.cpp
   files.cpp
+  game_config.cpp
   update_flow.cpp
   updater.cpp
   ${imgui_SOURCE_DIR}/imgui.cpp
