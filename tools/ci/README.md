@@ -23,7 +23,7 @@ On a Mac or an ARM64 Linux machine, run the scripts directly without `container.
 
 ## Releases
 
-Pushing a tag that starts with `v` (for example `v0.1.359.0`) builds every target and creates a draft GitHub release with all packages attached. Check the draft, then publish it on GitHub.
+Pushing a tag that starts with `v` (for example `v0.1.359`) builds every target and creates a draft GitHub release with all packages attached. Check the draft, then publish it on GitHub.
 
 ## Pins
 

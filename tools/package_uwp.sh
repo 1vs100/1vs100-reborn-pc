@@ -31,10 +31,12 @@ if [ ! -f "$version_file" ]; then
   exit 1
 fi
 version=$(tr -d '[:space:]' < "$version_file")
-if ! [[ "$version" =~ ^[0-9]+(\.[0-9]+){3}$ ]]; then
-  echo "bad version $version, want four numeric parts" >&2
+if ! [[ "$version" =~ ^[0-9]+(\.[0-9]+){2}$ ]]; then
+  echo "bad version $version, want three numeric parts" >&2
   exit 1
 fi
+# MSIX wants four parts; VERSION is SemVer for Velopack.
+version=$version.0
 for f in onevs100.exe rexruntime.dll rexgpu-xenos.dll; do
   if [ ! -f "$build_dir/$f" ]; then
     echo "missing $build_dir/$f" >&2
