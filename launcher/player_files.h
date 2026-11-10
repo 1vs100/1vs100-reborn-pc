@@ -34,6 +34,10 @@ enum class ErrorKind {
   InvalidGamertag,
   InvalidHost,
   ConfigUnreadable,
+  ConfigValueInvalid,
+  // The file could not be read earlier and reads now. Launch stops so the
+  // player sees what it holds before it is saved.
+  ConfigReread,
   WriteFailed,
   AvatarUnreadable,
   GameMissing,

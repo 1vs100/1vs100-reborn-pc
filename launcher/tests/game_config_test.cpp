@@ -60,6 +60,7 @@ std::string DescribeEntry(const ConfigEntry& entry) {
 const char* ErrorKindName(ConfigError::Kind kind) {
   switch (kind) {
     case ConfigError::Kind::Unreadable: return "unreadable";
+    case ConfigError::Kind::BadValue: return "bad_value";
     case ConfigError::Kind::InvalidHost: return "invalid_host";
     case ConfigError::Kind::WriteFailed: return "write_failed";
   }
@@ -132,9 +133,30 @@ int main(int argc, char** argv) {
 
   actual += "== load missing\n" + Describe(LoadSettings(root / "missing.toml"));
 
-  const fs::path wrong_types = root / "wrong_types.toml";
-  WriteText(wrong_types, "gameserver_host = 5\nfullscreen = \"no\"\nlog_level = \"verbose\"\n");
-  actual += "== load wrong types\n" + Describe(LoadSettings(wrong_types));
+  // Keys with their own control, read the way the game reads them: as text,
+  // and for flags only true, 1 or yes count as true.
+  const fs::path wrong_type = root / "wrong_type.toml";
+  for (const char* text : {"gameserver_host = 5\n", "content = false\n", "fullscreen = \"no\"\n", "mnk_mode = 1\n",
+                           "mnk_mouse = \"yes\"\n", "lua_print_log = \"true\"\n", "gpu_allow_invalid_fetch_constants = 0\n"}) {
+    WriteText(wrong_type, text);
+    actual += std::string("== load as the game reads it: ") + text + Describe(LoadSettings(wrong_type));
+  }
+  // Values the game would not read.
+  for (const char* text : {"log_level = \"verbose\"\n", "log_level = \"INFO\"\n", "log_level = \"warning\"\n",
+                           "log_level = 3\n", "fullscreen = [true]\n", "fullscreen = 1979-05-27\n", "[mnk]\nmode = true\n",
+                           "[gpu]\n[gpu.allow_invalid]\nfetch_constants = false\n"}) {
+    WriteText(wrong_type, text);
+    actual += std::string("== load refused: ") + text + Describe(LoadSettings(wrong_type));
+  }
+  {
+    WriteText(wrong_type, "log_level = \"verbose\"\nvsync = true\n");
+    Settings settings;
+    settings.host = kDefaultHost;
+    actual += "== save over wrong type\n" + DescribeSave(SaveSettings(wrong_type, settings), wrong_type);
+  }
+  // Not a managed key, so any type stays as it is.
+  WriteText(wrong_type, "vsync = \"maybe\"\n");
+  actual += "== load other key of any type\n" + Describe(LoadSettings(wrong_type));
 
   const fs::path broken = root / "broken.toml";
   WriteText(broken, "gameserver_host = \"unterminated\n");

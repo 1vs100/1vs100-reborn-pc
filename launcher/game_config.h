@@ -14,10 +14,6 @@
 inline constexpr const char* kDefaultHost = "1vs100.fans";
 // The content folder, relative to the data folder.
 inline constexpr const char* kDefaultContent = "content";
-// Keys the launcher edits through its own controls; the advanced list leaves them out.
-inline constexpr std::array<std::string_view, 8> kManagedKeys = {
-    "gameserver_host", "fullscreen", "mnk_mode", "mnk_mouse", "content", "gpu_allow_invalid_fetch_constants",
-    "log_level", "lua_print_log"};
 // The game builds its native renderer only where a DXC release exists.
 #if defined(_WIN32) || (defined(__linux__) && defined(__x86_64__))
 inline constexpr bool kHasNativeRenderer = true;
@@ -78,7 +74,10 @@ struct Settings {
 };
 
 struct ConfigError {
-  enum class Kind { Unreadable, InvalidHost, WriteFailed } kind;
+  // BadValue: a key with its own control holds a value the game would not
+  // read. Loading and saving refuse it, so the launcher never writes its
+  // default over the player's value.
+  enum class Kind { Unreadable, BadValue, InvalidHost, WriteFailed } kind;
   std::filesystem::path file;
   // The reason, for display.
   std::string detail;

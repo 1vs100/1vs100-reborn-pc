@@ -37,6 +37,8 @@ std::string Describe(const Error& error) {
     case ErrorKind::InvalidHost:
       return "Enter a gameserver host first (hostname or IPv4, no spaces or ://).";
     case ErrorKind::ConfigUnreadable: return "Cannot read " + path + ": " + error.detail;
+    case ErrorKind::ConfigValueInvalid: return "Fix " + path + ": " + error.detail + ".";
+    case ErrorKind::ConfigReread: return "Loaded " + path + ". Check the settings, then press Launch.";
     case ErrorKind::WriteFailed: return "Cannot write " + path + ": " + error.detail;
     case ErrorKind::AvatarUnreadable: return "Cannot read " + path + ": " + error.detail;
     case ErrorKind::GameMissing: return "Game not found: " + path;
@@ -80,6 +82,7 @@ fs::path ExecutableFolder() {
 Error ToError(const ConfigError& error) {
   switch (error.kind) {
     case ConfigError::Kind::Unreadable: return Error{ErrorKind::ConfigUnreadable, error.file, error.detail};
+    case ConfigError::Kind::BadValue: return Error{ErrorKind::ConfigValueInvalid, error.file, error.detail};
     case ConfigError::Kind::InvalidHost: return Error{ErrorKind::InvalidHost, error.file, error.detail};
     case ConfigError::Kind::WriteFailed: return Error{ErrorKind::WriteFailed, error.file, error.detail};
   }

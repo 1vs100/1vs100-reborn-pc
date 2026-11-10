@@ -86,6 +86,9 @@ struct App {
   std::optional<LogLevel> log_level;
   bool lua_print_log = false;
   Status status;
+  // False while onevs100.toml could not be read. Launch then must not write
+  // the defaults the controls show over the file.
+  bool settingsLoaded = false;
   SDL_Window* window = nullptr;
   // SDL's user event for file dialog results; none when SDL ran out of event types.
   std::optional<Uint32> dialog_event;
@@ -118,13 +121,15 @@ struct App {
   void Load() {
     if (auto name = LoadGamertag(paths.gamertag)) SDL_strlcpy(gamertag.data(), name->c_str(), gamertag.size());
     if (auto prepared = PrepareDataFolder(paths); !prepared) Report(prepared.error());
+    SDL_strlcpy(host.data(), kDefaultHost, host.size());
+    if (auto loaded = LoadConfig(); !loaded) Report(loaded.error());
+    RefreshFiles(*this);
+  }
+
+  // Reads onevs100.toml into the controls. On failure they keep their values.
+  std::expected<void, Error> LoadConfig() {
     auto settings = LoadSettings(paths.config);
-    if (!settings) {
-      SDL_strlcpy(host.data(), kDefaultHost, host.size());
-      Report(ToError(settings.error()));
-      RefreshFiles(*this);
-      return;
-    }
+    if (!settings) return std::unexpected(ToError(settings.error()));
     SDL_strlcpy(host.data(), settings->host.c_str(), host.size());
     windowed = settings->windowed;
     contentSetting = settings->content;
@@ -135,7 +140,19 @@ struct App {
     log_level = settings->log_level;
     lua_print_log = settings->lua_print_log;
     others = std::move(settings->others);
-    RefreshFiles(*this);
+    removed.clear();
+    settingsLoaded = true;
+    return {};
+  }
+
+  // The player may have fixed the file in an editor meanwhile.
+  void RetryConfig() {
+    if (settingsLoaded) return;
+    if (auto loaded = LoadConfig(); !loaded) {
+      Report(loaded.error());
+      return;
+    }
+    Report("Loaded " + PathText(paths.config) + ".");
   }
 
   void SetContentFolder(std::string folder) {
@@ -145,6 +162,11 @@ struct App {
   }
 
   std::expected<void, Error> Save() {
+    if (!settingsLoaded) {
+      if (auto loaded = LoadConfig(); !loaded) return loaded;
+      RefreshFiles(*this);
+      return std::unexpected(Error{ErrorKind::ConfigReread, paths.config, {}});
+    }
     if (auto saved = SaveGamertag(paths, gamertag.data()); !saved) return saved;
     if (auto saved = avatar.Save(); !saved) return saved;
     Settings out;
@@ -797,7 +819,10 @@ int main(int, char**) {
         ImGui_ImplSDL3_ProcessEvent(&event);
         if (event.type == SDL_EVENT_QUIT) running = false;
         // Coming back from a file manager is when new files usually appear.
-        if (event.type == SDL_EVENT_WINDOW_FOCUS_GAINED) RefreshFiles(app);
+        if (event.type == SDL_EVENT_WINDOW_FOCUS_GAINED) {
+          app.RetryConfig();
+          RefreshFiles(app);
+        }
         if (app.dialog_event && event.type == *app.dialog_event)
           HandleFileChosen(app, event.user);
       } while (SDL_PollEvent(&event));

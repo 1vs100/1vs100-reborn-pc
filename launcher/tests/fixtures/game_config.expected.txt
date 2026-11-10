@@ -20,7 +20,94 @@ mouse_look no
 allow_invalid_fetch_constants yes
 log_level none
 lua_print_log no
-== load wrong types
+== load as the game reads it: gameserver_host = 5
+host 5
+windowed no
+content content
+keyboard no
+mouse_look no
+allow_invalid_fetch_constants yes
+log_level none
+lua_print_log no
+== load as the game reads it: content = false
+host 1vs100.fans
+windowed no
+content false
+keyboard no
+mouse_look no
+allow_invalid_fetch_constants yes
+log_level none
+lua_print_log no
+== load as the game reads it: fullscreen = "no"
+host 1vs100.fans
+windowed yes
+content content
+keyboard no
+mouse_look no
+allow_invalid_fetch_constants yes
+log_level none
+lua_print_log no
+== load as the game reads it: mnk_mode = 1
+host 1vs100.fans
+windowed no
+content content
+keyboard yes
+mouse_look no
+allow_invalid_fetch_constants yes
+log_level none
+lua_print_log no
+== load as the game reads it: mnk_mouse = "yes"
+host 1vs100.fans
+windowed no
+content content
+keyboard no
+mouse_look yes
+allow_invalid_fetch_constants yes
+log_level none
+lua_print_log no
+== load as the game reads it: lua_print_log = "true"
+host 1vs100.fans
+windowed no
+content content
+keyboard no
+mouse_look no
+allow_invalid_fetch_constants yes
+log_level none
+lua_print_log yes
+== load as the game reads it: gpu_allow_invalid_fetch_constants = 0
+host 1vs100.fans
+windowed no
+content content
+keyboard no
+mouse_look no
+allow_invalid_fetch_constants no
+log_level none
+lua_print_log no
+== load refused: log_level = "verbose"
+error bad_value wrong_type.toml: log_level must be one of "trace", "debug", "info", "warn", "error", "critical" or "off"
+== load refused: log_level = "INFO"
+error bad_value wrong_type.toml: log_level must be one of "trace", "debug", "info", "warn", "error", "critical" or "off"
+== load refused: log_level = "warning"
+error bad_value wrong_type.toml: log_level must be one of "trace", "debug", "info", "warn", "error", "critical" or "off"
+== load refused: log_level = 3
+error bad_value wrong_type.toml: log_level must be one of "trace", "debug", "info", "warn", "error", "critical" or "off"
+== load refused: fullscreen = [true]
+error bad_value wrong_type.toml: fullscreen must be text, a number, true or false
+== load refused: fullscreen = 1979-05-27
+error bad_value wrong_type.toml: fullscreen must be text, a number, true or false
+== load refused: [mnk]
+mode = true
+error bad_value wrong_type.toml: mnk_mode is set inside a [table]. Write it as mnk_mode before the first [table] line
+== load refused: [gpu]
+[gpu.allow_invalid]
+fetch_constants = false
+error bad_value wrong_type.toml: gpu_allow_invalid_fetch_constants is set inside a [table]. Write it as gpu_allow_invalid_fetch_constants before the first [table] line
+== save over wrong type
+error bad_value: log_level must be one of "trace", "debug", "info", "warn", "error", "critical" or "off" refused_host=none
+file unchanged:
+log_level = "verbose"
+vsync = true
+== load other key of any type
 host 1vs100.fans
 windowed no
 content content
@@ -29,6 +116,7 @@ mouse_look no
 allow_invalid_fetch_constants yes
 log_level none
 lua_print_log no
+other vsync text "maybe"
 == load broken
 error unreadable broken.toml: Error while parsing string: unescaped control characters other than TAB (U+0009) are explicitly prohibited
 == save full

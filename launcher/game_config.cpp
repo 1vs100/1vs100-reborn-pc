@@ -1,6 +1,7 @@
 #include "game_config.h"
 
 #include <algorithm>
+#include <array>
 #include <charconv>
 #include <cstdlib>
 #include <sstream>
@@ -46,12 +47,95 @@ bool ParseDecimal(std::string_view value, double* out) {
   return !text.empty() && end == text.c_str() + text.size();
 }
 
+enum class ValueType { Flag, Text, LogLevel };
+
+// Keys the launcher edits through its own controls, and the value each holds.
+struct ManagedValue {
+  std::string_view key;
+  ValueType type;
+};
+
+constexpr auto kManagedValues = std::to_array<ManagedValue>({
+    {"gameserver_host", ValueType::Text},
+    {"fullscreen", ValueType::Flag},
+    {"content", ValueType::Text},
+    {"mnk_mode", ValueType::Flag},
+    {"mnk_mouse", ValueType::Flag},
+    {"gpu_allow_invalid_fetch_constants", ValueType::Flag},
+    {"log_level", ValueType::LogLevel},
+    {"lua_print_log", ValueType::Flag},
+    {"native_renderer", ValueType::Flag},
+});
+
+// The game reads every config value as text (ApplyTomlTable in
+// rexglue-sdk/src/core/cvar.cpp). Nothing for arrays and tables, which it skips.
+std::optional<std::string> GameText(const toml::node& node) {
+  if (node.is_boolean()) return node.as_boolean()->get() ? "true" : "false";
+  if (node.is_integer()) return std::to_string(node.as_integer()->get());
+  if (node.is_floating_point()) return std::to_string(node.as_floating_point()->get());
+  if (node.is_string()) return node.as_string()->get();
+  return std::nullopt;
+}
+
+// What a bool cvar makes of that text (from_string<bool> in
+// rexglue-sdk/include/rex/string/numeric.h): anything else is false.
+bool GameFlag(std::string_view text) { return text == "true" || text == "1" || text == "yes"; }
+
+std::optional<std::string> ManagedText(const toml::table& table, std::string_view key) {
+  const toml::node* node = table.get(key);
+  return node ? GameText(*node) : std::nullopt;
+}
+
+ConfigError BadValue(const fs::path& config, std::string detail) {
+  return ConfigError{ConfigError::Kind::BadValue, config, std::move(detail), std::nullopt};
+}
+
+// The game joins table and key names with _, so [mnk] mode = true sets
+// mnk_mode. The launcher writes the top-level key, which would hide it.
+std::optional<ConfigError> CheckNestedManagedKeys(const fs::path& config, const toml::table& table,
+                                                  const std::string& prefix) {
+  for (const auto& [key, node] : table) {
+    const std::string name = prefix + "_" + std::string(key.str());
+    if (const toml::table* inner = node.as_table()) {
+      if (auto bad = CheckNestedManagedKeys(config, *inner, name)) return bad;
+    } else if (ManagedKey(name)) {
+      return BadValue(config, name + " is set inside a [table]. Write it as " + name + " before the first [table] line");
+    }
+  }
+  return std::nullopt;
+}
+
+// A value the game would not read. The launcher would show its default for
+// it and write that back.
+std::optional<ConfigError> CheckManagedValues(const fs::path& config, const toml::table& table) {
+  for (const ManagedValue& managed : kManagedValues) {
+    if (!ManagedKey(managed.key)) continue;
+    const toml::node* node = table.get(managed.key);
+    if (!node) continue;
+    const auto text = GameText(*node);
+    if (!text) return BadValue(config, std::string(managed.key) + " must be text, a number, true or false");
+    // The log_level cvar refuses any other text, case included.
+    if (managed.type == ValueType::LogLevel && !ParseLogLevel(*text)) {
+      return BadValue(config, std::string(managed.key) +
+                                  " must be one of \"trace\", \"debug\", \"info\", \"warn\", \"error\", "
+                                  "\"critical\" or \"off\"");
+    }
+  }
+  for (const auto& [key, node] : table) {
+    if (const toml::table* inner = node.as_table()) {
+      if (auto bad = CheckNestedManagedKeys(config, *inner, std::string(key.str()))) return bad;
+    }
+  }
+  return std::nullopt;
+}
+
 }  // namespace
 
 bool ManagedKey(std::string_view key) {
   // Without the checkbox the key stays in the advanced list, for builds that enable the renderer.
-  if (kHasNativeRenderer && key == "native_renderer") return true;
-  return std::find(kManagedKeys.begin(), kManagedKeys.end(), key) != kManagedKeys.end();
+  if (key == "native_renderer") return kHasNativeRenderer;
+  return std::any_of(kManagedValues.begin(), kManagedValues.end(),
+                     [key](const ManagedValue& managed) { return managed.key == key; });
 }
 
 ConfigEntry EntryFromText(std::string key, std::string_view value) {
@@ -117,21 +201,27 @@ std::expected<Settings, ConfigError> LoadSettings(const fs::path& config) {
   Settings settings;
   settings.host = kDefaultHost;
   std::error_code ec;
-  if (!fs::exists(config, ec)) return settings;
+  if (!fs::exists(config, ec)) {
+    if (ec) return std::unexpected(ConfigError{ConfigError::Kind::Unreadable, config, ec.message()});
+    return settings;
+  }
   auto parsed = ParseTomlFile(config);
   if (!parsed) return std::unexpected(ConfigError{ConfigError::Kind::Unreadable, config, parsed.error()});
   const toml::table& table = *parsed;
-  if (auto host = table["gameserver_host"].value<std::string>()) settings.host = *host;
-  if (auto fullscreen = table["fullscreen"].value<bool>()) settings.windowed = !*fullscreen;
-  if (auto content = table["content"].value<std::string>()) settings.content = *content;
-  if (auto keyboard = table["mnk_mode"].value<bool>()) settings.keyboard = *keyboard;
-  if (auto mouse_look = table["mnk_mouse"].value<bool>()) settings.mouse_look = *mouse_look;
-  if (auto native = table["native_renderer"].value<bool>(); native && kHasNativeRenderer)
-    settings.native_renderer = *native;
-  if (auto fetch = table["gpu_allow_invalid_fetch_constants"].value<bool>())
-    settings.allow_invalid_fetch_constants = *fetch;
-  if (auto level = table["log_level"].value<std::string>()) settings.log_level = ParseLogLevel(*level);
-  if (auto lua = table["lua_print_log"].value<bool>()) settings.lua_print_log = *lua;
+  if (auto bad = CheckManagedValues(config, table)) return std::unexpected(std::move(*bad));
+  // Read as the game reads them, so a value such as mnk_mode = 1 keeps its
+  // meaning. Saving writes it back as true or false.
+  if (auto host = ManagedText(table, "gameserver_host")) settings.host = *host;
+  if (auto fullscreen = ManagedText(table, "fullscreen")) settings.windowed = !GameFlag(*fullscreen);
+  if (auto content = ManagedText(table, "content")) settings.content = *content;
+  if (auto keyboard = ManagedText(table, "mnk_mode")) settings.keyboard = GameFlag(*keyboard);
+  if (auto mouse_look = ManagedText(table, "mnk_mouse")) settings.mouse_look = GameFlag(*mouse_look);
+  if (auto native = ManagedText(table, "native_renderer"); native && kHasNativeRenderer)
+    settings.native_renderer = GameFlag(*native);
+  if (auto fetch = ManagedText(table, "gpu_allow_invalid_fetch_constants"))
+    settings.allow_invalid_fetch_constants = GameFlag(*fetch);
+  if (auto level = ManagedText(table, "log_level")) settings.log_level = ParseLogLevel(*level);
+  if (auto lua = ManagedText(table, "lua_print_log")) settings.lua_print_log = GameFlag(*lua);
   for (const auto& [key, node] : table) {
     if (ManagedKey(key.str())) continue;
     if (auto entry = EntryFromNode(std::string(key.str()), node)) settings.others.push_back(std::move(*entry));
@@ -144,10 +234,13 @@ std::expected<void, ConfigError> SaveSettings(const fs::path& config, const Sett
     return std::unexpected(ConfigError{ConfigError::Kind::InvalidHost, config, {}, settings.host});
   toml::table table;
   std::error_code ec;
-  if (fs::exists(config, ec)) {
+  const bool exists = fs::exists(config, ec);
+  if (ec) return std::unexpected(ConfigError{ConfigError::Kind::Unreadable, config, ec.message()});
+  if (exists) {
     auto parsed = ParseTomlFile(config);
     if (!parsed)
       return std::unexpected(ConfigError{ConfigError::Kind::Unreadable, config, parsed.error()});
+    if (auto bad = CheckManagedValues(config, *parsed)) return std::unexpected(std::move(*bad));
     table = std::move(*parsed);
   }
   for (const auto& key : settings.removed) table.erase(key);
