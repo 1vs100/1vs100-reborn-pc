@@ -16,7 +16,7 @@
 
 The game connects to the 1vs100.fans server by default. You can change the server, turn on windowed mode, and enable keyboard controls in the launcher's Settings tab. The Files tab shows whether your content/ and avatar files check out; Launch stays disabled until they do.
 
-On macOS, `onevs100.toml`, `userdata/` and the `content` folder live in `~/Library/Application Support/1vs100` instead of next to the executables. The launcher's Settings tab shows the full path.
+On macOS, and in installs that update themselves, `onevs100.toml`, `userdata/` and the `content` folder live in a data folder instead of next to the executables. That folder is `~/Library/Application Support/1vs100` on macOS, `%APPDATA%\1vs100` on Windows and `~/.local/share/1vs100` on Linux. The launcher's Settings tab shows the full path.
 
 ## Your avatar
 

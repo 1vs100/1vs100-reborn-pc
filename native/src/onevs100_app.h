@@ -73,7 +73,7 @@ class Onevs100App : public rex::ReXApp {
       const std::filesystem::path config =
           config_path_.empty() ? std::filesystem::path("onevs100.toml") : config_path_;
       fatal_dialog::FatalError("1 vs 100", "Online service failed to start: " + service_error + ". Check " +
-                                               config.string() + ".");
+                                               rex::path_to_utf8(config) + ".");
       std::exit(1);
     }
     InitializeLocalProfile();
@@ -155,24 +155,24 @@ class Onevs100App : public rex::ReXApp {
         const auto folder = rex::filesystem::GetExecutableFolder();
         std::string reason;
         const std::string at =
-            scan.source.empty() ? (WritableFolder() / "content").string() : scan.source.string();
+            scan.source.empty() ? rex::path_to_utf8(WritableFolder() / "content") : rex::path_to_utf8(scan.source);
         if (!scan.dirExists) {
           REXKRNL_ERROR("onevs100: no game files found: content folder '{}' does not exist",
                         scan.source);
           reason = "content folder '" + at + "' does not exist";
         } else if (scan.files == 0) {
           REXKRNL_ERROR("onevs100: no game files found: '{}' is empty", scan.source);
-          reason = "'" + scan.source.string() + "' is empty";
+          reason = "'" + rex::path_to_utf8(scan.source) + "' is empty";
         } else {
           REXKRNL_ERROR("onevs100: no game files found: '{}' holds {} file(s), none is the game package",
                         scan.source, scan.files);
-          reason = "'" + scan.source.string() + "' holds " + std::to_string(scan.files) +
+          reason = "'" + rex::path_to_utf8(scan.source) + "' holds " + std::to_string(scan.files) +
                    " file(s), none is the game package";
         }
         // An install folder that is not the writable folder (package, app bundle) stays read-only.
         std::string into = "into '" + at + "' (files directly inside, no subfolders)";
         if (WritableFolder() == folder) {
-          into += ", or unpack default.xex and its media into '" + (folder / "assets").string() + "'";
+          into += ", or unpack default.xex and its media into '" + rex::path_to_utf8(folder / "assets") + "'";
         }
         REXKRNL_ERROR("onevs100: copy the untouched game package plus show/episode packages {}", into);
         fatal_dialog::FatalError("1 vs 100",

@@ -221,9 +221,16 @@ std::string Describe(const Error& error) {
     case ErrorKind::AvatarUnreadable: return "Cannot read " + path + ": " + error.detail;
     case ErrorKind::GameMissing: return "Game not found: " + path;
     case ErrorKind::LaunchFailed: return "Cannot start the game: " + error.detail;
-    case ErrorKind::DataFolderUnavailable: return "Cannot create the Application Support folder: " + error.detail;
+    case ErrorKind::DataFolderUnavailable: return "Cannot create the player data folder: " + error.detail;
   }
   return {};
+}
+
+// Velopack keeps sq.version next to the executables it installs. Same rule
+// as WritableFolder in native/src/writable_folder.cpp.
+bool IsVelopackInstall(const fs::path& executable_folder) {
+  std::error_code ec;
+  return fs::is_regular_file(executable_folder / "sq.version", ec);
 }
 
 std::expected<Paths, Error> MakePaths() {
@@ -231,22 +238,29 @@ std::expected<Paths, Error> MakePaths() {
   // frees it in SDL_Quit, so freeing here double-frees on shutdown.
   const char* base_path = SDL_GetBasePath();
   fs::path base = base_path ? PathFromUtf8(base_path) : fs::current_path();
+  if (!base.has_filename()) base = base.parent_path();
   fs::path shipped = base;
-  fs::path data = base;
+  // The install folder is replaced as a whole or is read-only: an app bundle
+  // or a Velopack install. Same rule as WritableFolder in
+  // native/src/writable_folder.cpp.
+  bool replaced = false;
 #ifdef __APPLE__
   // In a bundle SDL_GetBasePath is Contents/Resources, which holds the shipped files; the executables are in
-  // Contents/MacOS. Same rule as WritableFolder and ShippedFolder in native/src/writable_folder.cpp.
-  const fs::path dir = base.has_filename() ? base : base.parent_path();
-  if (dir.filename() == "Resources" && dir.parent_path().filename() == "Contents") {
-    shipped = dir;
-    base = dir.parent_path() / "MacOS";
+  // Contents/MacOS. Same rule as ShippedFolder in native/src/writable_folder.cpp.
+  if (base.filename() == "Resources" && base.parent_path().filename() == "Contents") {
+    base = base.parent_path() / "MacOS";
+    replaced = true;
+  }
+#endif
+  if (IsVelopackInstall(base)) replaced = true;
+  fs::path data = base;
+  if (replaced) {
     char* pref = SDL_GetPrefPath("", "1vs100");
     if (!pref) return std::unexpected(Error{ErrorKind::DataFolderUnavailable, {}, SDL_GetError()});
     data = PathFromUtf8(pref);
     SDL_free(pref);
     if (!data.has_filename()) data = data.parent_path();
   }
-#endif
   // Same rule as PlayerDataFolder in native/src/local_profile.cpp.
   const char* player_data = SDL_getenv("ONEVS100_PLAYER_DATA");
   const fs::path player = (player_data && *player_data) ? PathFromUtf8(player_data) : data / "userdata";
