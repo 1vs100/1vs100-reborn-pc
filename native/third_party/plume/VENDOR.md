@@ -63,3 +63,7 @@ instead of failing at link.
 
 Local patch: failed `Present`, `ResizeBuffers` and `CreateGraphicsPipelineState` calls go through `plume::Report` with
 their HRESULT and `GetDeviceRemovedReason()`; the renderer routes `Report` into the game log with `SetLogSink`.
+
+Local patch: the first of those failures on a removed device also reports what DRED recorded (with
+`REXGLUE_DRED=1`): each command list the GPU did not finish, the operation it stopped at, and a page fault with the
+allocations around it.

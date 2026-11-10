@@ -1353,6 +1353,91 @@ namespace plume {
         }
     }
 
+    // REXGLUE: what DRED recorded about a removed device (REXGLUE_DRED=1): each command list the GPU did not finish,
+    // the operation it stopped at, and a page fault with the allocations around it. Once per process, since every
+    // later call fails the same way.
+
+    static const char *breadcrumbOpName(D3D12_AUTO_BREADCRUMB_OP op) {
+        switch (op) {
+        case D3D12_AUTO_BREADCRUMB_OP_SETMARKER: return "SetMarker";
+        case D3D12_AUTO_BREADCRUMB_OP_BEGINEVENT: return "BeginEvent";
+        case D3D12_AUTO_BREADCRUMB_OP_ENDEVENT: return "EndEvent";
+        case D3D12_AUTO_BREADCRUMB_OP_DRAWINSTANCED: return "DrawInstanced";
+        case D3D12_AUTO_BREADCRUMB_OP_DRAWINDEXEDINSTANCED: return "DrawIndexedInstanced";
+        case D3D12_AUTO_BREADCRUMB_OP_EXECUTEINDIRECT: return "ExecuteIndirect";
+        case D3D12_AUTO_BREADCRUMB_OP_DISPATCH: return "Dispatch";
+        case D3D12_AUTO_BREADCRUMB_OP_COPYBUFFERREGION: return "CopyBufferRegion";
+        case D3D12_AUTO_BREADCRUMB_OP_COPYTEXTUREREGION: return "CopyTextureRegion";
+        case D3D12_AUTO_BREADCRUMB_OP_COPYRESOURCE: return "CopyResource";
+        case D3D12_AUTO_BREADCRUMB_OP_RESOLVESUBRESOURCE: return "ResolveSubresource";
+        case D3D12_AUTO_BREADCRUMB_OP_CLEARRENDERTARGETVIEW: return "ClearRenderTargetView";
+        case D3D12_AUTO_BREADCRUMB_OP_CLEARUNORDEREDACCESSVIEW: return "ClearUnorderedAccessView";
+        case D3D12_AUTO_BREADCRUMB_OP_CLEARDEPTHSTENCILVIEW: return "ClearDepthStencilView";
+        case D3D12_AUTO_BREADCRUMB_OP_RESOURCEBARRIER: return "ResourceBarrier";
+        case D3D12_AUTO_BREADCRUMB_OP_EXECUTEBUNDLE: return "ExecuteBundle";
+        case D3D12_AUTO_BREADCRUMB_OP_PRESENT: return "Present";
+        case D3D12_AUTO_BREADCRUMB_OP_WRITEBUFFERIMMEDIATE: return "WriteBufferImmediate";
+        default: return nullptr;
+        }
+    }
+
+    static void reportBreadcrumbOp(const char *label, const D3D12_AUTO_BREADCRUMB_NODE *node, UINT32 index) {
+        if (index >= node->BreadcrumbCount) return;
+        const D3D12_AUTO_BREADCRUMB_OP op = node->pCommandHistory[index];
+        const char *name = breadcrumbOpName(op);
+        if (name != nullptr) Report("DRED:   %s operation %u: %s\n", label, index, name);
+        else Report("DRED:   %s operation %u: type %d\n", label, index, int(op));
+    }
+
+    static void reportAllocations(const char *label, const D3D12_DRED_ALLOCATION_NODE *node) {
+        for (uint32_t shown = 0; node != nullptr && shown < 8; node = node->pNext, shown++) {
+            // plume names objects with SetName, which fills only the wide name.
+            Report("DRED:   %s allocation type %d, name %ls\n", label, int(node->AllocationType),
+                   node->ObjectNameW != nullptr ? node->ObjectNameW : L"(none)");
+        }
+    }
+
+    static void reportDeviceRemoval(ID3D12Device *d3d) {
+        // A second failing thread waits here, so the process does not end halfway through the report.
+        static std::mutex mutex;
+        static bool reported = false;
+        if (SUCCEEDED(d3d->GetDeviceRemovedReason())) return;
+        std::lock_guard<std::mutex> lock(mutex);
+        if (reported) return;
+        reported = true;
+        ID3D12DeviceRemovedExtendedData *dred = nullptr;
+        if (FAILED(d3d->QueryInterface(IID_PPV_ARGS(&dred)))) {
+            Report("DRED: not available on this system\n");
+            return;
+        }
+        D3D12_DRED_AUTO_BREADCRUMBS_OUTPUT breadcrumbs = {};
+        if (SUCCEEDED(dred->GetAutoBreadcrumbsOutput(&breadcrumbs))) {
+            uint32_t unfinished = 0;
+            for (const D3D12_AUTO_BREADCRUMB_NODE *node = breadcrumbs.pHeadAutoBreadcrumbNode; node != nullptr; node = node->pNext) {
+                const UINT32 completed = node->pLastBreadcrumbValue != nullptr ? *node->pLastBreadcrumbValue : 0;
+                if (completed >= node->BreadcrumbCount) continue;
+                unfinished++;
+                Report("DRED: command list %ls (%p) completed %u of %u operations\n",
+                       node->pCommandListDebugNameW != nullptr ? node->pCommandListDebugNameW : L"(unnamed)",
+                       static_cast<const void *>(node->pCommandList), completed, node->BreadcrumbCount);
+                if (completed > 0) reportBreadcrumbOp("last completed", node, completed - 1);
+                reportBreadcrumbOp("first not completed", node, completed);
+            }
+            if (unfinished == 0) Report("DRED: every recorded command list completed\n");
+        } else {
+            Report("DRED: no breadcrumbs; they are recorded only when the game starts with REXGLUE_DRED=1\n");
+        }
+        D3D12_DRED_PAGE_FAULT_OUTPUT fault = {};
+        if (SUCCEEDED(dred->GetPageFaultAllocationOutput(&fault)) && fault.PageFaultVA != 0) {
+            Report("DRED: page fault at GPU address 0x%llX\n", static_cast<unsigned long long>(fault.PageFaultVA));
+            reportAllocations("existing", fault.pHeadExistingAllocationNode);
+            reportAllocations("recently freed", fault.pHeadRecentFreedAllocationNode);
+        } else {
+            Report("DRED: no page fault recorded\n");
+        }
+        dred->Release();
+    }
+
     // D3D12SwapChain
 
     D3D12SwapChain::D3D12SwapChain(D3D12CommandQueue *commandQueue, const RenderSwapChainDesc &desc) {
@@ -1456,6 +1541,7 @@ namespace plume {
             // REXGLUE: name the HRESULT and, for a lost device, the reason the driver gives.
             plume::Report("Present failed with error code 0x%lX, device removed reason 0x%lX.\n", res,
                           commandQueue->device->d3d->GetDeviceRemovedReason());
+            reportDeviceRemoval(commandQueue->device->d3d);
         }
         return SUCCEEDED(res);
     }
@@ -1490,6 +1576,7 @@ namespace plume {
         if (FAILED(res)) {
             plume::Report("ResizeBuffers failed with error code 0x%lX, device removed reason 0x%lX.\n", res,
                           commandQueue->device->d3d->GetDeviceRemovedReason());
+            reportDeviceRemoval(commandQueue->device->d3d);
             return false;
         }
 
@@ -3187,6 +3274,7 @@ namespace plume {
     static void logPipelineFailure(ID3D12Device *d3d, HRESULT res) {
         plume::Report("CreateGraphicsPipelineState failed with error code 0x%lX, device removed reason 0x%lX.\n", res,
                       d3d->GetDeviceRemovedReason());
+        reportDeviceRemoval(d3d);
         FILE *f = openDebugLog();
         if (f == nullptr) return;
         fprintf(f, "CreateGraphicsPipelineState failed: 0x%lX\n", res);
