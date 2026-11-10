@@ -26,6 +26,7 @@
 #include "content_check.h"
 #include "files.h"
 #include "game_config.h"
+#include "install_location.h"
 #include "player_files.h"
 #include "ui_style.h"
 #include "update_flow.h"

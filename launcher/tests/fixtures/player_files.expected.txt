@@ -1,0 +1,82 @@
+== valid gamertag
+"Player" yes
+"Player One" yes
+"a" yes
+"abcdefghijklmno" yes
+"abcdefghijklmnop" no
+"" no
+" Lead" no
+"Trail " no
+"under_score" yes
+"dash-name" yes
+"dot.name" no
+"Umlaut\xc3\xa4" no
+"tab	name" no
+== load gamertag
+missing -> (none)
+"Player\n" -> Player
+"Player\r\n" -> Player
+"Player" -> Player
+"Second\nLine two\n" -> Second
+" Bad\n" -> (none)
+"" -> (none)
+"\n" -> (none)
+== save gamertag
+invalid: error invalid_gamertag path=(none) detail=""
+  message: Enter a valid gamertag first (1-15 chars: letters, numbers, spaces, _ or -, no leading/trailing space).
+valid: ok
+file: "Player One\n"
+again: ok
+file: "Player Two\n"
+== write and read bytes
+write into missing folders: ok
+read back equal: yes
+read missing: error avatar_unreadable path=<root>/missing.bin detail="cannot open file"
+  message: Cannot read <root>/missing.bin: cannot open file
+== write file atomically
+replace: ok
+file: "new"
+into a missing folder: write error
+keeps permissions: yes
+through a symlink: ok, link kept: yes, target: "new"
+over a folder with files: replace error
+== prepare data folder
+data next to the install: ok
+separate, first run: ok
+config: "shipped = true\n"
+separate, again: ok
+config: "edited = true\n"
+== resolve content folder
+"(none)" -> <root>/data/content
+"content" -> <root>/data/content
+"packages/360" -> <root>/data/packages/360
+"<root>/elsewhere" -> <root>/elsewhere
+== config errors
+config_unreadable path=<root>/onevs100.toml detail="reason"
+  message: Cannot read <root>/onevs100.toml: reason
+config_value_invalid path=<root>/onevs100.toml detail="reason"
+  message: Fix <root>/onevs100.toml: reason.
+invalid_host path=<root>/onevs100.toml detail="reason"
+  message: Enter a gameserver host first (hostname or IPv4, no spaces or ://).
+write_failed path=<root>/onevs100.toml detail="reason"
+  message: Cannot write <root>/onevs100.toml: reason
+== files left
+  <root>/atomic.txt
+  <root>/data/
+  <root>/data/userdata/
+  <root>/data/userdata/profiles/
+  <root>/data/userdata/profiles/local-name.txt
+  <root>/folder_target/
+  <root>/folder_target/inside.txt
+  <root>/link.txt
+  <root>/local-name.txt
+  <root>/nested/
+  <root>/nested/folder/
+  <root>/nested/folder/avatar.bin
+  <root>/pref/
+  <root>/pref/content/
+  <root>/pref/onevs100.toml
+  <root>/private.txt
+  <root>/real.txt
+  <root>/same/
+  <root>/same/onevs100.toml

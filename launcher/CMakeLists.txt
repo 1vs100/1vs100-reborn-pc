@@ -112,6 +112,7 @@ add_executable(onevs100-launcher WIN32
   content_check.cpp
   files.cpp
   game_config.cpp
+  install_location.cpp
   player_files.cpp
   ui_style.cpp
   update_flow.cpp

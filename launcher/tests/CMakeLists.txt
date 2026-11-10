@@ -30,3 +30,8 @@ add_executable(game_config_test game_config_test.cpp ${LAUNCHER}/game_config.cpp
 target_include_directories(game_config_test PRIVATE ${LAUNCHER})
 target_link_libraries(game_config_test PRIVATE tomlplusplus::tomlplusplus)
 add_test(NAME game_config COMMAND game_config_test ${FIXTURES})
+
+add_executable(player_files_test player_files_test.cpp ${LAUNCHER}/player_files.cpp ${LAUNCHER}/files.cpp)
+target_include_directories(player_files_test PRIVATE ${LAUNCHER})
+target_link_libraries(player_files_test PRIVATE tomlplusplus::tomlplusplus)
+add_test(NAME player_files COMMAND player_files_test ${FIXTURES})

@@ -1,5 +1,5 @@
-// Where the launcher and the game keep their files, the launcher's errors,
-// and the player's own files: gamertag and avatar.
+// The folders the launcher and the game use, the launcher's errors, and the
+// player's own files: gamertag and avatar.
 #pragma once
 
 #include <cstddef>
@@ -57,16 +57,7 @@ std::string Describe(const Error& error);
 bool GamertagChar(unsigned char c);
 bool ValidGamertag(std::string_view name);
 
-// Velopack keeps sq.version next to the executables it installs. Same rule
-// as WritableFolder in native/src/writable_folder.cpp.
-bool IsVelopackInstall(const std::filesystem::path& executable_folder);
-
-// Works before SDL_Init.
-std::filesystem::path ExecutableFolder();
-
 Error ToError(const ConfigError& error);
-
-std::expected<Paths, Error> MakePaths();
 
 // A separate data folder starts with the shipped config, as the game does on
 // first run, and an empty default content folder for the player to fill.
