@@ -34,12 +34,14 @@
 #include <rex/logging.h>
 #include <fmt/std.h>
 
+#include "writable_folder.h"
+
 REXCVAR_DEFINE_STRING(gpu_shader_pack, "auto", "GPU",
                       "Shader pack: a .pack container, a directory holding manifest.csv, or auto (out/shaderpack/onevs100.pack, "
                       "then shaderpack/)");
 
 REXCVAR_DEFINE_STRING(gpu_shader_cache_dir, "", "GPU",
-                      "Runtime translation cache root; empty = gpu_shader_cache next to the executable, none = off");
+                      "Runtime translation cache root; empty = gpu_shader_cache in the writable folder, none = off");
 REXCVAR_DEFINE_BOOL(gpu_shader_prewarm, true, "GPU", "Prepare immutable container shader entries before first draw");
 REXCVAR_DEFINE_BOOL(gpu_boolean_variants, true, "GPU", "Use precompiled pixel shader boolean variants when available");
 
@@ -485,15 +487,8 @@ fs::path CacheRoot() {
   const std::string configured = REXCVAR_GET(gpu_shader_cache_dir);
   if (configured == "none") return {};
   if (!configured.empty()) return fs::path(configured);
-  // The package folder is read-only on a packaged build, so the cache lives in
-  // the user folder there.
-  const auto folder =
-#if REX_PLATFORM_WINRT
-      rex::filesystem::GetUserFolder();
-#else
-      rex::filesystem::GetExecutableFolder();
-#endif
-  return folder / "gpu_shader_cache";
+  // The install folder can be read-only, and writing into an app bundle breaks its signature.
+  return WritableFolder() / "gpu_shader_cache";
 }
 
 // The guest words with everything outside the control-flow region and the exec clause slots zeroed, walked the way
