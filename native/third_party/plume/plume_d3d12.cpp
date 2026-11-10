@@ -1452,6 +1452,11 @@ namespace plume {
         UINT syncInterval = (vsyncEnabled && !desc.enablePresentWait) ? 1 : 0;
         UINT flags = (!vsyncEnabled && tearingAllowed) ? DXGI_PRESENT_ALLOW_TEARING : 0;
         HRESULT res = d3d->Present(syncInterval, flags);
+        if (FAILED(res)) {
+            // REXGLUE: name the HRESULT and, for a lost device, the reason the driver gives.
+            plume::Report("Present failed with error code 0x%lX, device removed reason 0x%lX.\n", res,
+                          commandQueue->device->d3d->GetDeviceRemovedReason());
+        }
         return SUCCEEDED(res);
     }
 
@@ -1483,7 +1488,8 @@ namespace plume {
 
         HRESULT res = d3d->ResizeBuffers(0, 0, 0, DXGI_FORMAT_UNKNOWN, swapChainFlags);
         if (FAILED(res)) {
-            plume::Report("ResizeBuffers failed with error code 0x%lX.\n", res);
+            plume::Report("ResizeBuffers failed with error code 0x%lX, device removed reason 0x%lX.\n", res,
+                          commandQueue->device->d3d->GetDeviceRemovedReason());
             return false;
         }
 
@@ -3179,6 +3185,8 @@ namespace plume {
 
     // REXGLUE: a failed PSO names its HRESULT, and with REXGLUE_D3D_DEBUG the debug layer's reason.
     static void logPipelineFailure(ID3D12Device *d3d, HRESULT res) {
+        plume::Report("CreateGraphicsPipelineState failed with error code 0x%lX, device removed reason 0x%lX.\n", res,
+                      d3d->GetDeviceRemovedReason());
         FILE *f = openDebugLog();
         if (f == nullptr) return;
         fprintf(f, "CreateGraphicsPipelineState failed: 0x%lX\n", res);

@@ -15,6 +15,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <unordered_map>
 #include <utility>
@@ -79,6 +80,8 @@ REXCVAR_DEFINE_BOOL(gpu_vsync, true, "GPU", "Wait for vblank on present; the Swa
 namespace plume {
 #if defined(_WIN32)
 extern std::unique_ptr<RenderInterface> CreateD3D12Interface();
+typedef void (*LogSink)(const char* message);
+void SetLogSink(LogSink sink);
 #else
 extern std::unique_ptr<RenderInterface> CreateVulkanInterface(RenderWindow sdlWindow);
 #endif
@@ -649,12 +652,22 @@ class Backend {
 std::mutex g_font_mutex;
 std::filesystem::path g_font_root;
 
+#if defined(_WIN32)
+// plume's D3D12 reports (failed HRESULTs, the device removed reason) otherwise reach stderr only.
+void PlumeLog(const char* message) {
+  std::string_view text(message);
+  while (!text.empty() && (text.back() == '\n' || text.back() == '\r')) text.remove_suffix(1);
+  REXGPU_WARN("[gpu] d3d12: {}", text);
+}
+#endif
+
 bool Backend::Create(plume::RenderWindow window, uint32_t width, uint32_t height) {
   if (!window) {
     REXGPU_ERROR("[gpu] the window has no native handle");
     return false;
   }
 #if defined(_WIN32)
+  plume::SetLogSink(PlumeLog);
   interface_ = plume::CreateD3D12Interface();
 #else
   interface_ = plume::CreateVulkanInterface(window);

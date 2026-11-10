@@ -60,3 +60,6 @@ macOS build has to let SDL create the surface instead. `VulkanSwapChain::windowW
 declared only when the SDL path is off, which keeps that dropped file out of the link.
 Configuring Apple with neither the Metal sources nor the SDL path stops with an error
 instead of failing at link.
+
+Local patch: failed `Present`, `ResizeBuffers` and `CreateGraphicsPipelineState` calls go through `plume::Report` with
+their HRESULT and `GetDeviceRemovedReason()`; the renderer routes `Report` into the game log with `SetLogSink`.
