@@ -10,11 +10,13 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <csignal>
 #include <cstdint>
 #include <cstring>
 #include <expected>
 #include <filesystem>
 #include <iterator>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -46,7 +48,23 @@ constexpr float kTurnStep = 3.14159265f / 12.0f;  // 15 degrees per arrow press
 struct App;
 void RefreshFiles(App& app);
 
-std::expected<void, Error> LaunchGame(const Paths& paths) {
+// On Linux the launcher waits for the game: an AppImage unmounts its files,
+// and xvfb-run stops its display, once the launcher exits. Elsewhere the game
+// runs on its own, so a blocked launcher does not show as not responding.
+#if defined(__linux__)
+constexpr bool kWaitForGame = true;
+#else
+constexpr bool kWaitForGame = false;
+#endif
+
+// Destroying the handle does not stop the game.
+struct ProcessDeleter {
+  void operator()(SDL_Process* process) const { SDL_DestroyProcess(process); }
+};
+using GameProcess = std::unique_ptr<SDL_Process, ProcessDeleter>;
+
+// Returns the game's handle when the launcher waits for it, otherwise none.
+std::expected<std::optional<GameProcess>, Error> LaunchGame(const Paths& paths) {
   std::error_code ec;
   if (!fs::is_regular_file(paths.game, ec)) return std::unexpected(Error{ErrorKind::GameMissing, paths.game, {}});
   const std::string game = PathText(paths.game);
@@ -55,13 +73,30 @@ std::expected<void, Error> LaunchGame(const Paths& paths) {
   SDL_PropertiesID props = SDL_CreateProperties();
   SDL_SetPointerProperty(props, SDL_PROP_PROCESS_CREATE_ARGS_POINTER, args);
   SDL_SetStringProperty(props, SDL_PROP_PROCESS_CREATE_WORKING_DIRECTORY_STRING, base.c_str());
-  SDL_SetBooleanProperty(props, SDL_PROP_PROCESS_CREATE_BACKGROUND_BOOLEAN, true);
+  SDL_SetBooleanProperty(props, SDL_PROP_PROCESS_CREATE_BACKGROUND_BOOLEAN, !kWaitForGame);
   SDL_Process* process = SDL_CreateProcessWithProperties(props);
   SDL_DestroyProperties(props);
   if (!process) return std::unexpected(Error{ErrorKind::LaunchFailed, paths.game, SDL_GetError()});
-  // Releases the handle only. A background process keeps running.
-  SDL_DestroyProcess(process);
-  return {};
+  GameProcess handle{process};
+  if (!kWaitForGame) return std::nullopt;
+  return handle;
+}
+
+// Blocks until the game exits. Returns the launcher's own exit status.
+int WaitForGame(SDL_Process* game) {
+#if defined(__linux__)
+  // Ctrl+C and a closed terminal reach the game too. The launcher outlives
+  // them so the AppImage stays mounted while the game shuts down. Set after
+  // the game started, so it keeps the default handlers.
+  std::signal(SIGINT, SIG_IGN);
+  std::signal(SIGHUP, SIG_IGN);
+#endif
+  int exit_code = 0;
+  if (!SDL_WaitProcess(game, true, &exit_code)) {
+    SDL_Log("Waiting for the game failed: %s", SDL_GetError());
+    return 1;
+  }
+  return exit_code == 0 ? 0 : 1;
 }
 
 int GamertagFilter(ImGuiInputTextCallbackData* data) {
@@ -104,6 +139,8 @@ struct App {
   AvatarEditor avatar;
   std::array<char, 128> xboxGamertag{};
   updater::Flow update;
+  // Set once Launch has started a game the launcher waits for.
+  std::optional<GameProcess> game;
   void Report(const Error& error) { status = {Describe(error), true}; }
   void Report(std::string text) { status = {std::move(text), false}; }
   void ReportError(std::string text) { status = {std::move(text), true}; }
@@ -710,6 +747,7 @@ bool DrawFrame(App& app, const Fonts& fonts) {
     } else if (auto launched = LaunchGame(app.paths); !launched) {
       app.Report(launched.error());
     } else {
+      app.game = std::move(*launched);
       close = true;
     }
   }
@@ -855,6 +893,9 @@ int main(int, char**) {
   ImGui::DestroyContext();
   SDL_DestroyRenderer(renderer);
   SDL_DestroyWindow(window);
+  SDL_QuitSubSystem(SDL_INIT_VIDEO);
+  const int status = app.game ? WaitForGame(app.game->get()) : 0;
+  app.game.reset();
   SDL_Quit();
-  return 0;
+  return status;
 }
