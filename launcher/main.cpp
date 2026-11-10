@@ -81,8 +81,10 @@ constexpr const char* kGameExecutable = "onevs100";
 #endif
 
 struct Paths {
-  // Folder holding the game and the files shipped with it.
+  // Folder holding the game executables.
   fs::path base;
+  // Folder holding the files shipped with the game.
+  fs::path shipped;
   // Folder for the config, player data and the default content folder.
   fs::path data;
   fs::path game;
@@ -229,12 +231,14 @@ std::expected<Paths, Error> MakePaths() {
   // frees it in SDL_Quit, so freeing here double-frees on shutdown.
   const char* base_path = SDL_GetBasePath();
   fs::path base = base_path ? PathFromUtf8(base_path) : fs::current_path();
+  fs::path shipped = base;
   fs::path data = base;
 #ifdef __APPLE__
-  // In a bundle SDL_GetBasePath is Contents/Resources; the executables are in Contents/MacOS.
-  // Same rule as WritableFolder in native/src/writable_folder.cpp.
+  // In a bundle SDL_GetBasePath is Contents/Resources, which holds the shipped files; the executables are in
+  // Contents/MacOS. Same rule as WritableFolder and ShippedFolder in native/src/writable_folder.cpp.
   const fs::path dir = base.has_filename() ? base : base.parent_path();
   if (dir.filename() == "Resources" && dir.parent_path().filename() == "Contents") {
+    shipped = dir;
     base = dir.parent_path() / "MacOS";
     char* pref = SDL_GetPrefPath("", "1vs100");
     if (!pref) return std::unexpected(Error{ErrorKind::DataFolderUnavailable, {}, SDL_GetError()});
@@ -248,9 +252,10 @@ std::expected<Paths, Error> MakePaths() {
   const fs::path player = (player_data && *player_data) ? PathFromUtf8(player_data) : data / "userdata";
   const fs::path profiles = player / "profiles";
   return Paths{.base = base,
+               .shipped = shipped,
                .data = data,
                .game = base / kGameExecutable,
-               .shipped_config = base / "onevs100.toml",
+               .shipped_config = shipped / "onevs100.toml",
                .config = data / "onevs100.toml",
                .profiles = profiles,
                .gamertag = profiles / "local-name.txt",
@@ -1045,7 +1050,7 @@ void RefreshFiles(App& app) {
   std::error_code ec;
   check.dirOk = fs::is_directory(check.dir, ec);
   if (check.dirOk) {
-    auto manifest = LoadManifest(app.paths.base / "manifest.txt");
+    auto manifest = LoadManifest(app.paths.shipped / "manifest.txt");
     check.manifestOk = manifest.has_value();
     if (manifest) {
       for (const auto& entry : *manifest) {

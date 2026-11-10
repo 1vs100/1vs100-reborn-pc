@@ -43,3 +43,14 @@ std::filesystem::path WritableFolder() {
   return install;
 #endif
 }
+
+std::filesystem::path ShippedFolder() {
+  const auto install = rex::filesystem::GetExecutableFolder();
+#if REX_PLATFORM_MAC
+  // codesign accepts only code in Contents/MacOS. Same rule as MakePaths in launcher/main.cpp.
+  if (install.filename() == "MacOS" && install.parent_path().filename() == "Contents") {
+    return install.parent_path() / "Resources";
+  }
+#endif
+  return install;
+}

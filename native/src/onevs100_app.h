@@ -102,7 +102,7 @@ class Onevs100App : public rex::ReXApp {
     const auto folder = WritableFolder();
     if (folder != install) {
       // The config shipped with the game seeds the writable one on first run.
-      const auto shipped_config = install / "onevs100.toml";
+      const auto shipped_config = ShippedFolder() / "onevs100.toml";
       std::error_code error;
       if (!std::filesystem::exists(folder / "onevs100.toml", error) &&
           std::filesystem::exists(shipped_config, error)) {

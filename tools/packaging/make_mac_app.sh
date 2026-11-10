@@ -3,9 +3,10 @@
 #
 # Usage: make_mac_app.sh <build_dir> <out_file> [version]
 #
-# Bundle stays flat in Contents/MacOS. The game and launcher write config,
-# userdata and content to ~/Library/Application Support/1vs100, seeding
-# onevs100.toml from the bundled copy, so the bundle stays read-only.
+# Code goes in Contents/MacOS and the shipped files in Contents/Resources,
+# since codesign accepts only code in Contents/MacOS. The game and launcher
+# write config, userdata and content to ~/Library/Application Support/1vs100,
+# seeding onevs100.toml from the bundled copy, so the bundle stays read-only.
 set -euo pipefail
 
 if [ $# -lt 2 ] || [ $# -gt 3 ]; then
@@ -59,19 +60,30 @@ app="$stage/1vs100.app/Contents/MacOS"
 mkdir -p "$app" "$stage/1vs100.app/Contents/Resources"
 cp "$build_dir/onevs100" "$build_dir/launcher" "$app/"
 cp "$build_dir"/*.dylib "$app/"
-cp "$build_dir/onevs100.toml" "$build_dir/RUN.md" "$build_dir/manifest.txt" "$app/"
-# SDK stages the Vulkan runtime under vulkan/ next to the executable.
-# Preserve that subtree so DetectMacOSVulkanRuntimePaths finds it
-# via executable_dir/vulkan. The ICD library_path is relative
-# (../../../lib/libMoltenVK.dylib), so the share/ to lib/ layout must stay intact.
-for req in "vulkan/lib/libvulkan.1.dylib" "vulkan/lib/libMoltenVK.dylib" "vulkan/share/vulkan/icd.d/MoltenVK_icd.json"; do
+cp "$build_dir/onevs100.toml" "$build_dir/RUN.md" "$build_dir/manifest.txt" "$stage/1vs100.app/Contents/Resources/"
+# SDK stages the Vulkan runtime under vulkan/ next to the executable, where
+# DetectMacOSVulkanRuntimePaths finds the libraries.
+icd=vulkan/share/vulkan/icd.d/MoltenVK_icd.json
+for req in "vulkan/lib/libvulkan.1.dylib" "vulkan/lib/libMoltenVK.dylib" "$icd"; do
   if [ ! -f "$build_dir/$req" ]; then
     echo "missing $build_dir/$req" >&2
     exit 1
   fi
 done
 mkdir -p "$app/vulkan"
-cp -pR "$build_dir/vulkan/." "$app/vulkan/"
+cp -pR "$build_dir/vulkan/lib" "$app/vulkan/"
+# codesign takes the icd.d folder in Contents/MacOS for a nested bundle and
+# refuses to sign the app, so the manifest goes where
+# DetectMacOSVulkanRuntimePaths looks in a bundle. library_path is relative to
+# the manifest.
+bundle_icd="$stage/1vs100.app/Contents/Resources/vulkan/icd.d"
+mkdir -p "$bundle_icd"
+sed 's|"library_path" *: *"[^"]*"|"library_path": "../../../MacOS/vulkan/lib/libMoltenVK.dylib"|' \
+  "$build_dir/$icd" > "$bundle_icd/MoltenVK_icd.json"
+grep -q '"../../../MacOS/vulkan/lib/libMoltenVK.dylib"' "$bundle_icd/MoltenVK_icd.json" || {
+  echo "cannot rewrite library_path in $build_dir/$icd" >&2
+  exit 1
+}
 
 sed -e "s/__VERSION__/$version/g" -e "s/__MIN_MACOS__/$minimum_os/g" \
   "$script_dir/mac/Info.plist.template" > "$stage/1vs100.app/Contents/Info.plist"
@@ -94,7 +106,9 @@ fi
 if ! codesign --force -s - "$app/onevs100" "$app/launcher" 2>/dev/null; then
   echo "warning: exe codesign failed" >&2
 fi
-codesign --force -s - "$stage/1vs100.app" 2>/dev/null || true
+if ! codesign --force -s - "$stage/1vs100.app" 2>/dev/null; then
+  echo "warning: bundle codesign failed" >&2
+fi
 rm -f "$out_file"
 if command -v ditto >/dev/null 2>&1; then
   ditto -c -k --sequesterRsrc --keepParent "$stage/1vs100.app" "$out_file"
