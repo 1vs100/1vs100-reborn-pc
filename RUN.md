@@ -8,11 +8,18 @@
 ## Start playing
 
 1. Copy your untouched Xbox 360 packages into the `content` folder: the game package, plus the show and episode packages. They are used as they are, never unpacked.
-2. Extract the archive into a writable folder: `onevs100-linux-*.tar.xz` on Linux, `onevs100-windows-*.zip` or the installer on Windows, `onevs100-mac-*.zip` on macOS. On Windows and Linux, first run creates `userdata/` next to the executables, so a read-only location fails. On macOS the app can go anywhere, including `/Applications`. Requires macOS 15 or newer.
+2. Install the game. These copies update themselves from the launcher:
+   - Windows: run `onevs100-win-x64-Setup.exe`.
+   - Linux: run `onevs100-linux-*.AppImage`. If it does not start, install FUSE 2 (the `libfuse2` package).
+   - macOS: unzip `onevs100-osx-*-Portable.zip` to get `1vs100.app`. Requires macOS 15 or newer.
+
+   You can instead extract an archive into a writable folder: `onevs100-linux-*.tar.xz` on Linux, `onevs100-windows-*.zip` or the `-setup.exe` installer on Windows, `onevs100-mac-*.zip` on macOS. These copies do not update themselves. On Windows and Linux, first run creates `userdata/` next to the executables, so a read-only location fails. On macOS the app can go anywhere, including `/Applications`.
 3. On macOS move `1vs100.app` out of Downloads (for example to `/Applications`), then clear quarantine once: `xattr -dr com.apple.quarantine 1vs100.app`. On Linux the tar preserves exec bits, so no `chmod` is needed.
 4. Open launcher (launcher.exe on Windows, launcher inside 1vs100.app on macOS).
 5. On the Player tab, enter your gamertag and choose your avatar file.
 6. Press Launch.
+
+When a newer release is out, the launcher of a self-updating copy shows an **Update** button next to **Close**. It downloads the release, closes, and starts the new version. Close the game first. You can turn off the check in the Settings tab.
 
 The game connects to the 1vs100.fans server by default. You can change the server, turn on windowed mode, and enable keyboard controls in the launcher's Settings tab. The Files tab shows whether your content/ and avatar files check out; Launch stays disabled until they do.
 

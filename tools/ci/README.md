@@ -25,6 +25,8 @@ On a Mac or an ARM64 Linux machine, run the scripts directly without `container.
 
 Pushing a tag that starts with `v` (for example `v0.1.359`) builds every target and creates a draft GitHub release with all packages attached. Check the draft, then publish it on GitHub.
 
+The release also carries the [Velopack](https://velopack.io) packages: Setup.exe, AppImage and the macOS portable zip, with their `releases.<channel>.json` feeds. Installed launchers read those feeds from the newest published releases, so publishing a draft is what ships an update. `tools/packaging/make_velopack.sh` builds them from the zip, tar.xz and app zip. It needs `vpk`, a .NET tool (`dotnet tool install -g vpk --version <VPK_VERSION>`).
+
 ## Pins
 
 `versions.env` holds every toolchain version. Changing it rebuilds the container image and the CI caches.
