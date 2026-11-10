@@ -62,6 +62,8 @@ const PackAbi& ShaderPackAbi();
 uint64_t ShaderPackIdentity();
 std::filesystem::path ShaderPackSidecar(const char* name);
 std::string ShaderPackName();
+// True when a real pack was found, false when every shader is translated at runtime.
+bool ShaderPackLoaded();
 
 // Guest thread: finds the translation by runtime microcode hash (directory pack) or fp2 (container). Null is a
 // pack miss.

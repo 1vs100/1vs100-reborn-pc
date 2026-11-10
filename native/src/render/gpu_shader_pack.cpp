@@ -330,6 +330,7 @@ std::unique_ptr<Source> g_source;
 bool g_tried = false;
 PackAbi g_default_abi;
 fs::path g_variant_root;
+bool g_runtime_only = false;  // no pack found: every shader comes from the cache or the translator
 
 }  // namespace
 
@@ -379,8 +380,11 @@ bool LoadShaderPack() {
               dxc ? "loaded" : "missing", dxc_error, dxil ? "loaded" : "missing", dxil_error);
 #endif
   g_source = std::make_unique<RuntimeSource>();
+  g_runtime_only = true;
   return true;
 }
+
+bool ShaderPackLoaded() { return g_source && !g_runtime_only; }
 
 const PackAbi& ShaderPackAbi() { return g_source ? g_source->abi : g_default_abi; }
 

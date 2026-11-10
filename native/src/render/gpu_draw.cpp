@@ -215,7 +215,8 @@ std::vector<uint8_t> VertexFetchConstants(const uint8_t* code, uint32_t size) {
   return out;
 }
 
-// A pack miss is a pack defect even when the runtime translator covers it; logged once per key.
+// A pack miss is a pack defect even when the runtime translator covers it; logged once per key. Without any pack
+// every shader misses, so a covered miss is routine there and only a failed translation is an error.
 const ShaderEntry* HandleMiss(ShaderStage stage, uint64_t hash, uint64_t fp2, const uint8_t* code, uint32_t size,
                               uint32_t object, uint32_t variant) {
   const char* source = "failed";
@@ -223,8 +224,13 @@ const ShaderEntry* HandleMiss(ShaderStage stage, uint64_t hash, uint64_t fp2, co
       TranslateMiss(stage, fp2, std::span<const uint32_t>(reinterpret_cast<const uint32_t*>(code), size / 4), &source);
   const char* name = stage == ShaderStage::kPixel ? "ps" : "vs";
   if (FirstTime(hash ^ (stage == ShaderStage::kPixel ? 0x5053000000000000ull : 0))) {
-    REXGPU_ERROR("[gpu] pack defect: {} fp2={:016X} rt={:016X} variant={} obj={:#010x} source={}", name, fp2, hash,
-                 variant, object, source);
+    if (ShaderPackLoaded() || !entry) {
+      REXGPU_ERROR("[gpu] pack defect: {} fp2={:016X} rt={:016X} variant={} obj={:#010x} source={}", name, fp2, hash,
+                   variant, object, source);
+    } else {
+      REXGPU_DEBUG("[gpu] pack defect: {} fp2={:016X} rt={:016X} variant={} obj={:#010x} source={}", name, fp2, hash,
+                   variant, object, source);
+    }
   }
   return entry;
 }
