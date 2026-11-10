@@ -385,6 +385,7 @@ void DrawAdvancedSettings(App& app) {
   LinkText("What each setting does", kDocsUrl);
   const ImGuiStyle& style = ImGui::GetStyle();
   const float remove_width = ImGui::CalcTextSize("Remove").x + style.FramePadding.x * 2;
+  std::optional<EntryError> new_value_error;
   if (ImGui::BeginTable("##others", 3, ImGuiTableFlags_SizingStretchProp)) {
     ImGui::TableSetupColumn("key", ImGuiTableColumnFlags_WidthStretch, 0.4f);
     ImGui::TableSetupColumn("value", ImGuiTableColumnFlags_WidthStretch, 0.6f);
@@ -430,9 +431,11 @@ void DrawAdvancedSettings(App& app) {
     const std::string_view key(app.newKey.data());
     const bool taken = ManagedKey(key) || std::any_of(app.others.begin(), app.others.end(),
                                                       [&](const ConfigEntry& entry) { return entry.key == key; });
-    ImGui::BeginDisabled(!ValidConfigKey(key) || taken);
+    const auto entry = EntryFromText(std::string(key), app.newValue.data());
+    if (!entry) new_value_error = entry.error();
+    ImGui::BeginDisabled(!ValidConfigKey(key) || taken || !entry);
     if (ImGui::Button("Add", ImVec2(remove_width, 0))) {
-      app.others.push_back(EntryFromText(std::string(key), app.newValue.data()));
+      app.others.push_back(*entry);
       std::erase(app.removed, std::string(key));
       app.newKey.fill(0);
       app.newValue.fill(0);
@@ -441,6 +444,7 @@ void DrawAdvancedSettings(App& app) {
     ImGui::EndTable();
   }
   if (ManagedKey(app.newKey.data())) SectionLabel("That setting has its own control above.");
+  if (new_value_error) ImGui::TextColored(kError, "%s", Describe(*new_value_error).c_str());
 }
 
 void DrawSettingsTab(App& app) {

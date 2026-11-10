@@ -9,7 +9,7 @@ log_level debug
 lua_print_log yes
 other frame_limit integer 60
 other language text "de"
-other ui_scale number 1.250000
+other ui_scale number 1.25
 other vsync flag no
 == load missing
 host 1vs100.fans
@@ -168,16 +168,24 @@ mnk_mouse = false
 "false" -> k flag no
 "42" -> k integer 42
 "-7" -> k integer -7
-"3.5" -> k number 3.500000
-"-0.5" -> k number -0.500000
-"1e3" -> k number 1000.000000
+"3.5" -> k number 3.5
+"-0.5" -> k number -0.5
+"1e3" -> k number 1000
 "0x10" -> k text "0x10"
 "inf" -> k text "inf"
 "nan" -> k text "nan"
 "" -> k text ""
 "hello" -> k text "hello"
 "1.2.3" -> k text "1.2.3"
-"99999999999999999999" -> k number 100000000000000000000.000000
+"9223372036854775807" -> k integer 9223372036854775807
+"9223372036854775808" -> error Whole numbers must be from -9223372036854775808 to 9223372036854775807.
+"-9223372036854775808" -> k integer -9223372036854775808
+"-9223372036854775809" -> error Whole numbers must be from -9223372036854775808 to 9223372036854775807.
+"99999999999999999999" -> error Whole numbers must be from -9223372036854775808 to 9223372036854775807.
+"1e400" -> error That decimal number is too large or too small to store.
+"-1e400" -> error That decimal number is too large or too small to store.
+"1e-400" -> error That decimal number is too large or too small to store.
+"1e-310" -> k number 1e-310
 "True" -> k text "True"
 == valid host
 "1vs100.fans" yes

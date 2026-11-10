@@ -32,8 +32,17 @@ struct ConfigEntry {
   std::string text;
 };
 
+enum class EntryError {
+  // A whole number outside the 64-bit range TOML integers have.
+  WholeNumberOutOfRange,
+  // A decimal number too large or too small for a double.
+  DecimalOutOfRange,
+};
+
+std::string Describe(EntryError error);
+
 // Typed the way a TOML value is: true/false, a whole number, a decimal number, else text.
-ConfigEntry EntryFromText(std::string key, std::string_view value);
+std::expected<ConfigEntry, EntryError> EntryFromText(std::string key, std::string_view value);
 
 bool ValidConfigKey(std::string_view key);
 

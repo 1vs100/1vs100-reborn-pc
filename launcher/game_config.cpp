@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <array>
 #include <charconv>
+#include <cerrno>
+#include <cmath>
 #include <cstdlib>
 #include <sstream>
 #include <system_error>
@@ -37,14 +39,23 @@ std::optional<ConfigEntry> EntryFromNode(std::string key, const toml::node& node
   return entry;
 }
 
+struct Decimal {
+  double value;
+  // Too large or too small for a double: strtod gave infinity or 0. It also
+  // reports ERANGE for subnormal results, which a double holds.
+  bool out_of_range;
+};
+
 // strtod, not from_chars: older libc++ has no floating-point from_chars. Only
 // plain decimals count, so text such as 0x10, inf or nan stays text.
-bool ParseDecimal(std::string_view value, double* out) {
-  if (value.empty() || value.find_first_not_of("0123456789.-eE") != std::string_view::npos) return false;
+std::optional<Decimal> ParseDecimal(std::string_view value) {
+  if (value.empty() || value.find_first_not_of("0123456789.-eE") != std::string_view::npos) return std::nullopt;
   const std::string text(value);
   char* end = nullptr;
-  *out = std::strtod(text.c_str(), &end);
-  return !text.empty() && end == text.c_str() + text.size();
+  errno = 0;
+  const double number = std::strtod(text.c_str(), &end);
+  if (end != text.c_str() + text.size()) return std::nullopt;
+  return Decimal{number, errno == ERANGE && (std::isinf(number) || number == 0.0)};
 }
 
 enum class ValueType { Flag, Text, LogLevel };
@@ -138,22 +149,34 @@ bool ManagedKey(std::string_view key) {
                      [key](const ManagedValue& managed) { return managed.key == key; });
 }
 
-ConfigEntry EntryFromText(std::string key, std::string_view value) {
+std::string Describe(EntryError error) {
+  switch (error) {
+    case EntryError::WholeNumberOutOfRange:
+      return "Whole numbers must be from -9223372036854775808 to 9223372036854775807.";
+    case EntryError::DecimalOutOfRange: return "That decimal number is too large or too small to store.";
+  }
+  std::unreachable();
+}
+
+std::expected<ConfigEntry, EntryError> EntryFromText(std::string key, std::string_view value) {
   ConfigEntry entry;
   entry.key = std::move(key);
   int64_t integer = 0;
-  double number = 0;
   const char* end = value.data() + value.size();
+  const auto parsed = std::from_chars(value.data(), end, integer);
   if (value == "true" || value == "false") {
     entry.kind = ConfigEntry::Kind::Flag;
     entry.flag = value == "true";
-  } else if (const auto parsed = std::from_chars(value.data(), end, integer);
-             !value.empty() && parsed.ec == std::errc() && parsed.ptr == end) {
+  } else if (!value.empty() && parsed.ptr == end && parsed.ec == std::errc()) {
     entry.kind = ConfigEntry::Kind::Integer;
     entry.integer = integer;
-  } else if (ParseDecimal(value, &number)) {
+  } else if (!value.empty() && parsed.ptr == end && parsed.ec == std::errc::result_out_of_range) {
+    // As a decimal number it would be saved rounded.
+    return std::unexpected(EntryError::WholeNumberOutOfRange);
+  } else if (const auto decimal = ParseDecimal(value)) {
+    if (decimal->out_of_range) return std::unexpected(EntryError::DecimalOutOfRange);
     entry.kind = ConfigEntry::Kind::Number;
-    entry.number = number;
+    entry.number = decimal->value;
   } else {
     entry.kind = ConfigEntry::Kind::Text;
     entry.text = std::string(value);

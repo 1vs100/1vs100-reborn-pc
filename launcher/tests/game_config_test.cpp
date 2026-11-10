@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <iterator>
 #include <utility>
@@ -51,7 +52,8 @@ std::string DescribeEntry(const ConfigEntry& entry) {
   switch (entry.kind) {
     case ConfigEntry::Kind::Flag: return entry.key + " flag " + Flag(entry.flag);
     case ConfigEntry::Kind::Integer: return entry.key + " integer " + std::to_string(entry.integer);
-    case ConfigEntry::Kind::Number: return entry.key + " number " + std::to_string(entry.number);
+    // The shortest text that reads back as the same double, so tiny values do not show as 0.
+    case ConfigEntry::Kind::Number: return entry.key + " number " + std::format("{}", entry.number);
     case ConfigEntry::Kind::Text: return entry.key + " text \"" + entry.text + "\"";
   }
   std::unreachable();
@@ -172,7 +174,7 @@ int main(int argc, char** argv) {
     for (auto& entry : settings->others) {
       if (entry.key == "frame_limit") entry.integer = 30;
     }
-    settings->others.push_back(EntryFromText("new_key", "text value"));
+    settings->others.push_back(*EntryFromText("new_key", "text value"));
     settings->removed.push_back("vsync");
     std::erase_if(settings->others, [](const ConfigEntry& entry) { return entry.key == "vsync"; });
     actual += "== save full\n" + DescribeSave(SaveSettings(full, *settings), full);
@@ -191,8 +193,10 @@ int main(int argc, char** argv) {
 
   actual += "== entry from text\n";
   for (const char* value : {"true", "false", "42", "-7", "3.5", "-0.5", "1e3", "0x10", "inf", "nan", "", "hello",
-                            "1.2.3", "99999999999999999999", "True"}) {
-    actual += "\"" + std::string(value) + "\" -> " + DescribeEntry(EntryFromText("k", value)) + "\n";
+                            "1.2.3", "9223372036854775807", "9223372036854775808", "-9223372036854775808",
+                            "-9223372036854775809", "99999999999999999999", "1e400", "-1e400", "1e-400", "1e-310", "True"}) {
+    const auto entry = EntryFromText("k", value);
+    actual += "\"" + std::string(value) + "\" -> " + (entry ? DescribeEntry(*entry) : "error " + Describe(entry.error())) + "\n";
   }
 
   actual += "== valid host\n";
