@@ -11,6 +11,9 @@
 #                  ~/.local/share/onevs100-uwp-cert and reused.
 #   CERT_PASSWORD  password of CERT_PFX (default: none)
 #
+# Writes onevs100.appx and the public certificate onevs100-uwp.cer, which a
+# device trusts once before it installs the package.
+#
 # Game files are NOT shipped in the package. On first run the app asks for
 # them (browser upload or USB) and verifies them against package/manifest.txt.
 # The package contains no game files; they are fetched on first run.
@@ -107,6 +110,9 @@ rm -f "$unsigned" "$signed"
 "$makemsix" pack -d "$layout" -p "$unsigned"
 osslsigncode sign -pkcs12 "$cert" -pass "$cert_password" -in "$unsigned" -out "$signed"
 rm -f "$unsigned"
+# The public certificate, which a device trusts once to install every release.
+openssl pkcs12 -in "$cert" -passin "pass:$cert_password" -nokeys -clcerts 2>/dev/null \
+  | openssl x509 -outform der -out "$out_dir/onevs100-uwp.cer"
 
 if [ -n "${VCLIBS_APPX:-}" ]; then
   cp "$VCLIBS_APPX" "$out_dir/"

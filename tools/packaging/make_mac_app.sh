@@ -88,26 +88,15 @@ grep -q '"../../../MacOS/vulkan/lib/libMoltenVK.dylib"' "$bundle_icd/MoltenVK_ic
 sed -e "s/__VERSION__/$version/g" -e "s/__MIN_MACOS__/$minimum_os/g" \
   "$script_dir/mac/Info.plist.template" > "$stage/1vs100.app/Contents/Info.plist"
 chmod +x "$app/onevs100" "$app/launcher"
-if ! codesign --force -s - "$app"/*.dylib 2>/dev/null; then
-  echo "warning: dylib codesign failed" >&2
-fi
-vulkan_signed=0
-for vdylib in "$app"/vulkan/lib/*.dylib; do
-  if [ -f "$vdylib" ]; then
-    vulkan_signed=1
-    break
-  fi
-done
-if [ "$vulkan_signed" -eq 1 ]; then
-  if ! codesign --force -s - "$app"/vulkan/lib/*.dylib 2>/dev/null; then
-    echo "warning: vulkan dylib codesign failed" >&2
-  fi
-fi
-if ! codesign --force -s - "$app/onevs100" "$app/launcher" 2>/dev/null; then
-  echo "warning: exe codesign failed" >&2
-fi
-if ! codesign --force -s - "$stage/1vs100.app" 2>/dev/null; then
-  echo "warning: bundle codesign failed" >&2
+# Ad-hoc, inside out: arm64 code does not run without a signature. The
+# release identity is applied once, by vpk in tools/packaging/make_velopack.sh.
+if command -v codesign >/dev/null 2>&1; then
+  codesign --force -s - "$app"/*.dylib "$app"/vulkan/lib/*.dylib "$app/onevs100"
+  codesign --force -s - "$stage/1vs100.app"
+  codesign --verify --strict --deep "$stage/1vs100.app"
+else
+  # Linux pack (osxcross): each Mach-O keeps the ad-hoc signature of the linker.
+  echo "warning: no codesign, the bundle is not sealed" >&2
 fi
 rm -f "$out_file"
 if command -v ditto >/dev/null 2>&1; then

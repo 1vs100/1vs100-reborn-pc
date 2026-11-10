@@ -27,6 +27,15 @@ Pushing a tag that starts with `v` (for example `v0.1.359`) builds every target 
 
 The release also carries the [Velopack](https://velopack.io) packages: Setup.exe, AppImage and the macOS portable zip, with their `releases.<channel>.json` feeds. Installed launchers read those feeds from the newest published releases, so publishing a draft is what ships an update. `tools/packaging/make_velopack.sh` builds them from the zip, tar.xz and app zip. It needs `vpk`, a .NET tool (`dotnet tool install -g vpk --version <VPK_VERSION>`).
 
+## Signing
+
+Releases are signed with two long-lived self-signed certificates, so a device or Mac sees the same publisher on every release:
+
+- UWP: `CERT_PFX_B64` and `CERT_PASSWORD`. The release carries the public part as `onevs100-uwp.cer`. A device trusts it once.
+- macOS: `MAC_CERT_P12_B64` and `MAC_CERT_PASSWORD`. The `velopack-mac` job imports the certificate into a temporary keychain (`.github/actions/mac-signing`). `vpk pack` then signs the whole bundle once, with the hardened runtime and `tools/packaging/mac/1vs100.entitlements`. Gatekeeper still blocks a self-signed app, so the quarantine step in `RUN.md` stays.
+
+The plain macOS app zip is signed ad-hoc, since arm64 code does not run unsigned. Without the secrets, UWP gets a new test certificate. Keep the certificate files and their passwords offline. A lost UWP key means every device has to trust a new certificate.
+
 ## Pins
 
 `versions.env` holds every toolchain version. Changing it rebuilds the container image and the CI caches.

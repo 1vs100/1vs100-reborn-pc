@@ -34,4 +34,4 @@ UWP-only path rules live next to the generic ones. `content/` and avatar content
 
 `makemsix` comes from [microsoft/msix-packaging](https://github.com/microsoft/msix-packaging) and `tools/ci/deps.sh makemsix` builds it.
 
-The signing step needs `osslsigncode`. Without `CERT_PFX` the script creates a self-signed certificate in `~/.local/share/onevs100-uwp-cert` whose subject matches the manifest `Publisher`. The device has to trust that certificate before it installs the package.
+The signing step needs `osslsigncode`. CI signs with the long-lived self-signed certificate in the `CERT_PFX_B64` and `CERT_PASSWORD` secrets, so a device trusts it once for every release. The script writes the public part next to the package as `onevs100-uwp.cer`, and the release carries it. To sign a local build with the same certificate, set `CERT_PFX` to the `.pfx` file and `CERT_PASSWORD` to its password. Without `CERT_PFX` the script creates a local test certificate in `~/.local/share/onevs100-uwp-cert`. Its subject also matches the manifest `Publisher`, but devices have to trust it separately.

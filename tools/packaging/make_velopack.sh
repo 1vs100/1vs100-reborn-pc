@@ -20,6 +20,7 @@ mkdir -p "$3"
 out_dir=$(cd "$3" && pwd)
 version=$4
 vpk=${VPK:-vpk}
+script_dir=$(dirname "$(realpath "$0")")
 
 if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo "bad version $version, want three numeric parts" >&2
@@ -46,10 +47,19 @@ case $target in
     main=launcher
     # The bundle is named after the title; keep the 1vs100.app name.
     title=1vs100
-    # Velopack adds files to the bundle, so it is signed again, ad-hoc as
-    # tools/packaging/make_mac_app.sh does. An unsigned .pkg would not pass
-    # Gatekeeper, so only the portable zip is made.
-    args+=(--signAppIdentity - --noInst)
+    if [ -z "${MAC_SIGN_IDENTITY:-}" ]; then
+      echo "MAC_SIGN_IDENTITY is not set, see .github/actions/mac-signing" >&2
+      exit 2
+    fi
+    # vpk adds UpdateMac and sq.version, then signs the whole bundle once, with
+    # the hardened runtime and a timestamp from Apple's server. A self-signed
+    # certificate has no team ID, so library validation would refuse the
+    # bundled dylibs. An unsigned .pkg would not pass Gatekeeper, so only the
+    # portable zip is made.
+    args+=(--signAppIdentity "$MAC_SIGN_IDENTITY" --signEntitlements "$script_dir/mac/1vs100.entitlements" --noInst)
+    if [ -n "${MAC_SIGN_KEYCHAIN:-}" ]; then
+      args+=(--keychain "$MAC_SIGN_KEYCHAIN")
+    fi
     ;;
   *)
     echo "unknown target $target" >&2
@@ -83,3 +93,18 @@ fi
   --packId "$pack_id" --packVersion "$version" --packDir "$pack_dir" \
   --packTitle "$title" --packAuthors "1vs100" --mainExe "$main" \
   --runtime "$runtime" --channel "$runtime" --outputDir "$out_dir" ${args[@]+"${args[@]}"}
+
+case $target in
+  mac-*)
+    # The portable zip and the update package come from the same signed folder.
+    ditto -x -k "$out_dir/$pack_id-$runtime-Portable.zip" "$stage/check"
+    codesign --verify --strict --deep --verbose=2 "$stage/check/1vs100.app"
+    # --deep also replaced the ad-hoc signature of the game, which loads the dylibs.
+    details=$(codesign -dv "$stage/check/1vs100.app/Contents/MacOS/onevs100" 2>&1)
+    if grep -q 'Signature=adhoc' <<< "$details" || ! grep -q 'flags=.*runtime' <<< "$details"; then
+      echo "onevs100 lacks the release signature or the hardened runtime:" >&2
+      echo "$details" >&2
+      exit 1
+    fi
+    ;;
+esac

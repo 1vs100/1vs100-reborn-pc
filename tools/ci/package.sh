@@ -28,7 +28,7 @@ case $target in
     MAKEMSIX=$deps/makemsix/bin/makemsix VCLIBS_APPX=$deps/vclibs/Microsoft.VCLibs.x64.14.00.appx \
       "$root/tools/package_uwp.sh" "$build" "$out/uwp"
     mv "$out/uwp/onevs100.appx" "$out/$name.appx"
-    mv "$out/uwp/Microsoft.VCLibs.x64.14.00.appx" "$out/"
+    mv "$out/uwp/Microsoft.VCLibs.x64.14.00.appx" "$out/uwp/onevs100-uwp.cer" "$out/"
     rm -rf "$out/uwp"
     ;;
   *)

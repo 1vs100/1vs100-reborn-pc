@@ -1,0 +1,59 @@
+name: Import the macOS signing identity
+description: >-
+  Imports the self-signed code-signing certificate into a temporary keychain
+  and sets MAC_SIGN_IDENTITY and MAC_SIGN_KEYCHAIN for
+  tools/packaging/make_velopack.sh. The caller deletes the keychain.
+
+inputs:
+  p12-b64:
+    description: base64 of the PKCS#12 file (MAC_CERT_P12_B64)
+    required: true
+  password:
+    description: password of that file (MAC_CERT_PASSWORD)
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Import the identity
+      shell: bash
+      env:
+        P12_B64: ${{ inputs.p12-b64 }}
+        P12_PASSWORD: ${{ inputs.password }}
+      run: |
+        set -euo pipefail
+        if [ -z "$P12_B64" ] || [ -z "$P12_PASSWORD" ]; then
+          echo "::error::MAC_CERT_P12_B64 and MAC_CERT_PASSWORD must both be set"
+          exit 1
+        fi
+        keychain=$RUNNER_TEMP/signing.keychain-db
+        keychain_password=$(openssl rand -hex 16)
+        echo "::add-mask::$keychain_password"
+        p12=$RUNNER_TEMP/signing.p12
+        cer=$RUNNER_TEMP/signing.cer
+        echo "$P12_B64" | base64 --decode > "$p12"
+        security create-keychain -p "$keychain_password" "$keychain"
+        echo "MAC_SIGN_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+        security set-keychain-settings -lut 21600 "$keychain"
+        security unlock-keychain -p "$keychain_password" "$keychain"
+        # Not exportable, and only codesign may use the key.
+        security import "$p12" -k "$keychain" -P "$P12_PASSWORD" -f pkcs12 -x -T /usr/bin/codesign
+        # Lets codesign use the key without a dialog.
+        security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain" >/dev/null
+        security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+        # A self-signed certificate is not a valid code-signing identity until
+        # trusted. The system LibreSSL reads the legacy PKCS#12 encryption
+        # without the -legacy flag a Homebrew OpenSSL 3 would need.
+        /usr/bin/openssl pkcs12 -in "$p12" -passin env:P12_PASSWORD -nokeys -clcerts | /usr/bin/openssl x509 -out "$cer"
+        sudo security add-trusted-cert -d -r trustRoot -p codeSign -k /Library/Keychains/System.keychain "$cer"
+        rm -f "$p12"
+        # The SHA-1 hash names the identity without depending on its common name.
+        identity=$(/usr/bin/openssl x509 -in "$cer" -noout -fingerprint -sha1 | sed 's/.*=//; s/://g')
+        # Captured first: grep -q can end the pipe early and fail it under pipefail.
+        identities=$(security find-identity -v -p codesigning "$keychain")
+        grep -q "$identity" <<< "$identities" || {
+          echo "::error::the imported certificate is not a valid code-signing identity"
+          security find-identity -p codesigning "$keychain"
+          exit 1
+        }
+        echo "MAC_SIGN_IDENTITY=$identity" >> "$GITHUB_ENV"

@@ -16,6 +16,9 @@
 #   CERT_PFX_B64   (optional) base64 of the UWP code-signing certificate;
 #                  without it the appx is signed with a test certificate.
 #   CERT_PASSWORD  (optional) password of that certificate.
+#   MAC_CERT_P12_B64   (required) base64 of the macOS code-signing
+#                      certificate vpk signs the Velopack packages with.
+#   MAC_CERT_PASSWORD  (required) password of that certificate.
 #
 # Fork pull requests cannot read secrets, so every job skips itself there.
 
@@ -311,6 +314,10 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: ${{ steps.versions.outputs.DOTNET_SDK_VERSION }}
+      - uses: ./.github/actions/mac-signing
+        with:
+          p12-b64: ${{ secrets.MAC_CERT_P12_B64 }}
+          password: ${{ secrets.MAC_CERT_PASSWORD }}
       - uses: actions/download-artifact@v8
         with:
           name: onevs100-mac-${{ matrix.arch }}
@@ -323,6 +330,9 @@ jobs:
           dotnet tool install --tool-path "$RUNNER_TEMP/vpk" vpk --version "$VPK_VERSION"
           export VPK=$RUNNER_TEMP/vpk/vpk
           tools/packaging/make_velopack.sh mac-${{ matrix.arch }} dist/*.zip out "$(tr -d '[:space:]' < VERSION)"
+      - name: Remove the signing keychain
+        if: always() && env.MAC_SIGN_KEYCHAIN != ''
+        run: security delete-keychain "$MAC_SIGN_KEYCHAIN"
       - uses: actions/upload-artifact@v7
         with:
           name: onevs100-velopack-mac-${{ matrix.arch }}
