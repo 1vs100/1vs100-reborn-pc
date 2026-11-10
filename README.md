@@ -5,6 +5,8 @@
 [![download](https://img.shields.io/github/v/release/1vs100/1vs100-reborn-pc?include_prereleases&label=download)](https://github.com/1vs100/1vs100-reborn-pc/releases/latest)
 [![license](https://img.shields.io/github/license/1vs100/1vs100-reborn-pc)](LICENSE)
 [![discord](https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/tV3ajhwFTf)
+![ai](https://img.shields.io/badge/ai-assisted-orange?logo=micro%3Abit&logoColor=white&label=ai)
+
 
 Brought to you by @Avcracy and @tuxuser
  
@@ -25,7 +27,7 @@ The game is still early. Expect bugs, and please report them.
 
 ## Privacy
 
-The game never contacts Xbox LIVE or other Microsoft services. It talks only to the game server set in the launcher. Your profile, Avatar and stats stay on your computer.
+The game never contacts Xbox LIVE or other Microsoft services. It talks only to the game server set in the launcher. Your gamertag, XUID and Avatar is sent to it.
 
 A self-updating copy of the launcher asks GitHub for a newer release when it starts, so you can update with one click. You can turn this off in the launcher's Settings tab.
 
