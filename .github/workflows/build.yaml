@@ -20,7 +20,8 @@
 #                      certificate vpk signs the Velopack packages with.
 #   MAC_CERT_PASSWORD  (required) password of that certificate.
 #
-# Fork pull requests cannot read secrets, so every job skips itself there.
+# Fork pull requests cannot read secrets, so every job except launcher-tests
+# skips itself there.
 
 name: build
 
@@ -48,6 +49,31 @@ jobs:
       contents: read
       packages: write
     uses: ./.github/workflows/ci-image.yaml
+
+  # Snapshot tests of the launcher's parsing and file code. They need no
+  # secrets or game files, so they also run for fork pull requests.
+  launcher-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: |
+            launcher
+            native/src
+            tools/ci
+      - name: Install CMake and Ninja
+        run: |
+          set -euo pipefail
+          . <(grep '^CMAKE_VERSION=' tools/ci/versions.env)
+          PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --user "cmake==$CMAKE_VERSION" ninja
+          echo "$(python3 -m site --user-base)/bin" >> "$GITHUB_PATH"
+      - name: Build
+        run: |
+          cmake -S launcher/tests -B build/launcher-tests -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/launcher-tests --parallel
+      - name: Test
+        run: ctest --test-dir build/launcher-tests --output-on-failure
 
   codegen-key:
     name: codegen cache key
@@ -342,7 +368,7 @@ jobs:
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [linux-amd64, linux-arm64, windows, windows-installer, uwp, mac, velopack, velopack-mac]
+    needs: [launcher-tests, linux-amd64, linux-arm64, windows, windows-installer, uwp, mac, velopack, velopack-mac]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
